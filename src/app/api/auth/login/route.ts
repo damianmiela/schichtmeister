@@ -21,9 +21,10 @@ export async function POST(request: NextRequest) {
       const response = NextResponse.json({ success: true });
 
       // Set auth cookie (7 days expiry)
+      // Note: secure:false for HTTP access, enable when using HTTPS
       response.cookies.set("schichtmeister-auth", "authenticated", {
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
+        secure: false,
         sameSite: "lax",
         maxAge: 60 * 60 * 24 * 7, // 7 days
         path: "/",
