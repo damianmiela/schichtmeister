@@ -1,0 +1,31 @@
+# Dependencies
+node_modules
+npm-debug.log*
+
+# Next.js
+.next
+out
+
+# Git
+.git
+.gitignore
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Environment
+.env
+.env.*
+
+# IDE
+.vscode
+.idea
+
+# Documentation
+*.md
+
+# OS
+.DS_Store
+Thumbs.db

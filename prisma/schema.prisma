@@ -1,0 +1,21 @@
+// Prisma schema for SchichtMeister DienstPlanner
+// https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Placeholder model for Prisma client generation
+// Full models will be added during feature implementation
+// See MVP_SPEC.md for domain concepts
+
+model User {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
