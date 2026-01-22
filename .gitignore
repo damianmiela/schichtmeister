@@ -55,3 +55,6 @@ coverage/
 
 # Deploy scripts (server-specific)
 deploy/
+
+# Local documentation (not deployed)
+_LOCAL_DOCS/
