@@ -1,0 +1,45 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: schichtmeister-app
+    ports:
+      - "3002:3000"
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@schichtmeister-postgres:5432/${POSTGRES_DB}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      - NEXTAUTH_URL=${NEXTAUTH_URL}
+    depends_on:
+      schichtmeister-postgres:
+        condition: service_healthy
+    networks:
+      - schichtmeister_network
+    restart: unless-stopped
+
+  schichtmeister-postgres:
+    image: postgres:16-alpine
+    container_name: schichtmeister-postgres
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - schichtmeister_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - schichtmeister_network
+    restart: unless-stopped
+
+networks:
+  schichtmeister_network:
+    name: schichtmeister_network
+    driver: bridge
+
+volumes:
+  schichtmeister_postgres_data:
+    name: schichtmeister_postgres_data
