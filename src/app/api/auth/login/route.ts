@@ -5,7 +5,9 @@ const SITE_PASSWORD = process.env.SITE_PASSWORD || "REMOVED";
 
 export async function POST(request: NextRequest) {
   try {
-    const { password } = await request.json();
+    const body = await request.text();
+    const data = JSON.parse(body);
+    const password = data.password;
 
     if (password === SITE_PASSWORD) {
       const response = NextResponse.json({ success: true });
@@ -23,7 +25,11 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({ error: "Invalid password" }, { status: 401 });
-  } catch {
-    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+  } catch (error) {
+    console.error("Login error:", error);
+    return NextResponse.json(
+      { error: "Invalid request", details: String(error) },
+      { status: 400 }
+    );
   }
 }
