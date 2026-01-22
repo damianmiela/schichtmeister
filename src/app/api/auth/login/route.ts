@@ -5,9 +5,17 @@ const SITE_PASSWORD = process.env.SITE_PASSWORD || "REMOVED";
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.text();
-    const data = JSON.parse(body);
-    const password = data.password;
+    // Try to parse as form data first, then JSON
+    const contentType = request.headers.get("content-type") || "";
+    let password: string | null = null;
+
+    if (contentType.includes("multipart/form-data") || contentType.includes("application/x-www-form-urlencoded")) {
+      const formData = await request.formData();
+      password = formData.get("password") as string;
+    } else {
+      const body = await request.json();
+      password = body.password;
+    }
 
     if (password === SITE_PASSWORD) {
       const response = NextResponse.json({ success: true });

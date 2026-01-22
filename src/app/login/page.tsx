@@ -27,10 +27,12 @@ function LoginForm() {
     setLoading(true);
 
     try {
+      const formData = new FormData();
+      formData.append("password", password);
+      
       const response = await fetch("/api/auth/login", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
+        body: formData,
       });
 
       if (response.ok) {
