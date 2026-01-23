@@ -26,7 +26,7 @@ const DRAWER_WIDTH = 260;
 
 const menuItems = [
   { text: "Dashboard", icon: <DashboardIcon />, href: "/" },
-  { text: "Wochenplan", icon: <CalendarMonthIcon />, href: "/schedule" },
+  { text: "Monatplan", icon: <CalendarMonthIcon />, href: "/schedule" },
   { text: "Mitarbeiter", icon: <PeopleIcon />, href: "/employees" },
   { text: "Dienstwünsche", icon: <EventNoteIcon />, href: "/wishes" },
   { text: "Tausch-Anfragen", icon: <SwapHorizIcon />, href: "/swaps" },

@@ -137,7 +137,7 @@ export default function DashboardPage() {
               >
                 <Typography variant="h6">Heute - Mittwoch, 22. Januar</Typography>
                 <Button endIcon={<ArrowForwardIcon />} size="small">
-                  Zum Wochenplan
+                  Zum Monatplan
                 </Button>
               </Box>
               <TableContainer>
