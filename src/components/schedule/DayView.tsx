@@ -58,14 +58,12 @@ export default function DayView({ date, selectedStation }: DayViewProps) {
           const shiftData = dayData[shift.id as keyof typeof dayData];
 
           // Calculate total staffing for this shift
-          const totalAssigned = stationsToShow.reduce<number>(
-            (sum, s) => sum + shiftData[s.id].assigned,
-            0
-          );
-          const totalRequired = stationsToShow.reduce<number>(
-            (sum, s) => sum + shiftData[s.id].required,
-            0
-          );
+          let totalAssigned = 0;
+          let totalRequired = 0;
+          for (const s of stationsToShow) {
+            totalAssigned += shiftData[s.id].assigned;
+            totalRequired += shiftData[s.id].required;
+          }
           const overallStatus = getStaffingStatus(totalAssigned, totalRequired);
 
           return (
