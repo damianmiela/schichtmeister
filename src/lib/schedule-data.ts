@@ -77,23 +77,47 @@ export function getAggregatedStaffing(shiftData: DayShiftData): StaffingData {
 }
 
 // Employee dummy data for detailed views
+// Expanded list to have enough staff for realistic shift coverage (1 shift per person per day)
 export const EMPLOYEES = [
+  // Station 1 employees (12 people for 3 shifts)
   { id: "1", name: "Maria Müller", initials: "MM", station: "station-1" },
   { id: "2", name: "Thomas Schmidt", initials: "TS", station: "station-1" },
   { id: "3", name: "Anna Weber", initials: "AW", station: "station-1" },
   { id: "4", name: "Michael Fischer", initials: "MF", station: "station-1" },
   { id: "5", name: "Sandra Becker", initials: "SB", station: "station-1" },
   { id: "6", name: "Klaus Wagner", initials: "KW", station: "station-1" },
-  { id: "7", name: "Julia Hoffmann", initials: "JH", station: "station-2" },
-  { id: "8", name: "Peter Schulz", initials: "PS", station: "station-2" },
-  { id: "9", name: "Lisa Braun", initials: "LB", station: "station-2" },
-  { id: "10", name: "Stefan Meyer", initials: "SM", station: "station-2" },
-  { id: "11", name: "Karin Richter", initials: "KR", station: "station-2" },
-  { id: "12", name: "Frank Neumann", initials: "FN", station: "station-3" },
-  { id: "13", name: "Eva Klein", initials: "EK", station: "station-3" },
-  { id: "14", name: "Hans Wolf", initials: "HW", station: "station-3" },
-  { id: "15", name: "Monika Schwarz", initials: "MS", station: "station-3" },
-  { id: "16", name: "Ralf Zimmermann", initials: "RZ", station: "station-3" },
+  { id: "7", name: "Julia Hoffmann", initials: "JH", station: "station-1" },
+  { id: "8", name: "Peter Schulz", initials: "PS", station: "station-1" },
+  { id: "9", name: "Sabine Lehmann", initials: "SL", station: "station-1" },
+  { id: "10", name: "Werner Krause", initials: "WK", station: "station-1" },
+  { id: "11", name: "Heike Fuchs", initials: "HF", station: "station-1" },
+  { id: "12", name: "Bernd Vogel", initials: "BV", station: "station-1" },
+  // Station 2 employees (10 people for 3 shifts)
+  { id: "13", name: "Lisa Braun", initials: "LB", station: "station-2" },
+  { id: "14", name: "Stefan Meyer", initials: "SM", station: "station-2" },
+  { id: "15", name: "Karin Richter", initials: "KR", station: "station-2" },
+  { id: "16", name: "Frank Neumann", initials: "FN", station: "station-2" },
+  { id: "17", name: "Eva Klein", initials: "EK", station: "station-2" },
+  { id: "18", name: "Markus Bauer", initials: "MB", station: "station-2" },
+  { id: "19", name: "Petra Schäfer", initials: "PS", station: "station-2" },
+  { id: "20", name: "Jürgen Koch", initials: "JK", station: "station-2" },
+  { id: "21", name: "Birgit Lang", initials: "BL", station: "station-2" },
+  { id: "22", name: "Uwe Krüger", initials: "UK", station: "station-2" },
+  // Station 3 employees (10 people for 3 shifts)
+  { id: "23", name: "Hans Wolf", initials: "HW", station: "station-3" },
+  { id: "24", name: "Monika Schwarz", initials: "MS", station: "station-3" },
+  { id: "25", name: "Ralf Zimmermann", initials: "RZ", station: "station-3" },
+  { id: "26", name: "Ingrid Hartmann", initials: "IH", station: "station-3" },
+  { id: "27", name: "Dieter Lange", initials: "DL", station: "station-3" },
+  { id: "28", name: "Renate König", initials: "RK", station: "station-3" },
+  { id: "29", name: "Günter Beck", initials: "GB", station: "station-3" },
+  { id: "30", name: "Elke Werner", initials: "EW", station: "station-3" },
+  { id: "31", name: "Horst Schmitt", initials: "HS", station: "station-3" },
+  { id: "32", name: "Andrea Schulze", initials: "AS", station: "station-3" },
+  // Additional night shift workers (dedicated)
+  { id: "33", name: "Gisela Roth", initials: "GR", station: "station-1" },
+  { id: "34", name: "Helga Braun", initials: "HB", station: "station-2" },
+  { id: "35", name: "Karl Richter", initials: "KR", station: "station-3" },
 ];
 
 // Get employees for a station and shift (dummy assignment)
@@ -182,21 +206,24 @@ export interface TimelineShift {
 }
 
 // Generate timeline shifts for a specific day
+// Each employee works only ONE shift per day (realistic scheduling)
 export function generateTimelineShifts(dayOffset: number): TimelineShift[] {
   const seed = dayOffset % 7;
   const isWeekend = seed >= 5;
 
   const shifts: TimelineShift[] = [];
 
-  // Station 1 - Early shifts with variations
-  if (!isWeekend || seed === 5) {
-    shifts.push(
-      { id: "s1-e1", employeeId: "1", employeeName: "Maria Müller", employeeInitials: "MM", stationId: "station-1", shiftType: "early", startTime: "06:00", endTime: "14:30" },
-      { id: "s1-e2", employeeId: "2", employeeName: "Thomas Schmidt", employeeInitials: "TS", stationId: "station-1", shiftType: "early", startTime: "06:00", endTime: "14:30" },
-      { id: "s1-e3", employeeId: "3", employeeName: "Anna Weber", employeeInitials: "AW", stationId: "station-1", shiftType: "early", startTime: "06:30", endTime: "15:00" },
-      { id: "s1-e4", employeeId: "4", employeeName: "Michael Fischer", employeeInitials: "MF", stationId: "station-1", shiftType: "early", startTime: "07:00", endTime: "12:00" },
-    );
-  }
+  // ============================================
+  // STATION 1 - Frühschicht (Early shift)
+  // Required: 6 on weekdays, 4 on weekends
+  // Employees: 1-6 are dedicated early shift workers
+  // ============================================
+  shifts.push(
+    { id: "s1-e1", employeeId: "1", employeeName: "Maria Müller", employeeInitials: "MM", stationId: "station-1", shiftType: "early", startTime: "06:00", endTime: "14:30" },
+    { id: "s1-e2", employeeId: "2", employeeName: "Thomas Schmidt", employeeInitials: "TS", stationId: "station-1", shiftType: "early", startTime: "06:00", endTime: "14:30" },
+    { id: "s1-e3", employeeId: "3", employeeName: "Anna Weber", employeeInitials: "AW", stationId: "station-1", shiftType: "early", startTime: "06:30", endTime: "15:00" },
+    { id: "s1-e4", employeeId: "4", employeeName: "Michael Fischer", employeeInitials: "MF", stationId: "station-1", shiftType: "early", startTime: "07:00", endTime: "13:00" },
+  );
   if (!isWeekend) {
     shifts.push(
       { id: "s1-e5", employeeId: "5", employeeName: "Sandra Becker", employeeInitials: "SB", stationId: "station-1", shiftType: "early", startTime: "06:00", endTime: "14:30" },
@@ -204,87 +231,124 @@ export function generateTimelineShifts(dayOffset: number): TimelineShift[] {
     );
   }
 
-  // Station 1 - Late shifts
+  // ============================================
+  // STATION 1 - Spätschicht (Late shift)
+  // Required: 5 on weekdays, 3 on weekends
+  // Employees: 7-11 are dedicated late shift workers
+  // ============================================
   shifts.push(
-    { id: "s1-l1", employeeId: "1", employeeName: "Maria Müller", employeeInitials: "MM", stationId: "station-1", shiftType: "late", startTime: "14:00", endTime: "22:00" },
-    { id: "s1-l2", employeeId: "2", employeeName: "Thomas Schmidt", employeeInitials: "TS", stationId: "station-1", shiftType: "late", startTime: "14:00", endTime: "22:00" },
-    { id: "s1-l3", employeeId: "3", employeeName: "Anna Weber", employeeInitials: "AW", stationId: "station-1", shiftType: "late", startTime: "15:00", endTime: "22:00" },
+    { id: "s1-l1", employeeId: "7", employeeName: "Julia Hoffmann", employeeInitials: "JH", stationId: "station-1", shiftType: "late", startTime: "14:00", endTime: "22:00" },
+    { id: "s1-l2", employeeId: "8", employeeName: "Peter Schulz", employeeInitials: "PS", stationId: "station-1", shiftType: "late", startTime: "14:00", endTime: "22:00" },
+    { id: "s1-l3", employeeId: "9", employeeName: "Sabine Lehmann", employeeInitials: "SL", stationId: "station-1", shiftType: "late", startTime: "14:30", endTime: "22:00" },
   );
   if (!isWeekend) {
     shifts.push(
-      { id: "s1-l4", employeeId: "4", employeeName: "Michael Fischer", employeeInitials: "MF", stationId: "station-1", shiftType: "late", startTime: "16:00", endTime: "22:00" },
-      { id: "s1-l5", employeeId: "5", employeeName: "Sandra Becker", employeeInitials: "SB", stationId: "station-1", shiftType: "late", startTime: "14:00", endTime: "20:00" },
+      { id: "s1-l4", employeeId: "10", employeeName: "Werner Krause", employeeInitials: "WK", stationId: "station-1", shiftType: "late", startTime: "15:00", endTime: "22:00" },
+      { id: "s1-l5", employeeId: "11", employeeName: "Heike Fuchs", employeeInitials: "HF", stationId: "station-1", shiftType: "late", startTime: "14:00", endTime: "20:00" },
     );
   }
 
-  // Station 1 - Night shifts
+  // ============================================
+  // STATION 1 - Nachtschicht (Night shift)
+  // Required: 2 (understaffed when seed === 2)
+  // Employee 12 is dedicated night shift worker
+  // ============================================
   shifts.push(
-    { id: "s1-n1", employeeId: "6", employeeName: "Klaus Wagner", employeeInitials: "KW", stationId: "station-1", shiftType: "night", startTime: "21:30", endTime: "24:00" },
-    { id: "s1-n2", employeeId: "7", employeeName: "Julia Hoffmann", employeeInitials: "JH", stationId: "station-1", shiftType: "night", startTime: "21:30", endTime: "24:00" },
+    { id: "s1-n1", employeeId: "12", employeeName: "Bernd Vogel", employeeInitials: "BV", stationId: "station-1", shiftType: "night", startTime: "21:30", endTime: "24:00" },
   );
+  if (seed !== 2) {
+    // Second night worker available
+    shifts.push(
+      { id: "s1-n2", employeeId: "33", employeeName: "Gisela Roth", employeeInitials: "GR", stationId: "station-1", shiftType: "night", startTime: "21:30", endTime: "24:00" },
+    );
+  }
+  // seed === 2 means Station 1 night is understaffed (only 1 of 2 required)
 
-  // Station 2 - Early shifts
+  // ============================================
+  // STATION 2 - Frühschicht (Early shift)
+  // Required: 5 on weekdays, 3 on weekends
+  // Employees: 13-17 are dedicated early shift workers
+  // ============================================
   shifts.push(
-    { id: "s2-e1", employeeId: "8", employeeName: "Peter Schulz", employeeInitials: "PS", stationId: "station-2", shiftType: "early", startTime: "06:00", endTime: "14:30" },
-    { id: "s2-e2", employeeId: "9", employeeName: "Lisa Braun", employeeInitials: "LB", stationId: "station-2", shiftType: "early", startTime: "06:00", endTime: "12:30" },
-    { id: "s2-e3", employeeId: "10", employeeName: "Stefan Meyer", employeeInitials: "SM", stationId: "station-2", shiftType: "early", startTime: "07:00", endTime: "15:00" },
+    { id: "s2-e1", employeeId: "13", employeeName: "Lisa Braun", employeeInitials: "LB", stationId: "station-2", shiftType: "early", startTime: "06:00", endTime: "14:30" },
+    { id: "s2-e2", employeeId: "14", employeeName: "Stefan Meyer", employeeInitials: "SM", stationId: "station-2", shiftType: "early", startTime: "06:00", endTime: "12:30" },
+    { id: "s2-e3", employeeId: "15", employeeName: "Karin Richter", employeeInitials: "KR", stationId: "station-2", shiftType: "early", startTime: "07:00", endTime: "15:00" },
   );
   if (!isWeekend) {
     shifts.push(
-      { id: "s2-e4", employeeId: "11", employeeName: "Karin Richter", employeeInitials: "KR", stationId: "station-2", shiftType: "early", startTime: "06:00", endTime: "14:30" },
-      { id: "s2-e5", employeeId: "12", employeeName: "Frank Neumann", employeeInitials: "FN", stationId: "station-2", shiftType: "early", startTime: "08:00", endTime: "14:00" },
+      { id: "s2-e4", employeeId: "16", employeeName: "Frank Neumann", employeeInitials: "FN", stationId: "station-2", shiftType: "early", startTime: "06:00", endTime: "14:30" },
+      { id: "s2-e5", employeeId: "17", employeeName: "Eva Klein", employeeInitials: "EK", stationId: "station-2", shiftType: "early", startTime: "08:00", endTime: "14:00" },
     );
   }
 
-  // Station 2 - Late shifts
+  // ============================================
+  // STATION 2 - Spätschicht (Late shift)
+  // Required: 4
+  // Employees: 18-21 are dedicated late shift workers
+  // ============================================
   shifts.push(
-    { id: "s2-l1", employeeId: "8", employeeName: "Peter Schulz", employeeInitials: "PS", stationId: "station-2", shiftType: "late", startTime: "14:00", endTime: "22:00" },
-    { id: "s2-l2", employeeId: "9", employeeName: "Lisa Braun", employeeInitials: "LB", stationId: "station-2", shiftType: "late", startTime: "13:00", endTime: "21:00" },
-    { id: "s2-l3", employeeId: "10", employeeName: "Stefan Meyer", employeeInitials: "SM", stationId: "station-2", shiftType: "late", startTime: "15:00", endTime: "22:00" },
-    { id: "s2-l4", employeeId: "11", employeeName: "Karin Richter", employeeInitials: "KR", stationId: "station-2", shiftType: "late", startTime: "14:00", endTime: "22:00" },
+    { id: "s2-l1", employeeId: "18", employeeName: "Markus Bauer", employeeInitials: "MB", stationId: "station-2", shiftType: "late", startTime: "14:00", endTime: "22:00" },
+    { id: "s2-l2", employeeId: "19", employeeName: "Petra Schäfer", employeeInitials: "PÖ", stationId: "station-2", shiftType: "late", startTime: "13:00", endTime: "21:00" },
+    { id: "s2-l3", employeeId: "20", employeeName: "Jürgen Koch", employeeInitials: "JK", stationId: "station-2", shiftType: "late", startTime: "15:00", endTime: "22:00" },
+    { id: "s2-l4", employeeId: "21", employeeName: "Birgit Lang", employeeInitials: "BL", stationId: "station-2", shiftType: "late", startTime: "14:00", endTime: "22:00" },
   );
 
-  // Station 2 - Night shifts (understaffed on certain days)
+  // ============================================
+  // STATION 2 - Nachtschicht (Night shift)
+  // Required: 2 (understaffed when seed === 3)
+  // Employees: 22, 34 are dedicated night shift workers
+  // ============================================
+  shifts.push(
+    { id: "s2-n1", employeeId: "22", employeeName: "Uwe Krüger", employeeInitials: "UK", stationId: "station-2", shiftType: "night", startTime: "21:30", endTime: "24:00" },
+  );
   if (seed !== 3) {
     shifts.push(
-      { id: "s2-n1", employeeId: "12", employeeName: "Frank Neumann", employeeInitials: "FN", stationId: "station-2", shiftType: "night", startTime: "21:30", endTime: "24:00" },
-      { id: "s2-n2", employeeId: "13", employeeName: "Eva Klein", employeeInitials: "EK", stationId: "station-2", shiftType: "night", startTime: "21:30", endTime: "24:00" },
-    );
-  } else {
-    // Understaffed - only 1 person
-    shifts.push(
-      { id: "s2-n1", employeeId: "12", employeeName: "Frank Neumann", employeeInitials: "FN", stationId: "station-2", shiftType: "night", startTime: "21:30", endTime: "24:00" },
+      { id: "s2-n2", employeeId: "34", employeeName: "Helga Braun", employeeInitials: "HB", stationId: "station-2", shiftType: "night", startTime: "21:30", endTime: "24:00" },
     );
   }
+  // seed === 3 means Station 2 night is understaffed (only 1 of 2 required)
 
-  // Station 3 - Early shifts
+  // ============================================
+  // STATION 3 - Frühschicht (Early shift)
+  // Required: 5 on weekdays, 4 on weekends
+  // Employees: 23-27 are dedicated early shift workers
+  // ============================================
   shifts.push(
-    { id: "s3-e1", employeeId: "14", employeeName: "Hans Wolf", employeeInitials: "HW", stationId: "station-3", shiftType: "early", startTime: "06:00", endTime: "14:30" },
-    { id: "s3-e2", employeeId: "15", employeeName: "Monika Schwarz", employeeInitials: "MS", stationId: "station-3", shiftType: "early", startTime: "06:00", endTime: "14:30" },
-    { id: "s3-e3", employeeId: "16", employeeName: "Ralf Zimmermann", employeeInitials: "RZ", stationId: "station-3", shiftType: "early", startTime: "06:30", endTime: "13:00" },
-  );
-  if (!isWeekend && seed % 2 === 0) {
-    shifts.push(
-      { id: "s3-e4", employeeId: "1", employeeName: "Maria Müller", employeeInitials: "MM", stationId: "station-3", shiftType: "early", startTime: "09:00", endTime: "14:00" },
-    );
-  }
-
-  // Station 3 - Late shifts
-  shifts.push(
-    { id: "s3-l1", employeeId: "14", employeeName: "Hans Wolf", employeeInitials: "HW", stationId: "station-3", shiftType: "late", startTime: "14:00", endTime: "22:00" },
-    { id: "s3-l2", employeeId: "15", employeeName: "Monika Schwarz", employeeInitials: "MS", stationId: "station-3", shiftType: "late", startTime: "14:00", endTime: "22:00" },
-    { id: "s3-l3", employeeId: "16", employeeName: "Ralf Zimmermann", employeeInitials: "RZ", stationId: "station-3", shiftType: "late", startTime: "14:30", endTime: "21:00" },
+    { id: "s3-e1", employeeId: "23", employeeName: "Hans Wolf", employeeInitials: "HW", stationId: "station-3", shiftType: "early", startTime: "06:00", endTime: "14:30" },
+    { id: "s3-e2", employeeId: "24", employeeName: "Monika Schwarz", employeeInitials: "MS", stationId: "station-3", shiftType: "early", startTime: "06:00", endTime: "14:30" },
+    { id: "s3-e3", employeeId: "25", employeeName: "Ralf Zimmermann", employeeInitials: "RZ", stationId: "station-3", shiftType: "early", startTime: "06:30", endTime: "13:00" },
+    { id: "s3-e4", employeeId: "26", employeeName: "Ingrid Hartmann", employeeInitials: "IH", stationId: "station-3", shiftType: "early", startTime: "07:00", endTime: "15:00" },
   );
   if (!isWeekend) {
     shifts.push(
-      { id: "s3-l4", employeeId: "2", employeeName: "Thomas Schmidt", employeeInitials: "TS", stationId: "station-3", shiftType: "late", startTime: "16:00", endTime: "22:00" },
+      { id: "s3-e5", employeeId: "27", employeeName: "Dieter Lange", employeeInitials: "DL", stationId: "station-3", shiftType: "early", startTime: "06:00", endTime: "14:30" },
     );
   }
 
-  // Station 3 - Night shifts
+  // ============================================
+  // STATION 3 - Spätschicht (Late shift)
+  // Required: 4
+  // Employees: 28-31 are dedicated late shift workers
+  // ============================================
   shifts.push(
-    { id: "s3-n1", employeeId: "13", employeeName: "Eva Klein", employeeInitials: "EK", stationId: "station-3", shiftType: "night", startTime: "21:30", endTime: "24:00" },
-    { id: "s3-n2", employeeId: "14", employeeName: "Hans Wolf", employeeInitials: "HW", stationId: "station-3", shiftType: "night", startTime: "22:00", endTime: "24:00" },
+    { id: "s3-l1", employeeId: "28", employeeName: "Renate König", employeeInitials: "RK", stationId: "station-3", shiftType: "late", startTime: "14:00", endTime: "22:00" },
+    { id: "s3-l2", employeeId: "29", employeeName: "Günter Beck", employeeInitials: "GB", stationId: "station-3", shiftType: "late", startTime: "14:00", endTime: "22:00" },
+    { id: "s3-l3", employeeId: "30", employeeName: "Elke Werner", employeeInitials: "EW", stationId: "station-3", shiftType: "late", startTime: "14:30", endTime: "21:00" },
+  );
+  if (!isWeekend) {
+    shifts.push(
+      { id: "s3-l4", employeeId: "31", employeeName: "Horst Schmitt", employeeInitials: "HS", stationId: "station-3", shiftType: "late", startTime: "16:00", endTime: "22:00" },
+    );
+  }
+
+  // ============================================
+  // STATION 3 - Nachtschicht (Night shift)
+  // Required: 2
+  // Employees: 32, 35 are dedicated night shift workers
+  // ============================================
+  shifts.push(
+    { id: "s3-n1", employeeId: "32", employeeName: "Andrea Schulze", employeeInitials: "AS", stationId: "station-3", shiftType: "night", startTime: "21:30", endTime: "24:00" },
+    { id: "s3-n2", employeeId: "35", employeeName: "Karl Richter", employeeInitials: "KR", stationId: "station-3", shiftType: "night", startTime: "22:00", endTime: "24:00" },
   );
 
   return shifts;
