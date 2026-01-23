@@ -190,7 +190,7 @@ export default function WeekView({
                               label={`${stationData.assigned}/${stationData.required}`}
                               size="small"
                               color={status}
-                              sx={{ height: 18, fontSize: 10 }}
+                              sx={{ height: 20, fontSize: 12 }}
                             />
                           </Box>
                         </Box>
@@ -199,9 +199,9 @@ export default function WeekView({
                           sx={{
                             justifyContent: "flex-start",
                             "& .MuiAvatar-root": {
-                              width: 22,
-                              height: 22,
-                              fontSize: 9,
+                              width: 28,
+                              height: 28,
+                              fontSize: 11,
                               bgcolor: shift.color,
                             },
                           }}

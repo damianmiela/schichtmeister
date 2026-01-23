@@ -237,7 +237,7 @@ function ShiftRow({ shift, shiftData, selectedStation }: ShiftRowProps) {
           >
             <Typography
               variant="caption"
-              sx={{ color: "white", fontSize: 10, fontWeight: 500 }}
+              sx={{ color: "white", fontSize: 12, fontWeight: 500 }}
             >
               {stationData.assigned}/{stationData.required}
             </Typography>
@@ -290,7 +290,7 @@ function ShiftRow({ shift, shiftData, selectedStation }: ShiftRowProps) {
                 variant="caption"
                 sx={{
                   color: "white",
-                  fontSize: 9,
+                  fontSize: 12,
                   fontWeight: 500,
                   whiteSpace: "nowrap",
                 }}
