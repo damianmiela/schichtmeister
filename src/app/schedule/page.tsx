@@ -3,6 +3,7 @@
 import { useState } from "react";
 import MainLayout from "@/components/layout/MainLayout";
 import MonthView from "@/components/schedule/MonthView";
+import MonthTableView from "@/components/schedule/MonthTableView";
 import WeekView from "@/components/schedule/WeekView";
 import DayView from "@/components/schedule/DayView";
 import StationFilter from "@/components/schedule/StationFilter";
@@ -14,6 +15,8 @@ import {
   Chip,
   Breadcrumbs,
   Link,
+  ToggleButton,
+  ToggleButtonGroup,
 } from "@mui/material";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
@@ -22,9 +25,12 @@ import DownloadIcon from "@mui/icons-material/Download";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import CalendarViewWeekIcon from "@mui/icons-material/CalendarViewWeek";
 import TodayIcon from "@mui/icons-material/Today";
+import TableChartIcon from "@mui/icons-material/TableChart";
+import GridViewIcon from "@mui/icons-material/GridView";
 import { getWeekNumber } from "@/lib/schedule-data";
 
 type ViewType = "month" | "week" | "day";
+type MonthViewMode = "table" | "overview"; // table = paper-like, overview = numeric Besetzungsübersicht
 
 interface ViewState {
   type: ViewType;
@@ -58,6 +64,7 @@ export default function SchedulePage() {
     month: today.getMonth(),
   });
   const [selectedStation, setSelectedStation] = useState<string | null>(null);
+  const [monthViewMode, setMonthViewMode] = useState<MonthViewMode>("table"); // Default to table (paper-like)
 
   // Navigation handlers
   const handlePrevious = () => {
@@ -241,7 +248,35 @@ export default function SchedulePage() {
           </IconButton>
           <Chip label="ENTWURF" color="warning" size="small" />
         </Box>
-        <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+        <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
+          {/* View mode toggle - only show in month view */}
+          {viewState.type === "month" && (
+            <>
+              <ToggleButtonGroup
+                value={monthViewMode}
+                exclusive
+                onChange={(_, value) => value && setMonthViewMode(value)}
+                size="small"
+                sx={{
+                  "& .MuiToggleButton-root": {
+                    px: 1.5,
+                    py: 0.5,
+                    fontSize: "0.75rem",
+                  },
+                }}
+              >
+                <ToggleButton value="table">
+                  <TableChartIcon sx={{ fontSize: 18, mr: 0.5 }} />
+                  Dienstplan
+                </ToggleButton>
+                <ToggleButton value="overview">
+                  <GridViewIcon sx={{ fontSize: 18, mr: 0.5 }} />
+                  Besetzungsübersicht
+                </ToggleButton>
+              </ToggleButtonGroup>
+              <Box sx={{ width: 1, height: 24, bgcolor: "divider", mx: 1 }} />
+            </>
+          )}
           <StationFilter selected={selectedStation} onChange={setSelectedStation} />
           <Box sx={{ width: 1, height: 24, bgcolor: "divider", mx: 1 }} />
           <Button variant="outlined" startIcon={<DownloadIcon />}>
@@ -254,7 +289,16 @@ export default function SchedulePage() {
       </Box>
 
       {/* Views */}
-      {viewState.type === "month" && (
+      {viewState.type === "month" && monthViewMode === "table" && (
+        <MonthTableView
+          year={viewState.year}
+          month={viewState.month}
+          selectedStation={selectedStation}
+          onDayClick={handleDayClick}
+        />
+      )}
+
+      {viewState.type === "month" && monthViewMode === "overview" && (
         <MonthView
           year={viewState.year}
           month={viewState.month}

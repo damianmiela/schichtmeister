@@ -76,49 +76,163 @@ export function getAggregatedStaffing(shiftData: DayShiftData): StaffingData {
   );
 }
 
+// Employee roles
+export type EmployeeRole = "Fachkraft" | "Hilfskraft";
+
 // Employee dummy data for detailed views
 // Expanded list to have enough staff for realistic shift coverage (1 shift per person per day)
 export const EMPLOYEES = [
   // Station 1 employees (12 people for 3 shifts)
-  { id: "1", name: "Maria Müller", initials: "MM", station: "station-1" },
-  { id: "2", name: "Thomas Schmidt", initials: "TS", station: "station-1" },
-  { id: "3", name: "Anna Weber", initials: "AW", station: "station-1" },
-  { id: "4", name: "Michael Fischer", initials: "MF", station: "station-1" },
-  { id: "5", name: "Sandra Becker", initials: "SB", station: "station-1" },
-  { id: "6", name: "Klaus Wagner", initials: "KW", station: "station-1" },
-  { id: "7", name: "Julia Hoffmann", initials: "JH", station: "station-1" },
-  { id: "8", name: "Peter Schulz", initials: "PS", station: "station-1" },
-  { id: "9", name: "Sabine Lehmann", initials: "SL", station: "station-1" },
-  { id: "10", name: "Werner Krause", initials: "WK", station: "station-1" },
-  { id: "11", name: "Heike Fuchs", initials: "HF", station: "station-1" },
-  { id: "12", name: "Bernd Vogel", initials: "BV", station: "station-1" },
+  { id: "1", name: "Maria Müller", initials: "MM", station: "station-1", role: "Fachkraft" as EmployeeRole, hoursContract: 160, shiftPreference: "early" },
+  { id: "2", name: "Thomas Schmidt", initials: "TS", station: "station-1", role: "Fachkraft" as EmployeeRole, hoursContract: 160, shiftPreference: "early" },
+  { id: "3", name: "Anna Weber", initials: "AW", station: "station-1", role: "Hilfskraft" as EmployeeRole, hoursContract: 120, shiftPreference: "early" },
+  { id: "4", name: "Michael Fischer", initials: "MF", station: "station-1", role: "Fachkraft" as EmployeeRole, hoursContract: 80, shiftPreference: "early" },
+  { id: "5", name: "Sandra Becker", initials: "SB", station: "station-1", role: "Fachkraft" as EmployeeRole, hoursContract: 160, shiftPreference: "early" },
+  { id: "6", name: "Klaus Wagner", initials: "KW", station: "station-1", role: "Hilfskraft" as EmployeeRole, hoursContract: 100, shiftPreference: "early" },
+  { id: "7", name: "Julia Hoffmann", initials: "JH", station: "station-1", role: "Fachkraft" as EmployeeRole, hoursContract: 160, shiftPreference: "late" },
+  { id: "8", name: "Peter Schulz", initials: "PS", station: "station-1", role: "Fachkraft" as EmployeeRole, hoursContract: 160, shiftPreference: "late" },
+  { id: "9", name: "Sabine Lehmann", initials: "SL", station: "station-1", role: "Hilfskraft" as EmployeeRole, hoursContract: 120, shiftPreference: "late" },
+  { id: "10", name: "Werner Krause", initials: "WK", station: "station-1", role: "Fachkraft" as EmployeeRole, hoursContract: 160, shiftPreference: "late" },
+  { id: "11", name: "Heike Fuchs", initials: "HF", station: "station-1", role: "Hilfskraft" as EmployeeRole, hoursContract: 100, shiftPreference: "late" },
+  { id: "12", name: "Bernd Vogel", initials: "BV", station: "station-1", role: "Fachkraft" as EmployeeRole, hoursContract: 160, shiftPreference: "night" },
   // Station 2 employees (10 people for 3 shifts)
-  { id: "13", name: "Lisa Braun", initials: "LB", station: "station-2" },
-  { id: "14", name: "Stefan Meyer", initials: "SM", station: "station-2" },
-  { id: "15", name: "Karin Richter", initials: "KR", station: "station-2" },
-  { id: "16", name: "Frank Neumann", initials: "FN", station: "station-2" },
-  { id: "17", name: "Eva Klein", initials: "EK", station: "station-2" },
-  { id: "18", name: "Markus Bauer", initials: "MB", station: "station-2" },
-  { id: "19", name: "Petra Schäfer", initials: "PS", station: "station-2" },
-  { id: "20", name: "Jürgen Koch", initials: "JK", station: "station-2" },
-  { id: "21", name: "Birgit Lang", initials: "BL", station: "station-2" },
-  { id: "22", name: "Uwe Krüger", initials: "UK", station: "station-2" },
+  { id: "13", name: "Lisa Braun", initials: "LB", station: "station-2", role: "Fachkraft" as EmployeeRole, hoursContract: 160, shiftPreference: "early" },
+  { id: "14", name: "Stefan Meyer", initials: "SM", station: "station-2", role: "Fachkraft" as EmployeeRole, hoursContract: 80, shiftPreference: "early" },
+  { id: "15", name: "Karin Richter", initials: "KR", station: "station-2", role: "Hilfskraft" as EmployeeRole, hoursContract: 120, shiftPreference: "early" },
+  { id: "16", name: "Frank Neumann", initials: "FN", station: "station-2", role: "Fachkraft" as EmployeeRole, hoursContract: 160, shiftPreference: "early" },
+  { id: "17", name: "Eva Klein", initials: "EK", station: "station-2", role: "Hilfskraft" as EmployeeRole, hoursContract: 100, shiftPreference: "early" },
+  { id: "18", name: "Markus Bauer", initials: "MB", station: "station-2", role: "Fachkraft" as EmployeeRole, hoursContract: 160, shiftPreference: "late" },
+  { id: "19", name: "Petra Schäfer", initials: "PS", station: "station-2", role: "Fachkraft" as EmployeeRole, hoursContract: 160, shiftPreference: "late" },
+  { id: "20", name: "Jürgen Koch", initials: "JK", station: "station-2", role: "Hilfskraft" as EmployeeRole, hoursContract: 120, shiftPreference: "late" },
+  { id: "21", name: "Birgit Lang", initials: "BL", station: "station-2", role: "Fachkraft" as EmployeeRole, hoursContract: 160, shiftPreference: "late" },
+  { id: "22", name: "Uwe Krüger", initials: "UK", station: "station-2", role: "Fachkraft" as EmployeeRole, hoursContract: 160, shiftPreference: "night" },
   // Station 3 employees (10 people for 3 shifts)
-  { id: "23", name: "Hans Wolf", initials: "HW", station: "station-3" },
-  { id: "24", name: "Monika Schwarz", initials: "MS", station: "station-3" },
-  { id: "25", name: "Ralf Zimmermann", initials: "RZ", station: "station-3" },
-  { id: "26", name: "Ingrid Hartmann", initials: "IH", station: "station-3" },
-  { id: "27", name: "Dieter Lange", initials: "DL", station: "station-3" },
-  { id: "28", name: "Renate König", initials: "RK", station: "station-3" },
-  { id: "29", name: "Günter Beck", initials: "GB", station: "station-3" },
-  { id: "30", name: "Elke Werner", initials: "EW", station: "station-3" },
-  { id: "31", name: "Horst Schmitt", initials: "HS", station: "station-3" },
-  { id: "32", name: "Andrea Schulze", initials: "AS", station: "station-3" },
+  { id: "23", name: "Hans Wolf", initials: "HW", station: "station-3", role: "Fachkraft" as EmployeeRole, hoursContract: 160, shiftPreference: "early" },
+  { id: "24", name: "Monika Schwarz", initials: "MS", station: "station-3", role: "Fachkraft" as EmployeeRole, hoursContract: 160, shiftPreference: "early" },
+  { id: "25", name: "Ralf Zimmermann", initials: "RZ", station: "station-3", role: "Hilfskraft" as EmployeeRole, hoursContract: 80, shiftPreference: "early" },
+  { id: "26", name: "Ingrid Hartmann", initials: "IH", station: "station-3", role: "Fachkraft" as EmployeeRole, hoursContract: 120, shiftPreference: "early" },
+  { id: "27", name: "Dieter Lange", initials: "DL", station: "station-3", role: "Fachkraft" as EmployeeRole, hoursContract: 160, shiftPreference: "early" },
+  { id: "28", name: "Renate König", initials: "RK", station: "station-3", role: "Fachkraft" as EmployeeRole, hoursContract: 160, shiftPreference: "late" },
+  { id: "29", name: "Günter Beck", initials: "GB", station: "station-3", role: "Fachkraft" as EmployeeRole, hoursContract: 160, shiftPreference: "late" },
+  { id: "30", name: "Elke Werner", initials: "EW", station: "station-3", role: "Hilfskraft" as EmployeeRole, hoursContract: 100, shiftPreference: "late" },
+  { id: "31", name: "Horst Schmitt", initials: "HS", station: "station-3", role: "Fachkraft" as EmployeeRole, hoursContract: 160, shiftPreference: "late" },
+  { id: "32", name: "Andrea Schulze", initials: "AS", station: "station-3", role: "Fachkraft" as EmployeeRole, hoursContract: 160, shiftPreference: "night" },
   // Additional night shift workers (dedicated)
-  { id: "33", name: "Gisela Roth", initials: "GR", station: "station-1" },
-  { id: "34", name: "Helga Braun", initials: "HB", station: "station-2" },
-  { id: "35", name: "Karl Richter", initials: "KR", station: "station-3" },
+  { id: "33", name: "Gisela Roth", initials: "GR", station: "station-1", role: "Fachkraft" as EmployeeRole, hoursContract: 160, shiftPreference: "night" },
+  { id: "34", name: "Helga Braun", initials: "HB", station: "station-2", role: "Fachkraft" as EmployeeRole, hoursContract: 160, shiftPreference: "night" },
+  { id: "35", name: "Karl Richter", initials: "KR", station: "station-3", role: "Fachkraft" as EmployeeRole, hoursContract: 160, shiftPreference: "night" },
 ];
+
+// Shift codes for the paper-like roster view
+export type ShiftCode = "F1" | "F2" | "F3" | "S1" | "S2" | "S3" | "N1" | "N2" | "N3" | "X" | "U" | "";
+
+export interface ShiftCodeInfo {
+  code: ShiftCode;
+  fullName: string;
+  shiftType: "early" | "late" | "night" | "off" | "vacation";
+  stationNumber?: number;
+  startTime?: string;
+  endTime?: string;
+}
+
+export const SHIFT_CODE_MAP: Record<ShiftCode, ShiftCodeInfo> = {
+  "F1": { code: "F1", fullName: "Früh Station 1", shiftType: "early", stationNumber: 1, startTime: "06:00", endTime: "14:30" },
+  "F2": { code: "F2", fullName: "Früh Station 2", shiftType: "early", stationNumber: 2, startTime: "06:00", endTime: "14:30" },
+  "F3": { code: "F3", fullName: "Früh Station 3", shiftType: "early", stationNumber: 3, startTime: "06:00", endTime: "14:30" },
+  "S1": { code: "S1", fullName: "Spät Station 1", shiftType: "late", stationNumber: 1, startTime: "14:00", endTime: "22:00" },
+  "S2": { code: "S2", fullName: "Spät Station 2", shiftType: "late", stationNumber: 2, startTime: "14:00", endTime: "22:00" },
+  "S3": { code: "S3", fullName: "Spät Station 3", shiftType: "late", stationNumber: 3, startTime: "14:00", endTime: "22:00" },
+  "N1": { code: "N1", fullName: "Nacht Station 1", shiftType: "night", stationNumber: 1, startTime: "21:30", endTime: "06:30" },
+  "N2": { code: "N2", fullName: "Nacht Station 2", shiftType: "night", stationNumber: 2, startTime: "21:30", endTime: "06:30" },
+  "N3": { code: "N3", fullName: "Nacht Station 3", shiftType: "night", stationNumber: 3, startTime: "21:30", endTime: "06:30" },
+  "X": { code: "X", fullName: "Frei", shiftType: "off" },
+  "U": { code: "U", fullName: "Urlaub", shiftType: "vacation" },
+  "": { code: "", fullName: "", shiftType: "off" },
+};
+
+// Background colors for shift codes (subtle, paper-like)
+export const SHIFT_CODE_COLORS = {
+  early: { bg: "#fff3e0", border: "#ffcc80" },   // Light orange
+  late: { bg: "#e3f2fd", border: "#90caf9" },    // Light blue  
+  night: { bg: "#f3e5f5", border: "#ce93d8" },   // Light purple
+  off: { bg: "#f5f5f5", border: "#e0e0e0" },     // Light grey
+  vacation: { bg: "#e8f5e9", border: "#a5d6a7" }, // Light green
+};
+
+// Generate monthly roster data for an employee
+export interface EmployeeMonthSchedule {
+  employeeId: string;
+  days: ShiftCode[]; // Array of 31 days (index 0 = day 1)
+  hoursPlanned: number;
+}
+
+// Generate dummy monthly schedule for all employees
+export function generateMonthlyRoster(year: number, month: number): EmployeeMonthSchedule[] {
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const schedules: EmployeeMonthSchedule[] = [];
+
+  for (const employee of EMPLOYEES) {
+    const days: ShiftCode[] = [];
+    let hoursPlanned = 0;
+    const stationNum = employee.station === "station-1" ? 1 : employee.station === "station-2" ? 2 : 3;
+    
+    // Determine shift code prefix based on preference
+    const shiftPrefix = employee.shiftPreference === "early" ? "F" : 
+                       employee.shiftPreference === "late" ? "S" : "N";
+    const baseShiftCode = `${shiftPrefix}${stationNum}` as ShiftCode;
+    
+    // Hours per shift type
+    const hoursPerShift = employee.shiftPreference === "night" ? 9 : 8.5;
+    
+    for (let day = 1; day <= daysInMonth; day++) {
+      const date = new Date(year, month, day);
+      const dayOfWeek = date.getDay(); // 0 = Sunday, 6 = Saturday
+      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+      
+      // Create deterministic pattern based on employee id and day
+      const seed = (parseInt(employee.id) + day + month) % 10;
+      
+      let code: ShiftCode;
+      
+      // Apply some vacation days (U)
+      if (seed === 7 && day >= 10 && day <= 17 && parseInt(employee.id) % 5 === 0) {
+        code = "U";
+      }
+      // Free days (X) - weekends and some weekdays
+      else if (isWeekend && seed < 5) {
+        code = "X";
+      }
+      else if (!isWeekend && seed === 9) {
+        code = "X";
+      }
+      // Working day
+      else {
+        code = baseShiftCode;
+        hoursPlanned += hoursPerShift;
+      }
+      
+      days.push(code);
+    }
+    
+    // Pad to 31 days if month has fewer days
+    while (days.length < 31) {
+      days.push("");
+    }
+    
+    schedules.push({
+      employeeId: employee.id,
+      days,
+      hoursPlanned: Math.round(hoursPlanned),
+    });
+  }
+  
+  return schedules;
+}
+
+// Get employee by ID
+export function getEmployeeById(id: string) {
+  return EMPLOYEES.find(e => e.id === id);
+}
 
 // Get employees for a station and shift (dummy assignment)
 export function getShiftEmployees(
