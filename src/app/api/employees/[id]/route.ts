@@ -73,3 +73,28 @@ export async function PATCH(request: NextRequest, context: RouteCtx) {
     );
   }
 }
+
+export async function DELETE(_request: NextRequest, context: RouteCtx) {
+  const { session, error } = await requirePlanner();
+  if (error === "UNAUTHORIZED") return plannerJsonErrors.unauthorized();
+  if (error === "FORBIDDEN") return plannerJsonErrors.forbidden();
+
+  const { id } = await context.params;
+  const existing = await prisma.employee.findFirst({
+    where: { id, facilityId: session!.user.facilityId },
+  });
+  if (!existing) {
+    return NextResponse.json({ error: "Nicht gefunden" }, { status: 404 });
+  }
+
+  try {
+    await prisma.employee.delete({ where: { id } });
+    return new NextResponse(null, { status: 204 });
+  } catch (e) {
+    console.error("DELETE /api/employees/[id]", e);
+    return NextResponse.json(
+      { error: "Mitarbeiter konnte nicht gelöscht werden (evtl. noch verknüpfte Daten)." },
+      { status: 500 },
+    );
+  }
+}
