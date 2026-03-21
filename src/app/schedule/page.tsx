@@ -114,54 +114,97 @@ export default function SchedulePage() {
     const { year, month } = viewState;
     const { monthStart, monthEnd } = monthRangeIso(year, month);
 
+    const failLabels: string[] = [];
+
     try {
-      const listRes = await fetchJson<{ schedules: ScheduleSummary[] }>("/api/schedules");
-      let picked = pickScheduleForMonth(listRes.schedules, monthStart, monthEnd);
-      if (!picked) {
-        const created = await fetchJson<{ schedule: ScheduleSummary }>("/api/schedules", {
-          method: "POST",
-          body: JSON.stringify({ periodStart: monthStart, periodEnd: monthEnd }),
-        });
-        picked = created.schedule;
-      }
+    const [s0, s1, s2, s3] = await Promise.allSettled([
+      fetchJson<{ schedules: ScheduleSummary[] }>("/api/schedules"),
+      fetchJson<{ employees: EmployeeJson[] }>("/api/employees"),
+      fetchJson<{ shiftProfiles: ShiftProfileJson[] }>("/api/shift-profiles"),
+      fetchJson<{ staffingRequirements: StaffingJson[] }>("/api/staffing-requirements"),
+    ]);
 
-      const detail = await fetchJson<{
-        schedule: ScheduleJson;
-        assignments?: AssignmentJson[];
-      }>(`/api/schedules/${picked.id}?include=assignments`);
+    if (s1.status === "fulfilled") {
+      setEmployees(s1.value.employees ?? []);
+    } else {
+      failLabels.push("Mitarbeiter");
+      setEmployees([]);
+    }
 
-      const [empsRes, profsRes, staffRes] = await Promise.all([
-        fetchJson<{ employees: EmployeeJson[] }>("/api/employees"),
-        fetchJson<{ shiftProfiles: ShiftProfileJson[] }>("/api/shift-profiles"),
-        fetchJson<{ staffingRequirements: StaffingJson[] }>("/api/staffing-requirements"),
-      ]);
-
+    if (s2.status === "fulfilled") {
       const profMap: Record<string, ShiftProfileJson> = {};
-      for (const p of profsRes.shiftProfiles) {
+      for (const p of s2.value.shiftProfiles) {
         profMap[p.id] = p;
       }
-
-      setSchedule(detail.schedule);
-      setAssignments(detail.assignments ?? []);
-      setEmployees(empsRes.employees);
       setProfilesById(profMap);
-      setStaffing(staffRes.staffingRequirements);
-    } catch (e) {
-      if (e instanceof ApiError) {
-        const err =
-          e.body &&
-          typeof e.body === "object" &&
-          e.body !== null &&
-          "error" in e.body &&
-          typeof (e.body as { error: unknown }).error === "string"
-            ? (e.body as { error: string }).error
-            : "Laden fehlgeschlagen.";
-        setError(err);
-      } else {
-        setError("Netzwerkfehler");
+    } else {
+      failLabels.push("Schichtprofile");
+      setProfilesById({});
+    }
+
+    if (s3.status === "fulfilled") {
+      setStaffing(s3.value.staffingRequirements);
+    } else {
+      failLabels.push("Personalbedarf");
+      setStaffing([]);
+    }
+
+    if (s0.status === "fulfilled") {
+      try {
+        const listRes = s0.value;
+        let picked = pickScheduleForMonth(listRes.schedules, monthStart, monthEnd);
+        if (!picked) {
+          const created = await fetchJson<{ schedule: ScheduleSummary }>("/api/schedules", {
+            method: "POST",
+            body: JSON.stringify({ periodStart: monthStart, periodEnd: monthEnd }),
+          });
+          picked = created.schedule;
+        }
+
+        const detail = await fetchJson<{
+          schedule: ScheduleJson;
+          assignments?: AssignmentJson[];
+        }>(`/api/schedules/${picked.id}?include=assignments`);
+
+        setSchedule(detail.schedule);
+        setAssignments(detail.assignments ?? []);
+      } catch {
+        failLabels.push("Monatsplan");
+        setSchedule(null);
+        setAssignments([]);
       }
+    } else {
+      failLabels.push("Dienstpläne");
       setSchedule(null);
       setAssignments([]);
+    }
+
+    if (failLabels.length > 0) {
+      const apiMsgFrom = (reason: unknown): string | null => {
+        if (
+          reason instanceof ApiError &&
+          reason.body &&
+          typeof reason.body === "object" &&
+          reason.body !== null &&
+          "error" in reason.body &&
+          typeof (reason.body as { error: unknown }).error === "string"
+        ) {
+          return (reason.body as { error: string }).error;
+        }
+        return null;
+      };
+      const apiMsg =
+        apiMsgFrom(s0.status === "rejected" ? s0.reason : null) ??
+        apiMsgFrom(s1.status === "rejected" ? s1.reason : null) ??
+        apiMsgFrom(s2.status === "rejected" ? s2.reason : null) ??
+        apiMsgFrom(s3.status === "rejected" ? s3.reason : null);
+      setError(
+        apiMsg ??
+          `Konnte nicht vollständig laden: ${failLabels.join(", ")}. Bitte „Erneut laden“ oder Seite aktualisieren.`,
+      );
+    } else {
+      setError(null);
+    }
     } finally {
       setLoading(false);
     }
@@ -576,7 +619,15 @@ export default function SchedulePage() {
         </Alert>
       )}
       {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
+        <Alert
+          severity="error"
+          sx={{ mb: 2 }}
+          action={
+            <Button color="inherit" size="small" onClick={() => void loadBundle()}>
+              Erneut laden
+            </Button>
+          }
+        >
           {error}
         </Alert>
       )}

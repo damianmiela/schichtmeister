@@ -47,17 +47,36 @@ function serializeSchedule(s: {
 }
 
 export async function GET() {
-  const { session, error } = await requirePlanner();
-  if (error === "UNAUTHORIZED") return plannerJsonErrors.unauthorized();
-  if (error === "FORBIDDEN") return plannerJsonErrors.forbidden();
+  try {
+    const { session, error } = await requirePlanner();
+    if (error === "UNAUTHORIZED") return plannerJsonErrors.unauthorized();
+    if (error === "FORBIDDEN") return plannerJsonErrors.forbidden();
 
-  const schedules = await prisma.schedule.findMany({
-    where: { facilityId: session!.user.facilityId },
-    orderBy: [{ periodStart: "desc" }],
-  });
-  return NextResponse.json({
-    schedules: schedules.map(serializeSchedule),
-  });
+    const facilityId = session!.user.facilityId;
+    if (!facilityId) {
+      return NextResponse.json(
+        { error: "Keine Einrichtung in der Sitzung. Bitte abmelden und neu anmelden." },
+        { status: 403 },
+      );
+    }
+
+    const schedules = await prisma.schedule.findMany({
+      where: { facilityId },
+      orderBy: [{ periodStart: "desc" }],
+    });
+    return NextResponse.json({
+      schedules: schedules.map(serializeSchedule),
+    });
+  } catch (e) {
+    console.error("GET /api/schedules", e);
+    return NextResponse.json(
+      {
+        error:
+          "Dienstpläne konnten nicht geladen werden (Server oder Datenbank). Bitte später erneut versuchen.",
+      },
+      { status: 503 },
+    );
+  }
 }
 
 export async function POST(request: NextRequest) {
