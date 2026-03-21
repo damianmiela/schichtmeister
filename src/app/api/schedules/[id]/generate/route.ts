@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { ScheduleStatus } from "@prisma/client";
 import { toIsoDateOnly } from "@/lib/api/dateOnly";
 import { plannerJsonErrors } from "@/lib/api/validation";
 import { requirePlanner } from "@/lib/auth/session";
@@ -10,8 +9,8 @@ import {
 } from "@/lib/schedule/generateDraftSchedule";
 
 /**
- * Regenerates the draft roster: **deletes all existing assignments** on this schedule, then
- * runs a deterministic greedy fill (phase 07). Calling twice yields the same result for the same DB state.
+ * Replaces the roster: **deletes all assignments** on this schedule (Entwurf or veröffentlicht), then
+ * runs a deterministic greedy fill. Calling twice yields the same result for the same DB state.
  */
 type RouteCtx = { params: Promise<{ id: string }> };
 
@@ -29,12 +28,6 @@ export async function POST(_request: Request, context: RouteCtx) {
   });
   if (!schedule) {
     return NextResponse.json({ error: "Nicht gefunden" }, { status: 404 });
-  }
-  if (schedule.status !== ScheduleStatus.DRAFT) {
-    return NextResponse.json(
-      { error: "Nur Entwürfe können automatisch befüllt werden." },
-      { status: 400 },
-    );
   }
 
   const genCtx = await loadGenerateContext(

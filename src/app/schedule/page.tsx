@@ -547,7 +547,7 @@ export default function SchedulePage() {
           <Button
             variant="outlined"
             startIcon={<AutoAwesomeIcon />}
-            disabled={loading || !schedule || schedule.status !== "DRAFT" || generateBusy}
+            disabled={loading || !schedule || generateBusy}
             onClick={() => void onGenerate()}
           >
             {generateBusy ? <CircularProgress size={20} /> : "Entwurf füllen"}
