@@ -36,15 +36,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const facility = await prisma.facility.findFirst({
-      orderBy: { createdAt: "asc" },
+    // Fresh DB after migrate has no rows; seed is optional and destructive. Create default facility on first registration.
+    const facility = await prisma.$transaction(async (tx) => {
+      const existing = await tx.facility.findFirst({
+        orderBy: { createdAt: "asc" },
+      });
+      if (existing) return existing;
+      const name =
+        process.env.DEFAULT_FACILITY_NAME?.trim() || "Demo-Einrichtung";
+      return tx.facility.create({
+        data: { name },
+      });
     });
-    if (!facility) {
-      return NextResponse.json(
-        { error: "Keine Einrichtung in der Datenbank. Bitte Seed/Migration ausführen." },
-        { status: 503 }
-      );
-    }
 
     const passwordHash = await bcrypt.hash(parsed.data.password, 10);
 
