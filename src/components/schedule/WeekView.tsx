@@ -19,7 +19,6 @@ interface WeekViewProps {
 }
 
 export default function WeekView({
-  weekNumber,
   startDate,
   selectedStation,
   onDayClick,

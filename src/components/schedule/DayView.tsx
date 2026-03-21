@@ -4,7 +4,6 @@ import { Box, Typography, Paper, Tooltip, Avatar } from "@mui/material";
 import {
   STATIONS,
   TIMELINE_START_HOUR,
-  TIMELINE_END_HOUR,
   TIMELINE_HOURS,
   SHIFT_COLORS,
   generateTimelineShifts,

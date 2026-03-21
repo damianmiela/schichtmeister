@@ -18,7 +18,6 @@ import {
   SHIFT_CODE_MAP,
   SHIFT_CODE_COLORS,
   generateMonthlyRoster,
-  getEmployeeById,
   WEEKDAYS,
   ShiftCode,
 } from "@/lib/schedule-data";
@@ -29,11 +28,6 @@ interface MonthTableViewProps {
   selectedStation: string | null;
   onDayClick: (date: Date) => void;
 }
-
-const MONTH_NAMES = [
-  "Januar", "Februar", "März", "April", "Mai", "Juni",
-  "Juli", "August", "September", "Oktober", "November", "Dezember",
-];
 
 export default function MonthTableView({
   year,

@@ -6,7 +6,6 @@ import {
   Typography,
   Avatar,
   Chip,
-  Button,
   IconButton,
 } from "@mui/material";
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
