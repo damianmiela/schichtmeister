@@ -1,0 +1,73 @@
+#!/bin/bash
+# SchichtMeister deploy hook — install on VPS:
+#   cp deploy/post-receive /opt/schichtmeister-deploy.git/hooks/post-receive && chmod +x /opt/schichtmeister-deploy.git/hooks/post-receive
+# Requires: .env valid for `source` (same as today), or set DATABASE_URL explicitly.
+set -eo pipefail
+
+APP_DIR="/srv/schichtmeister"
+GIT_DIR="/opt/schichtmeister-deploy.git"
+COMPOSE_FILE="docker-compose.prod.yml"
+export DOCKER_BUILDKIT=1
+export COMPOSE_DOCKER_CLI_BUILD=1
+
+echo ">>> SchichtMeister Deploy start: $(date)"
+
+while read -r oldrev newrev refname; do
+  LAST_REF="$refname"
+done
+
+if [[ "$LAST_REF" == "refs/heads/main" ]] || [[ "$LAST_REF" == "refs/heads/master" ]]; then
+  echo ">>> Deploying to $APP_DIR"
+
+  cd "$APP_DIR"
+
+  # Backup .env before checkout (production secrets)
+  if [[ -f .env ]]; then
+    cp .env /tmp/schichtmeister-env-backup
+  fi
+
+  git --work-tree="$APP_DIR" --git-dir="$GIT_DIR" checkout -f main 2>/dev/null \
+    || git --work-tree="$APP_DIR" --git-dir="$GIT_DIR" checkout -f master
+
+  if [[ -f /tmp/schichtmeister-env-backup ]]; then
+    cp /tmp/schichtmeister-env-backup .env
+    rm -f /tmp/schichtmeister-env-backup
+  fi
+
+  # Load DB URL for Prisma (compose interpolates DATABASE_URL; .env may only set POSTGRES_*)
+  set -a
+  # shellcheck disable=SC1091
+  source .env
+  set +a
+  if [[ -z "${DATABASE_URL:-}" ]]; then
+    export DATABASE_URL="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@schichtmeister-postgres:5432/${POSTGRES_DB}"
+  fi
+
+  echo ">>> Ensuring Postgres is up..."
+  docker compose -f "$COMPOSE_FILE" up -d schichtmeister-postgres
+  echo ">>> Waiting for Postgres health..."
+  for _ in $(seq 1 60); do
+    st="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' schichtmeister-postgres 2>/dev/null || echo missing)"
+    if [[ "$st" == "healthy" ]]; then
+      break
+    fi
+    sleep 1
+  done
+
+  echo ">>> Running Prisma migrations (migrate deploy)..."
+  docker run --rm \
+    --network schichtmeister_network \
+    -v "${APP_DIR}/prisma:/prisma" \
+    -w /prisma \
+    -e DATABASE_URL \
+    node:20-alpine \
+    sh -lc 'apk add --no-cache openssl libc6-compat >/dev/null && npx -y prisma@5.22.0 migrate deploy --schema=./schema.prisma'
+
+  echo ">>> Building and starting app..."
+  docker compose -f "$COMPOSE_FILE" build app
+  docker compose -f "$COMPOSE_FILE" up -d
+
+  echo ">>> Deploy done: $(date)"
+else
+  echo ">>> Branch $LAST_REF ignored - only main/master deploys."
+fi

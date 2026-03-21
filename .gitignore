@@ -53,8 +53,9 @@ coverage/
 *.log
 *.local
 
-# Deploy scripts (server-specific)
-deploy/
+# Deploy: versioned hook only (keep server-specific files out of deploy/* if added later)
+deploy/*
+!deploy/post-receive
 
 # Local documentation (not deployed)
 _LOCAL_DOCS/
