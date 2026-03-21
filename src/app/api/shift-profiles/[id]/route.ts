@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ContractType, Prisma, ShiftType } from "@prisma/client";
+import { Prisma, ShiftType } from "@prisma/client";
 import { z } from "zod";
-import { contractTypeZ, shiftTypeZ } from "@/lib/api/employeeSchemas";
+import { shiftTypeZ } from "@/lib/api/employeeSchemas";
 import { hhmmSchema, parseJsonBody, plannerJsonErrors } from "@/lib/api/validation";
 import { requirePlanner } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
-import { denormalizedEmployeeFieldsFromShiftProfile } from "@/lib/employeeShiftProfileSync";
 
 const patchSchema = z
   .object({
@@ -15,9 +14,6 @@ const patchSchema = z
     endTime: hhmmSchema.optional(),
     breakMinutes: z.number().int().min(0).max(24 * 60).optional(),
     isActive: z.boolean().optional(),
-    targetHoursPercent: z.number().positive().max(1000).optional(),
-    contractType: contractTypeZ.optional(),
-    miniJobMaxMonthlyHours: z.number().positive().optional().nullable(),
   })
   .refine((o) => Object.keys(o).length > 0, {
     message: "Mindestens ein Feld zum Aktualisieren angeben",
@@ -31,9 +27,6 @@ function serialize(p: {
   endTime: string;
   breakMinutes: number;
   isActive: boolean;
-  targetHoursPercent: { toString(): string } | number;
-  contractType: ContractType;
-  miniJobMaxMonthlyHours: { toString(): string } | null;
   createdAt: Date;
 }) {
   return {
@@ -44,10 +37,6 @@ function serialize(p: {
     endTime: p.endTime,
     breakMinutes: p.breakMinutes,
     isActive: p.isActive,
-    targetHoursPercent: Number(p.targetHoursPercent),
-    contractType: p.contractType,
-    miniJobMaxMonthlyHours:
-      p.miniJobMaxMonthlyHours != null ? Number(p.miniJobMaxMonthlyHours) : null,
     createdAt: p.createdAt.toISOString(),
   };
 }
@@ -81,29 +70,8 @@ export async function PATCH(request: NextRequest, context: RouteCtx) {
         ...(data.endTime !== undefined && { endTime: data.endTime }),
         ...(data.breakMinutes !== undefined && { breakMinutes: data.breakMinutes }),
         ...(data.isActive !== undefined && { isActive: data.isActive }),
-        ...(data.targetHoursPercent !== undefined && {
-          targetHoursPercent: data.targetHoursPercent,
-        }),
-        ...(data.contractType !== undefined && {
-          contractType: data.contractType as ContractType,
-        }),
-        ...(data.miniJobMaxMonthlyHours !== undefined && {
-          miniJobMaxMonthlyHours: data.miniJobMaxMonthlyHours,
-        }),
       },
     });
-
-    const sync = denormalizedEmployeeFieldsFromShiftProfile(profile);
-    await prisma.employee.updateMany({
-      where: { shiftProfileId: id },
-      data: {
-        contractType: sync.contractType,
-        targetHours: sync.targetHours,
-        targetHoursPeriod: sync.targetHoursPeriod,
-        miniJobMaxMonthlyHours: sync.miniJobMaxMonthlyHours,
-      },
-    });
-
     return NextResponse.json({ shiftProfile: serialize(profile) });
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {

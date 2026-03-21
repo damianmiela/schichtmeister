@@ -1,11 +1,8 @@
 import type { ContractType, ShiftType, TargetHoursPeriod } from "@prisma/client";
 
-export type EmployeeShiftProfilePayload = {
+export type EmployeeWorkProfilePayload = {
   id: string;
   name: string;
-  shiftType: string;
-  targetHoursPercent: number;
-  contractType: ContractType;
 };
 
 export type EmployeeRowPayload = {
@@ -16,18 +13,16 @@ export type EmployeeRowPayload = {
   targetHours: number | null;
   targetHoursPeriod: TargetHoursPeriod | null;
   miniJobMaxMonthlyHours: number | null;
-  shiftProfile: EmployeeShiftProfilePayload | null;
+  targetHoursPercent: number | null;
+  workProfile: EmployeeWorkProfilePayload | null;
   qualificationTags: string[];
   preferredShiftTypes: ShiftType[];
   createdAt: string;
 };
 
-type ShiftProfileSlice = {
+type WorkProfileSlice = {
   id: string;
   name: string;
-  shiftType: string;
-  targetHoursPercent: { toString(): string } | number;
-  contractType: ContractType;
 };
 
 export function serializeEmployee(
@@ -39,10 +34,11 @@ export function serializeEmployee(
     targetHours: { toString(): string } | null;
     targetHoursPeriod: TargetHoursPeriod | null;
     miniJobMaxMonthlyHours: { toString(): string } | null;
+    targetHoursPercent: { toString(): string } | null | number | undefined;
     qualificationTags: string[];
     preferredShiftTypes: ShiftType[];
     createdAt: Date;
-    shiftProfile?: ShiftProfileSlice | null;
+    workProfile?: WorkProfileSlice | null;
   },
 ): EmployeeRowPayload {
   return {
@@ -54,15 +50,13 @@ export function serializeEmployee(
     targetHoursPeriod: e.targetHoursPeriod,
     miniJobMaxMonthlyHours:
       e.miniJobMaxMonthlyHours != null ? Number(e.miniJobMaxMonthlyHours) : null,
-    shiftProfile:
-      e.shiftProfile != null
-        ? {
-            id: e.shiftProfile.id,
-            name: e.shiftProfile.name,
-            shiftType: e.shiftProfile.shiftType,
-            targetHoursPercent: Number(e.shiftProfile.targetHoursPercent),
-            contractType: e.shiftProfile.contractType,
-          }
+    targetHoursPercent:
+      e.targetHoursPercent != null && e.targetHoursPercent !== undefined
+        ? Number(e.targetHoursPercent)
+        : null,
+    workProfile:
+      e.workProfile != null
+        ? { id: e.workProfile.id, name: e.workProfile.name }
         : null,
     qualificationTags: e.qualificationTags,
     preferredShiftTypes: e.preferredShiftTypes,

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ContractType, Prisma, ShiftType } from "@prisma/client";
+import { Prisma, ShiftType } from "@prisma/client";
 import { z } from "zod";
-import { contractTypeZ, shiftTypeZ } from "@/lib/api/employeeSchemas";
+import { shiftTypeZ } from "@/lib/api/employeeSchemas";
 import { hhmmSchema, parseJsonBody, plannerJsonErrors } from "@/lib/api/validation";
 import { requirePlanner } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
@@ -13,9 +13,6 @@ const createSchema = z.object({
   endTime: hhmmSchema,
   breakMinutes: z.number().int().min(0).max(24 * 60).optional(),
   isActive: z.boolean().optional(),
-  targetHoursPercent: z.number().positive().max(1000).optional(),
-  contractType: contractTypeZ.optional(),
-  miniJobMaxMonthlyHours: z.number().positive().optional().nullable(),
 });
 
 function serialize(p: {
@@ -26,9 +23,6 @@ function serialize(p: {
   endTime: string;
   breakMinutes: number;
   isActive: boolean;
-  targetHoursPercent: { toString(): string } | number;
-  contractType: ContractType;
-  miniJobMaxMonthlyHours: { toString(): string } | null;
   createdAt: Date;
 }) {
   return {
@@ -39,10 +33,6 @@ function serialize(p: {
     endTime: p.endTime,
     breakMinutes: p.breakMinutes,
     isActive: p.isActive,
-    targetHoursPercent: Number(p.targetHoursPercent),
-    contractType: p.contractType,
-    miniJobMaxMonthlyHours:
-      p.miniJobMaxMonthlyHours != null ? Number(p.miniJobMaxMonthlyHours) : null,
     createdAt: p.createdAt.toISOString(),
   };
 }
@@ -87,12 +77,6 @@ export async function POST(request: NextRequest) {
         endTime: data.endTime,
         breakMinutes: data.breakMinutes ?? 0,
         isActive: data.isActive ?? true,
-        targetHoursPercent: data.targetHoursPercent ?? 100,
-        contractType: (data.contractType ?? ContractType.FULL_TIME) as ContractType,
-        miniJobMaxMonthlyHours:
-          data.miniJobMaxMonthlyHours === undefined
-            ? undefined
-            : data.miniJobMaxMonthlyHours,
       },
     });
     return NextResponse.json({ shiftProfile: serialize(profile) }, { status: 201 });

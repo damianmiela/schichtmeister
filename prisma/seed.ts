@@ -53,6 +53,7 @@ async function main() {
       contractType: ContractType.FULL_TIME,
       targetHours: 40,
       targetHoursPeriod: TargetHoursPeriod.WEEKLY,
+      targetHoursPercent: 100,
       qualificationTags: ["NurseQualified"],
       preferredShiftTypes: [ShiftType.EARLY],
     },
@@ -66,6 +67,7 @@ async function main() {
       contractType: ContractType.PART_TIME,
       targetHours: 30,
       targetHoursPeriod: TargetHoursPeriod.WEEKLY,
+      targetHoursPercent: 75,
       qualificationTags: ["Hilfskraft"],
     },
   });

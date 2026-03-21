@@ -70,11 +70,12 @@ model Facility {
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
 
-  users                 User[]
-  employees             Employee[]
-  shiftProfiles         ShiftProfile[]
-  staffingRequirements  StaffingRequirement[]
-  schedules             Schedule[]
+  users                  User[]
+  employees              Employee[]
+  shiftProfiles          ShiftProfile[]
+  employeeWorkProfiles   EmployeeWorkProfile[]
+  staffingRequirements   StaffingRequirement[]
+  schedules              Schedule[]
 }
 
 model User {
@@ -104,14 +105,15 @@ model Employee {
   targetHours              Decimal?            @db.Decimal(8, 2)
   targetHoursPeriod        TargetHoursPeriod?
   miniJobMaxMonthlyHours   Decimal?            @db.Decimal(8, 2)
-  shiftProfileId           String?
+  targetHoursPercent       Decimal?            @db.Decimal(6, 2)
+  workProfileId            String?
   qualificationTags        String[]            @default([])
   preferredShiftTypes      ShiftType[]         @default([])
   createdAt                DateTime            @default(now())
   updatedAt                DateTime            @updatedAt
 
-  facility     Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
-  shiftProfile ShiftProfile? @relation(fields: [shiftProfileId], references: [id], onDelete: SetNull)
+  facility    Facility             @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  workProfile EmployeeWorkProfile? @relation(fields: [workProfileId], references: [id], onDelete: SetNull)
   user User?
   availability EmployeeAvailability[]
   assignments  Assignment[]
@@ -131,26 +133,37 @@ model EmployeeAvailability {
   @@index([employeeId, date])
 }
 
+model EmployeeWorkProfile {
+  id                     String       @id @default(cuid())
+  facilityId             String
+  name                   String
+  targetHoursPercent     Decimal      @db.Decimal(6, 2)
+  contractType           ContractType
+  miniJobMaxMonthlyHours Decimal?     @db.Decimal(8, 2)
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
+
+  facility  Facility   @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  employees Employee[]
+
+  @@unique([facilityId, name])
+}
+
 model ShiftProfile {
-  id                       String       @id @default(cuid())
-  facilityId               String
-  name                     String
-  shiftType                ShiftType
-  startTime                String
-  endTime                  String
-  breakMinutes             Int          @default(0)
-  isActive                 Boolean      @default(true)
-  // Soll-Stunden als %-Anteil einer 40h-Vollzeit-Woche (100 = 40h/Woche, 75 = 30h).
-  targetHoursPercent       Decimal      @default(100) @db.Decimal(6, 2)
-  contractType             ContractType @default(FULL_TIME)
-  miniJobMaxMonthlyHours   Decimal?     @db.Decimal(8, 2)
-  createdAt                DateTime     @default(now())
-  updatedAt                DateTime     @updatedAt
+  id            String    @id @default(cuid())
+  facilityId    String
+  name          String
+  shiftType     ShiftType
+  startTime     String
+  endTime       String
+  breakMinutes  Int       @default(0)
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   facility    Facility     @relation(fields: [facilityId], references: [id], onDelete: Cascade)
   assignments Assignment[]
   wishes      Wish[]
-  employees   Employee[]
 
   @@unique([facilityId, name])
 }

@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState } from "react";
 import MainLayout from "@/components/layout/MainLayout";
 import { ApiError, fetchJson } from "@/lib/api/fetchJson";
-import { REFERENCE_FULL_TIME_WEEKLY_HOURS } from "@/lib/employeeShiftProfileSync";
 import {
   Box,
   Card,
@@ -30,7 +29,6 @@ import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import { shiftTypeLabel } from "@/lib/schedule/viewUtils";
 
-type ContractType = "FULL_TIME" | "PART_TIME" | "MINI_JOB";
 type ShiftType = "EARLY" | "LATE" | "NIGHT";
 
 type ShiftProfile = {
@@ -41,9 +39,6 @@ type ShiftProfile = {
   endTime: string;
   breakMinutes: number;
   isActive: boolean;
-  targetHoursPercent: number;
-  contractType: ContractType;
-  miniJobMaxMonthlyHours: number | null;
 };
 
 const TYPE_BORDER: Record<string, string> = {
@@ -51,18 +46,6 @@ const TYPE_BORDER: Record<string, string> = {
   LATE: "#2196f3",
   NIGHT: "#9c27b0",
 };
-
-const CONTRACT_LABELS: Record<ContractType, string> = {
-  FULL_TIME: "Vollzeit",
-  PART_TIME: "Teilzeit",
-  MINI_JOB: "Mini-Job",
-};
-
-function weeklyHoursFromPercent(percent: number): string {
-  const h = (percent / 100) * REFERENCE_FULL_TIME_WEEKLY_HOURS;
-  const rounded = Math.round(h * 100) / 100;
-  return String(rounded).replace(".", ",");
-}
 
 export default function ShiftProfilesPage() {
   const [profiles, setProfiles] = useState<ShiftProfile[]>([]);
@@ -78,9 +61,6 @@ export default function ShiftProfilesPage() {
   const [startTime, setStartTime] = useState("06:00");
   const [endTime, setEndTime] = useState("14:30");
   const [breakMinutes, setBreakMinutes] = useState("30");
-  const [targetHoursPercent, setTargetHoursPercent] = useState("100");
-  const [contractType, setContractType] = useState<ContractType>("FULL_TIME");
-  const [miniJobMaxMonthlyHours, setMiniJobMaxMonthlyHours] = useState("");
   const [isActive, setIsActive] = useState(true);
   const [deleteTarget, setDeleteTarget] = useState<ShiftProfile | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -121,9 +101,6 @@ export default function ShiftProfilesPage() {
     setStartTime("06:00");
     setEndTime("14:30");
     setBreakMinutes("30");
-    setTargetHoursPercent("100");
-    setContractType("FULL_TIME");
-    setMiniJobMaxMonthlyHours("");
     setIsActive(true);
   };
 
@@ -140,73 +117,31 @@ export default function ShiftProfilesPage() {
     setStartTime(p.startTime);
     setEndTime(p.endTime);
     setBreakMinutes(String(p.breakMinutes));
-    setTargetHoursPercent(
-      Number.isInteger(p.targetHoursPercent)
-        ? String(p.targetHoursPercent)
-        : String(p.targetHoursPercent).replace(".", ","),
-    );
-    setContractType(p.contractType);
-    setMiniJobMaxMonthlyHours(
-      p.miniJobMaxMonthlyHours != null
-        ? String(p.miniJobMaxMonthlyHours).replace(".", ",")
-        : "",
-    );
     setIsActive(p.isActive);
     setDialogOpen(true);
   };
 
-  const parsePercent = (): { ok: true; value: number } | { ok: false; message: string } => {
-    const raw = targetHoursPercent.trim().replace(",", ".");
-    const n = Number(raw);
-    if (!Number.isFinite(n) || n <= 0 || n > 1000) {
-      return { ok: false, message: "Soll-Prozent: Zahl zwischen 0 und 1000 (üblich: 100)." };
-    }
-    return { ok: true, value: n };
-  };
-
   const submitProfile = async () => {
     setFormError(null);
-    const pct = parsePercent();
-    if (!pct.ok) {
-      setFormError(pct.message);
-      return;
-    }
     const br = breakMinutes.trim();
     const bm = parseInt(br, 10);
     if (br === "" || !Number.isFinite(bm) || bm < 0 || bm > 24 * 60) {
       setFormError("Pause: Minuten von 0 bis 1440.");
       return;
     }
-
-    let miniJobNum: number | null = null;
-    if (contractType === "MINI_JOB") {
-      const mj = miniJobMaxMonthlyHours.trim();
-      if (mj) {
-        const n = Number(mj.replace(",", "."));
-        if (!Number.isFinite(n) || n <= 0) {
-          setFormError("Mini-Job: gültige Max-Stunden/Monat eingeben.");
-          return;
-        }
-        miniJobNum = n;
-      }
+    if (!name.trim()) {
+      setFormError("Name ist erforderlich.");
+      return;
     }
 
-    const body: Record<string, unknown> = {
+    const body = {
       name: name.trim(),
       shiftType,
       startTime,
       endTime,
       breakMinutes: bm,
       isActive,
-      targetHoursPercent: pct.value,
-      contractType,
-      miniJobMaxMonthlyHours: contractType === "MINI_JOB" ? miniJobNum : null,
     };
-
-    if (!name.trim()) {
-      setFormError("Name ist erforderlich.");
-      return;
-    }
 
     setSaving(true);
     try {
@@ -306,8 +241,8 @@ export default function ShiftProfilesPage() {
           {profiles.length === 0 ? (
             <Grid size={{ xs: 12 }}>
               <Typography color="text.secondary">
-                Noch keine Schichtprofile. Legen Sie eines an, um Zeiten und Soll-Prozent zu
-                definieren; Mitarbeiter können optional ein Profil zugewiesen bekommen.
+                Noch keine Schichtprofile. Diese definieren nur Schichttyp, Zeiten und Pause — für
+                Soll-Stunden und Vertrag nutzen Sie die Mitarbeiter-Arbeitszeit-Vorlagen.
               </Typography>
             </Grid>
           ) : (
@@ -367,22 +302,8 @@ export default function ShiftProfilesPage() {
                       </Typography>
                     </Box>
 
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
-                      Pause {profile.breakMinutes} min
-                    </Typography>
-                    <Typography variant="body2" sx={{ mb: 0.5 }}>
-                      <strong>{profile.targetHoursPercent}%</strong> Soll
-                      <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>
-                        (≈ {weeklyHoursFromPercent(profile.targetHoursPercent)} h/Woche bei{" "}
-                        {REFERENCE_FULL_TIME_WEEKLY_HOURS}h Referenz)
-                      </Typography>
-                    </Typography>
                     <Typography variant="body2" color="text.secondary">
-                      {CONTRACT_LABELS[profile.contractType]}
-                      {profile.contractType === "MINI_JOB" &&
-                        profile.miniJobMaxMonthlyHours != null && (
-                          <span> · max. {profile.miniJobMaxMonthlyHours} h/Monat</span>
-                        )}
+                      Pause {profile.breakMinutes} min
                     </Typography>
 
                     <Box sx={{ mt: 2 }}>
@@ -463,41 +384,11 @@ export default function ShiftProfilesPage() {
             fullWidth
             disabled={saving}
           />
-          <TextField
-            label="Soll-Stunden (Prozent)"
-            value={targetHoursPercent}
-            onChange={(e) => setTargetHoursPercent(e.target.value)}
-            fullWidth
-            disabled={saving}
-            helperText={`Bezug: ${REFERENCE_FULL_TIME_WEEKLY_HOURS}h/Woche = 100 % (z. B. 75 % ≈ ${weeklyHoursFromPercent(75)} h/Woche)`}
-          />
-          <TextField
-            select
-            label="Vertragsart (für Planung)"
-            value={contractType}
-            onChange={(e) => setContractType(e.target.value as ContractType)}
-            fullWidth
-            disabled={saving}
-          >
-            <MenuItem value="FULL_TIME">Vollzeit</MenuItem>
-            <MenuItem value="PART_TIME">Teilzeit</MenuItem>
-            <MenuItem value="MINI_JOB">Mini-Job</MenuItem>
-          </TextField>
-          {contractType === "MINI_JOB" && (
-            <TextField
-              label="Max. Stunden pro Monat (optional)"
-              value={miniJobMaxMonthlyHours}
-              onChange={(e) => setMiniJobMaxMonthlyHours(e.target.value)}
-              fullWidth
-              disabled={saving}
-              helperText="Leer = Einrichtungs-Standard bei der Planprüfung"
-            />
-          )}
           <FormControlLabel
             control={
               <Switch checked={isActive} onChange={(e) => setIsActive(e.target.checked)} disabled={saving} />
             }
-            label="Profil aktiv (wird bei automatischer Planung berücksichtigt)"
+            label="Profil aktiv"
           />
         </DialogContent>
         <DialogActions>
@@ -524,7 +415,7 @@ export default function ShiftProfilesPage() {
         <DialogContent>
           <Typography>
             {deleteTarget
-              ? `„${deleteTarget.name}“ löschen? Die Zuordnung bei Mitarbeitern wird entfernt. Löschen ist nur möglich, wenn das Profil in keinem Dienstplan mehr vergeben ist.`
+              ? `„${deleteTarget.name}“ löschen? Nur möglich, wenn das Profil in keinem Dienstplan mehr vergeben ist.`
               : ""}
           </Typography>
         </DialogContent>

@@ -1,16 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ContractType, TargetHoursPeriod } from "@prisma/client";
 import { employeeCreateSchema } from "@/lib/api/employeeSchemas";
+import { resolveContractForCreate } from "@/lib/api/employeeContractResolve";
 import { serializeEmployee } from "@/lib/api/employeeSerialize";
 import { parseJsonBody, plannerJsonErrors } from "@/lib/api/validation";
 import { requirePlanner } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
-import {
-  defaultEmployeeFieldsWithoutProfile,
-  denormalizedEmployeeFieldsFromShiftProfile,
-} from "@/lib/employeeShiftProfileSync";
 
-const employeeInclude = { shiftProfile: true } as const;
+const employeeInclude = { workProfile: true } as const;
 
 export async function GET(request: NextRequest) {
   const { session, error } = await requirePlanner();
@@ -69,55 +65,29 @@ export async function POST(request: NextRequest) {
   try {
     const data = parsed.data;
     const facilityId = session!.user.facilityId;
-    const shiftProfileId = data.shiftProfileId ?? null;
 
-    type ContractBlock = {
-      contractType: ContractType;
-      targetHours: number | null;
-      targetHoursPeriod: TargetHoursPeriod | null;
-      miniJobMaxMonthlyHours: number | null;
-    };
-
-    let contractBlock: ContractBlock;
-
-    if (shiftProfileId) {
-      const prof = await prisma.shiftProfile.findFirst({
-        where: { id: shiftProfileId, facilityId },
-      });
-      if (!prof) {
-        return NextResponse.json(
-          { error: "Schichtprofil nicht gefunden." },
-          { status: 400 },
-        );
-      }
-      contractBlock = denormalizedEmployeeFieldsFromShiftProfile(prof);
-    } else {
-      const def = defaultEmployeeFieldsWithoutProfile();
-      contractBlock = {
-        contractType: (data.contractType ?? def.contractType) as ContractType,
-        targetHours: data.targetHours ?? def.targetHours ?? null,
-        targetHoursPeriod:
-          data.targetHours != null
-            ? (data.targetHoursPeriod as TargetHoursPeriod | null) ??
-              TargetHoursPeriod.WEEKLY
-            : def.targetHoursPeriod ?? null,
-        miniJobMaxMonthlyHours:
-          data.miniJobMaxMonthlyHours !== undefined
-            ? data.miniJobMaxMonthlyHours
-            : def.miniJobMaxMonthlyHours ?? null,
-      };
+    const resolved = await resolveContractForCreate(facilityId, {
+      workProfileId: data.workProfileId,
+      contractType: data.contractType,
+      targetHoursPercent: data.targetHoursPercent,
+      miniJobMaxMonthlyHours: data.miniJobMaxMonthlyHours,
+    });
+    if (!resolved.ok) {
+      return NextResponse.json({ error: resolved.error }, { status: resolved.status });
     }
+    const { block, workProfileConnectId } = resolved;
 
     const employee = await prisma.employee.create({
       data: {
         facilityId,
         firstName: data.firstName.trim(),
         lastName: data.lastName.trim(),
-        shiftProfileId,
-        contractType: contractBlock.contractType,
-        targetHours: contractBlock.targetHours ?? undefined,
-        targetHoursPeriod: contractBlock.targetHoursPeriod ?? undefined,
-        miniJobMaxMonthlyHours: contractBlock.miniJobMaxMonthlyHours ?? undefined,
+        contractType: block.contractType,
+        targetHours: block.targetHours ?? undefined,
+        targetHoursPeriod: block.targetHoursPeriod ?? undefined,
+        miniJobMaxMonthlyHours: block.miniJobMaxMonthlyHours ?? undefined,
+        targetHoursPercent: block.targetHoursPercent ?? undefined,
+        workProfileId: workProfileConnectId ?? undefined,
         qualificationTags: data.qualificationTags ?? [],
         preferredShiftTypes: data.preferredShiftTypes ?? [],
       },

@@ -1,17 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
-import { ContractType, TargetHoursPeriod } from "@prisma/client";
+import { ContractType } from "@prisma/client";
+import { resolveContractForPatch } from "@/lib/api/employeeContractResolve";
 import { employeePatchSchema } from "@/lib/api/employeeSchemas";
 import { serializeEmployee } from "@/lib/api/employeeSerialize";
 import { parseJsonBody, plannerJsonErrors } from "@/lib/api/validation";
 import { requirePlanner } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
-import {
-  defaultEmployeeFieldsWithoutProfile,
-  denormalizedEmployeeFieldsFromShiftProfile,
-} from "@/lib/employeeShiftProfileSync";
 
-const employeeInclude = { shiftProfile: true } as const;
+const employeeInclude = { workProfile: true } as const;
 
 type RouteCtx = { params: Promise<{ id: string }> };
 
@@ -49,8 +46,6 @@ export async function PATCH(request: NextRequest, context: RouteCtx) {
   if (!parsed.ok) return parsed.response;
 
   const data = parsed.data;
-  const hasProfile = existing.shiftProfileId != null;
-  const linkChange = data.shiftProfileId !== undefined;
 
   const updateData: Prisma.EmployeeUpdateInput = {};
 
@@ -63,42 +58,34 @@ export async function PATCH(request: NextRequest, context: RouteCtx) {
     updateData.preferredShiftTypes = data.preferredShiftTypes;
   }
 
-  if (linkChange) {
-    if (data.shiftProfileId === null) {
-      updateData.shiftProfile = { disconnect: true };
-      const d = defaultEmployeeFieldsWithoutProfile();
-      updateData.contractType = d.contractType;
-      updateData.targetHours = d.targetHours;
-      updateData.targetHoursPeriod = d.targetHoursPeriod;
-      updateData.miniJobMaxMonthlyHours = d.miniJobMaxMonthlyHours;
-    } else {
-      const prof = await prisma.shiftProfile.findFirst({
-        where: { id: data.shiftProfileId, facilityId },
-      });
-      if (!prof) {
-        return NextResponse.json(
-          { error: "Schichtprofil nicht gefunden." },
-          { status: 400 },
-        );
-      }
-      updateData.shiftProfile = { connect: { id: prof.id } };
-      const d = denormalizedEmployeeFieldsFromShiftProfile(prof);
-      updateData.contractType = d.contractType;
-      updateData.targetHours = d.targetHours;
-      updateData.targetHoursPeriod = d.targetHoursPeriod;
-      updateData.miniJobMaxMonthlyHours = d.miniJobMaxMonthlyHours;
-    }
-  } else if (!hasProfile) {
-    if (data.contractType !== undefined) {
-      updateData.contractType = data.contractType as ContractType;
-    }
-    if (data.targetHours !== undefined) updateData.targetHours = data.targetHours;
-    if (data.targetHoursPeriod !== undefined) {
-      updateData.targetHoursPeriod = data.targetHoursPeriod as TargetHoursPeriod | null;
-    }
-    if (data.miniJobMaxMonthlyHours !== undefined) {
-      updateData.miniJobMaxMonthlyHours = data.miniJobMaxMonthlyHours;
-    }
+  const contractRes = await resolveContractForPatch(
+    facilityId,
+    {
+      workProfileId: existing.workProfileId,
+      contractType: existing.contractType as ContractType,
+      targetHoursPercent: existing.targetHoursPercent,
+      miniJobMaxMonthlyHours: existing.miniJobMaxMonthlyHours,
+    },
+    {
+      workProfileId: data.workProfileId,
+      contractType: data.contractType,
+      targetHoursPercent: data.targetHoursPercent,
+      miniJobMaxMonthlyHours: data.miniJobMaxMonthlyHours,
+    },
+  );
+  if (!contractRes.ok) {
+    return NextResponse.json({ error: contractRes.error }, { status: contractRes.status });
+  }
+
+  if (contractRes.workProfile != null) {
+    updateData.workProfile = contractRes.workProfile;
+  }
+  if (contractRes.block) {
+    updateData.contractType = contractRes.block.contractType;
+    updateData.targetHours = contractRes.block.targetHours;
+    updateData.targetHoursPeriod = contractRes.block.targetHoursPeriod;
+    updateData.miniJobMaxMonthlyHours = contractRes.block.miniJobMaxMonthlyHours;
+    updateData.targetHoursPercent = contractRes.block.targetHoursPercent;
   }
 
   try {
