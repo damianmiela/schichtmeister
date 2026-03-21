@@ -35,7 +35,7 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import { ApiError, fetchJson } from "@/lib/api/fetchJson";
 import { REFERENCE_FULL_TIME_MONTHLY_HOURS } from "@/lib/employeeContractDenorm";
 
-type ContractType = "FULL_TIME" | "PART_TIME" | "MINI_JOB";
+type ContractType = "FULL_TIME" | "PART_TIME" | "MINI_JOB" | "AUSBILDUNG";
 
 interface EmployeeRow {
   id: string;
@@ -54,6 +54,7 @@ const CONTRACT_LABELS: Record<ContractType, string> = {
   FULL_TIME: "Vollzeit",
   PART_TIME: "Teilzeit",
   MINI_JOB: "Mini-Job",
+  AUSBILDUNG: "Ausbildung",
 };
 
 function monthlyHoursLabel(percent: number): string {
@@ -188,14 +189,11 @@ export default function EmployeesPage() {
       }
     }
 
-    let pct: number | null = null;
-    if (contractType !== "MINI_JOB") {
-      const p = parsePercentInput(percentStr);
-      if (percentStr.trim() !== "" && p == null) {
-        return { ok: false, message: "Soll-Prozent: gültige Zahl eingeben (oder leer lassen)." };
-      }
-      pct = p;
+    const p = parsePercentInput(percentStr);
+    if (percentStr.trim() !== "" && p == null) {
+      return { ok: false, message: "Soll-Prozent: gültige Zahl eingeben (oder leer lassen)." };
     }
+    const pct = p;
 
     const body: Record<string, unknown> = {
       firstName: firstName.trim(),
@@ -281,21 +279,25 @@ export default function EmployeesPage() {
   };
 
   const contractSummary = (e: EmployeeRow) => {
-    if (e.contractType === "MINI_JOB") {
-      return e.miniJobMaxMonthlyHours != null
-        ? `Mini-Job · max. ${e.miniJobMaxMonthlyHours} h/Monat`
-        : "Mini-Job";
-    }
+    const label =
+      CONTRACT_LABELS[e.contractType as ContractType] ?? e.contractType;
+    const bits: string[] = [];
     if (e.targetHoursPercent != null) {
-      return `${e.targetHoursPercent}% · ≈ ${monthlyHoursLabel(e.targetHoursPercent)} h/Monat (${String(REFERENCE_FULL_TIME_MONTHLY_HOURS).replace(".", ",")} h = 100%)`;
+      bits.push(
+        `${e.targetHoursPercent}% · ≈ ${monthlyHoursLabel(e.targetHoursPercent)} h/Monat`,
+      );
+    } else if (e.targetHours != null && e.targetHoursPeriod === "MONTHLY") {
+      bits.push(`${e.targetHours} h/Monat`);
+    } else if (e.targetHours != null && e.targetHoursPeriod === "WEEKLY") {
+      bits.push(`${e.targetHours} h/Woche`);
     }
-    if (e.targetHours != null && e.targetHoursPeriod === "MONTHLY") {
-      return `${e.targetHours} h/Monat`;
+    if (e.contractType === "MINI_JOB" && e.miniJobMaxMonthlyHours != null) {
+      bits.push(`max. ${e.miniJobMaxMonthlyHours} h/Monat (Kappung)`);
     }
-    if (e.targetHours != null && e.targetHoursPeriod === "WEEKLY") {
-      return `${e.targetHours} h/Woche`;
+    if (bits.length === 0) {
+      return `${label} · kein Soll-%`;
     }
-    return `${CONTRACT_LABELS[e.contractType]} · kein Soll-%`;
+    return `${label} · ${bits.join(" · ")} · Bezug 100 % = ${String(REFERENCE_FULL_TIME_MONTHLY_HOURS).replace(".", ",")} h/Monat`;
   };
 
   return (
@@ -433,7 +435,7 @@ export default function EmployeesPage() {
         <DialogTitle>
           {editingId ? "Mitarbeiter bearbeiten" : "Mitarbeiter hinzufügen"}
         </DialogTitle>
-        <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 2, pt: 1 }}>
+        <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 2, pt: 2 }}>
           {formError && <Alert severity="error">{formError}</Alert>}
           <TextField
             label="Vorname"
@@ -442,6 +444,7 @@ export default function EmployeesPage() {
             fullWidth
             autoFocus
             disabled={saving}
+            sx={{ mt: 0.5 }}
           />
           <TextField
             label="Nachname"
@@ -462,18 +465,17 @@ export default function EmployeesPage() {
             <MenuItem value="FULL_TIME">Vollzeit</MenuItem>
             <MenuItem value="PART_TIME">Teilzeit</MenuItem>
             <MenuItem value="MINI_JOB">Mini-Job</MenuItem>
+            <MenuItem value="AUSBILDUNG">Ausbildung</MenuItem>
           </TextField>
 
-          {contractType !== "MINI_JOB" && (
-            <TextField
-              label="Soll-Stunden (Prozent)"
-              value={percentStr}
-              onChange={(e) => setPercentStr(e.target.value)}
-              fullWidth
-              disabled={saving}
-              helperText={`Bezug: ${String(REFERENCE_FULL_TIME_MONTHLY_HOURS).replace(".", ",")} h/Monat = 100 %. Leer = kein monatliches Soll im Planungsbonus.`}
-            />
-          )}
+          <TextField
+            label="Soll-Stunden (Prozent)"
+            value={percentStr}
+            onChange={(e) => setPercentStr(e.target.value)}
+            fullWidth
+            disabled={saving}
+            helperText={`Bezug: ${String(REFERENCE_FULL_TIME_MONTHLY_HOURS).replace(".", ",")} h/Monat = 100 %. Leer = kein monatliches Soll im Planungsbonus.`}
+          />
 
           {contractType === "MINI_JOB" && (
             <TextField

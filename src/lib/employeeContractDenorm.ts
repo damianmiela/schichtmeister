@@ -19,26 +19,19 @@ export type DenormalizedEmployeeContract = {
 };
 
 /**
- * Maps contract + Soll % (+ optional mini-job cap) to stored employee columns
- * (generator and rules still read targetHours / period / contractType).
+ * Maps contract + Soll % (+ optional mini-job monthly cap for MINI_JOB) to stored columns.
  */
 export function denormalizedContractFromInputs(
   contractType: ContractType,
   targetHoursPercent: number | null | undefined,
   miniJobMaxMonthlyHours: number | null | undefined,
 ): DenormalizedEmployeeContract {
-  const mini =
-    miniJobMaxMonthlyHours === undefined ? null : miniJobMaxMonthlyHours;
-
-  if (contractType === CT.MINI_JOB) {
-    return {
-      contractType,
-      targetHours: null,
-      targetHoursPeriod: null,
-      miniJobMaxMonthlyHours: mini,
-      targetHoursPercent: null,
-    };
-  }
+  const miniOnlyForMiniJob =
+    contractType === CT.MINI_JOB
+      ? miniJobMaxMonthlyHours === undefined
+        ? null
+        : miniJobMaxMonthlyHours
+      : null;
 
   const pct =
     targetHoursPercent === undefined ||
@@ -46,6 +39,25 @@ export function denormalizedContractFromInputs(
     targetHoursPercent === 0
       ? null
       : targetHoursPercent;
+
+  if (contractType === CT.MINI_JOB) {
+    if (pct == null) {
+      return {
+        contractType,
+        targetHours: null,
+        targetHoursPeriod: null,
+        miniJobMaxMonthlyHours: miniOnlyForMiniJob,
+        targetHoursPercent: null,
+      };
+    }
+    return {
+      contractType,
+      targetHours: monthlyTargetHoursFromPercent(pct),
+      targetHoursPeriod: TargetHoursPeriod.MONTHLY,
+      miniJobMaxMonthlyHours: miniOnlyForMiniJob,
+      targetHoursPercent: pct,
+    };
+  }
 
   if (pct == null) {
     return {

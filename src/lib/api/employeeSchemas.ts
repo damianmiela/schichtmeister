@@ -1,6 +1,11 @@
 import { z } from "zod";
 
-export const contractTypeZ = z.enum(["FULL_TIME", "PART_TIME", "MINI_JOB"]);
+export const contractTypeZ = z.enum([
+  "FULL_TIME",
+  "PART_TIME",
+  "MINI_JOB",
+  "AUSBILDUNG",
+]);
 export const targetHoursPeriodZ = z.enum(["WEEKLY", "MONTHLY"]);
 export const shiftTypeZ = z.enum(["EARLY", "LATE", "NIGHT"]);
 

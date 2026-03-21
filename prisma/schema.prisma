@@ -20,6 +20,7 @@ enum ContractType {
   FULL_TIME
   PART_TIME
   MINI_JOB
+  AUSBILDUNG
 }
 
 enum ShiftType {

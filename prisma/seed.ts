@@ -7,6 +7,7 @@ import {
   ScheduleStatus,
 } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { monthlyTargetHoursFromPercent } from "../src/lib/employeeContractDenorm";
 
 const prisma = new PrismaClient();
 
@@ -78,6 +79,9 @@ async function main() {
       firstName: "Chris",
       lastName: "Weber",
       contractType: ContractType.MINI_JOB,
+      targetHours: monthlyTargetHoursFromPercent(50),
+      targetHoursPeriod: TargetHoursPeriod.MONTHLY,
+      targetHoursPercent: 50,
       miniJobMaxMonthlyHours: 80,
       qualificationTags: ["Hilfskraft"],
     },

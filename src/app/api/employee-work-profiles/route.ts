@@ -8,7 +8,6 @@ import { prisma } from "@/lib/db/prisma";
 
 const createSchema = z.object({
   name: z.string().min(1).max(120),
-  /** For MINI_JOB templates stored as 0 (not used for Soll). */
   targetHoursPercent: z.number().min(0).max(1000),
   contractType: contractTypeZ,
   miniJobMaxMonthlyHours: z.number().positive().optional().nullable(),
