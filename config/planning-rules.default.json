@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "maxConsecutiveNights": {
+    "enabled": false
+  },
+  "rules": [
+    { "id": "noOverlap", "enabled": true },
+    { "id": "minRestBetweenShifts", "enabled": true },
+    { "id": "miniJobMonthlyHours", "enabled": true },
+    { "id": "staffingMinimum", "enabled": true },
+    { "id": "qualificationCoverage", "enabled": true },
+    { "id": "wishFulfillment", "enabled": false },
+    { "id": "fairnessCounters", "enabled": false },
+    { "id": "targetHoursBalance", "enabled": false }
+  ]
+}
