@@ -1,5 +1,4 @@
-// Prisma schema for SchichtMeister DienstPlanner
-// https://pris.ly/d/prisma-schema
+// Prisma schema — MVP domain (see _LOCAL_DOCS/#MVP_SPEC.md)
 
 generator client {
   provider = "prisma-client-js"
@@ -10,12 +9,242 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Placeholder model for Prisma client generation
-// Full models will be added during feature implementation
-// See MVP_SPEC.md for domain concepts
+enum UserRole {
+  PLANNER
+  EMPLOYEE
+}
+
+enum ContractType {
+  FULL_TIME
+  PART_TIME
+  MINI_JOB
+}
+
+enum ShiftType {
+  EARLY
+  LATE
+  NIGHT
+}
+
+enum ScheduleStatus {
+  DRAFT
+  PUBLISHED
+}
+
+enum TargetHoursPeriod {
+  WEEKLY
+  MONTHLY
+}
+
+enum WishPriority {
+  NORMAL
+  STRONG
+}
+
+enum WishStatus {
+  OPEN
+  FULFILLED
+  NOT_FULFILLED
+}
+
+enum SwapStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+}
+
+model Facility {
+  id                      String   @id @default(cuid())
+  name                    String
+  minRestHours            Decimal  @default(11) @db.Decimal(4, 2)
+  miniJobMaxMonthlyHours  Decimal  @default(520) @db.Decimal(8, 2)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  users                 User[]
+  employees             Employee[]
+  shiftProfiles         ShiftProfile[]
+  staffingRequirements  StaffingRequirement[]
+  schedules             Schedule[]
+}
 
 model User {
-  id        String   @id @default(cuid())
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  role         UserRole
+  facilityId   String
+  employeeId   String?  @unique
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  facility Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  employee Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+
+  createdAssignments Assignment[] @relation("AssignmentCreatedBy")
+  approvedSwaps      SwapRequest[] @relation("SwapApprovedBy")
+  auditLogs          AuditLog[]
+}
+
+model Employee {
+  id                       String              @id @default(cuid())
+  facilityId               String
+  firstName                String
+  lastName                 String
+  contractType             ContractType
+  targetHours              Decimal?            @db.Decimal(8, 2)
+  targetHoursPeriod        TargetHoursPeriod?
+  miniJobMaxMonthlyHours   Decimal?            @db.Decimal(8, 2)
+  qualificationTags        String[]            @default([])
+  preferredShiftTypes      ShiftType[]         @default([])
+  createdAt                DateTime            @default(now())
+  updatedAt                DateTime            @updatedAt
+
+  facility     Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  user User?
+  availability EmployeeAvailability[]
+  assignments  Assignment[]
+  wishes       Wish[]
+  swapsTo      SwapRequest[] @relation("SwapToEmployee")
+}
+
+model EmployeeAvailability {
+  id         String   @id @default(cuid())
+  employeeId String
+  date       DateTime @db.Date
+  note       String?
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, date])
+  @@index([employeeId, date])
+}
+
+model ShiftProfile {
+  id            String    @id @default(cuid())
+  facilityId    String
+  name          String
+  shiftType     ShiftType
+  startTime     String
+  endTime       String
+  breakMinutes  Int       @default(0)
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  facility    Facility     @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  assignments Assignment[]
+  wishes      Wish[]
+
+  @@unique([facilityId, name])
+}
+
+model StaffingRequirement {
+  id                        String    @id @default(cuid())
+  facilityId                String
+  dayOfWeek                 Int
+  shiftType                 ShiftType
+  minStaffCount             Int
+  requiredQualificationTags String[]  @default([])
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+
+  facility Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+
+  @@index([facilityId, dayOfWeek, shiftType])
+}
+
+model Schedule {
+  id          String           @id @default(cuid())
+  facilityId  String
+  periodStart DateTime         @db.Date
+  periodEnd   DateTime         @db.Date
+  status      ScheduleStatus   @default(DRAFT)
+  publishedAt DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  facility    Facility     @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  assignments Assignment[]
+
+  @@index([facilityId, periodStart, periodEnd])
+}
+
+model Assignment {
+  id              String   @id @default(cuid())
+  scheduleId      String
+  date            DateTime @db.Date
+  shiftProfileId  String
+  employeeId      String
+  createdByUserId String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  schedule     Schedule     @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  shiftProfile ShiftProfile @relation(fields: [shiftProfileId], references: [id], onDelete: Restrict)
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  createdBy    User         @relation("AssignmentCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  swapsFrom    SwapRequest[] @relation("SwapFromAssignment")
+
+  @@index([scheduleId, date])
+  @@index([employeeId, date])
+}
+
+model Wish {
+  id               String       @id @default(cuid())
+  employeeId       String
+  date             DateTime     @db.Date
+  shiftType        ShiftType?
+  shiftProfileId   String?
+  priority         WishPriority @default(NORMAL)
+  status           WishStatus   @default(OPEN)
+  note             String?
+  decisionReason   String?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  employee     Employee      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  shiftProfile ShiftProfile? @relation(fields: [shiftProfileId], references: [id], onDelete: SetNull)
+
+  @@index([employeeId, date])
+  @@index([date, status])
+}
+
+model SwapRequest {
+  id                     String     @id @default(cuid())
+  fromAssignmentId       String     @unique
+  toEmployeeId           String?
+  status                 SwapStatus @default(REQUESTED)
+  plannerDecisionReason  String?
+  approvedByUserId       String?
+  approvedAt             DateTime?
+  createdAt              DateTime   @default(now())
+  updatedAt              DateTime   @updatedAt
+
+  fromAssignment Assignment @relation("SwapFromAssignment", fields: [fromAssignmentId], references: [id], onDelete: Cascade)
+  toEmployee     Employee?  @relation("SwapToEmployee", fields: [toEmployeeId], references: [id], onDelete: SetNull)
+  approvedBy     User?      @relation("SwapApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+}
+
+model AuditLog {
+  id          String      @id @default(cuid())
+  entityType  String
+  entityId    String
+  action      AuditAction
+  before      Json?
+  after       Json?
+  actorUserId String
+  createdAt   DateTime    @default(now())
+
+  actor User @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
 }
