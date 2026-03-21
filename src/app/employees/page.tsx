@@ -13,6 +13,7 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  TableSortLabel,
   Avatar,
   Chip,
   IconButton,
@@ -57,6 +58,29 @@ const CONTRACT_LABELS: Record<ContractType, string> = {
   AUSBILDUNG: "Ausbildung",
 };
 
+/** Table sort: Vollzeit → Teilzeit → Mini-Job → Ausbildung (asc). */
+const CONTRACT_SORT_ORDER: ContractType[] = [
+  "FULL_TIME",
+  "PART_TIME",
+  "MINI_JOB",
+  "AUSBILDUNG",
+];
+
+const CONTRACT_CHIP_COLOR: Record<
+  ContractType,
+  "success" | "info" | "warning" | "secondary"
+> = {
+  FULL_TIME: "success",
+  PART_TIME: "info",
+  MINI_JOB: "warning",
+  AUSBILDUNG: "secondary",
+};
+
+function contractSortIndex(ct: ContractType): number {
+  const i = CONTRACT_SORT_ORDER.indexOf(ct);
+  return i === -1 ? CONTRACT_SORT_ORDER.length : i;
+}
+
 function monthlyHoursLabel(percent: number): string {
   const h = (percent / 100) * REFERENCE_FULL_TIME_MONTHLY_HOURS;
   const rounded = Math.round(h * 100) / 100;
@@ -69,6 +93,27 @@ function parsePercentInput(raw: string): number | null {
   const n = Number(t);
   if (!Number.isFinite(n) || n <= 0 || n > 1000) return null;
   return n;
+}
+
+/** Hours / cap only (Vertragsart wird separat als Chip angezeigt). */
+function contractHoursDetail(e: EmployeeRow): string | null {
+  const bits: string[] = [];
+  if (e.targetHoursPercent != null) {
+    bits.push(
+      `${e.targetHoursPercent}% · ≈ ${monthlyHoursLabel(e.targetHoursPercent)} h/Monat`,
+    );
+  } else if (e.targetHours != null && e.targetHoursPeriod === "MONTHLY") {
+    bits.push(`${String(e.targetHours).replace(".", ",")} h/Monat`);
+  } else if (e.targetHours != null && e.targetHoursPeriod === "WEEKLY") {
+    bits.push(`${String(e.targetHours).replace(".", ",")} h/Woche`);
+  }
+  if (e.contractType === "MINI_JOB" && e.miniJobMaxMonthlyHours != null) {
+    bits.push(
+      `max. ${String(e.miniJobMaxMonthlyHours).replace(".", ",")} h/Monat (Kappung)`,
+    );
+  }
+  if (bits.length === 0) return null;
+  return bits.join(" · ");
 }
 
 export default function EmployeesPage() {
@@ -88,6 +133,8 @@ export default function EmployeesPage() {
   const [qualificationTags, setQualificationTags] = useState<string[]>([]);
   const [deleteTarget, setDeleteTarget] = useState<EmployeeRow | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [sortKey, setSortKey] = useState<"name" | "contract">("name");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   const qualificationTagOptions = useMemo(() => {
     const s = new Set<string>();
@@ -135,6 +182,46 @@ export default function EmployeesPage() {
       e.qualificationTags.some((t) => t.toLowerCase().includes(q))
     );
   });
+
+  const sortedRows = useMemo(() => {
+    const rows = [...filtered];
+    const nameCmp = (a: EmployeeRow, b: EmployeeRow) => {
+      const an = `${a.lastName} ${a.firstName}`.toLowerCase();
+      const bn = `${b.lastName} ${b.firstName}`.toLowerCase();
+      return an.localeCompare(bn, "de");
+    };
+    rows.sort((a, b) => {
+      if (sortKey === "name") {
+        const c = nameCmp(a, b);
+        return sortDir === "asc" ? c : -c;
+      }
+      const ca = contractSortIndex(a.contractType);
+      const cb = contractSortIndex(b.contractType);
+      if (ca !== cb) {
+        return sortDir === "asc" ? ca - cb : cb - ca;
+      }
+      return nameCmp(a, b);
+    });
+    return rows;
+  }, [filtered, sortKey, sortDir]);
+
+  const toggleNameSort = () => {
+    if (sortKey === "name") {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey("name");
+      setSortDir("asc");
+    }
+  };
+
+  const toggleContractSort = () => {
+    if (sortKey === "contract") {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey("contract");
+      setSortDir("asc");
+    }
+  };
 
   const resetForm = () => {
     setFormError(null);
@@ -278,28 +365,6 @@ export default function EmployeesPage() {
     }
   };
 
-  const contractSummary = (e: EmployeeRow) => {
-    const label =
-      CONTRACT_LABELS[e.contractType as ContractType] ?? e.contractType;
-    const bits: string[] = [];
-    if (e.targetHoursPercent != null) {
-      bits.push(
-        `${e.targetHoursPercent}% · ≈ ${monthlyHoursLabel(e.targetHoursPercent)} h/Monat`,
-      );
-    } else if (e.targetHours != null && e.targetHoursPeriod === "MONTHLY") {
-      bits.push(`${e.targetHours} h/Monat`);
-    } else if (e.targetHours != null && e.targetHoursPeriod === "WEEKLY") {
-      bits.push(`${e.targetHours} h/Woche`);
-    }
-    if (e.contractType === "MINI_JOB" && e.miniJobMaxMonthlyHours != null) {
-      bits.push(`max. ${e.miniJobMaxMonthlyHours} h/Monat (Kappung)`);
-    }
-    if (bits.length === 0) {
-      return `${label} · kein Soll-%`;
-    }
-    return `${label} · ${bits.join(" · ")} · Bezug 100 % = ${String(REFERENCE_FULL_TIME_MONTHLY_HOURS).replace(".", ",")} h/Monat`;
-  };
-
   return (
     <MainLayout title="Mitarbeiter">
       <Card>
@@ -348,14 +413,30 @@ export default function EmployeesPage() {
               <Table>
                 <TableHead>
                   <TableRow>
-                    <TableCell>Mitarbeiter</TableCell>
-                    <TableCell>Arbeitszeit</TableCell>
+                    <TableCell>
+                      <TableSortLabel
+                        active={sortKey === "name"}
+                        direction={sortKey === "name" ? sortDir : "asc"}
+                        onClick={toggleNameSort}
+                      >
+                        Mitarbeiter
+                      </TableSortLabel>
+                    </TableCell>
+                    <TableCell>
+                      <TableSortLabel
+                        active={sortKey === "contract"}
+                        direction={sortKey === "contract" ? sortDir : "asc"}
+                        onClick={toggleContractSort}
+                      >
+                        Arbeitszeit
+                      </TableSortLabel>
+                    </TableCell>
                     <TableCell>Qualifikationen</TableCell>
                     <TableCell align="right">Aktionen</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {filtered.length === 0 ? (
+                  {sortedRows.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={4}>
                         <Typography color="text.secondary" sx={{ py: 2 }}>
@@ -364,7 +445,10 @@ export default function EmployeesPage() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    filtered.map((employee) => (
+                    sortedRows.map((employee) => {
+                      const ct = employee.contractType as ContractType;
+                      const hoursLine = contractHoursDetail(employee);
+                      return (
                       <TableRow key={employee.id} hover>
                         <TableCell>
                           <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
@@ -377,10 +461,18 @@ export default function EmployeesPage() {
                           </Box>
                         </TableCell>
                         <TableCell sx={{ maxWidth: 280 }}>
-                          <Typography variant="body2">{CONTRACT_LABELS[employee.contractType]}</Typography>
-                          <Typography variant="caption" color="text.secondary" display="block">
-                            {contractSummary(employee)}
-                          </Typography>
+                          <Chip
+                            label={CONTRACT_LABELS[ct] ?? ct}
+                            color={CONTRACT_CHIP_COLOR[ct] ?? "default"}
+                            size="small"
+                            variant="filled"
+                            sx={{ fontWeight: 600, mb: hoursLine ? 0.5 : 0 }}
+                          />
+                          {hoursLine ? (
+                            <Typography variant="caption" color="text.secondary" display="block">
+                              {hoursLine}
+                            </Typography>
+                          ) : null}
                         </TableCell>
                         <TableCell>
                           <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
@@ -413,7 +505,8 @@ export default function EmployeesPage() {
                           </IconButton>
                         </TableCell>
                       </TableRow>
-                    ))
+                      );
+                    })
                   )}
                 </TableBody>
               </Table>
