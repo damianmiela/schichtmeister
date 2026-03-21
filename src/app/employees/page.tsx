@@ -31,6 +31,7 @@ import SearchIcon from "@mui/icons-material/Search";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
+import { ApiError, fetchJson } from "@/lib/api/fetchJson";
 
 type ContractType = "FULL_TIME" | "PART_TIME" | "MINI_JOB";
 
@@ -75,16 +76,20 @@ export default function EmployeesPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/employees", { credentials: "include" });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError(typeof data.error === "string" ? data.error : "Laden fehlgeschlagen");
-        setEmployees([]);
-        return;
-      }
+      const data = await fetchJson<{ employees: EmployeeRow[] }>("/api/employees");
       setEmployees(data.employees ?? []);
-    } catch {
-      setError("Netzwerkfehler");
+    } catch (e) {
+      if (e instanceof ApiError) {
+        const msg =
+          e.body &&
+          typeof e.body === "object" &&
+          e.body !== null &&
+          "error" in e.body &&
+          typeof (e.body as { error: unknown }).error === "string"
+            ? (e.body as { error: string }).error
+            : "Laden fehlgeschlagen.";
+        setError(msg);
+      } else setError("Netzwerkfehler");
       setEmployees([]);
     } finally {
       setLoading(false);
@@ -139,21 +144,26 @@ export default function EmployeesPage() {
         body.targetHoursPeriod = "WEEKLY";
       }
 
-      const res = await fetch("/api/employees", {
+      await fetchJson("/api/employees", {
         method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setFormError(typeof data.error === "string" ? data.error : "Speichern fehlgeschlagen");
-        return;
-      }
       setDialogOpen(false);
       await load();
-    } catch {
-      setFormError("Netzwerkfehler");
+    } catch (e) {
+      if (e instanceof ApiError) {
+        const msg =
+          e.body &&
+          typeof e.body === "object" &&
+          e.body !== null &&
+          "error" in e.body &&
+          typeof (e.body as { error: unknown }).error === "string"
+            ? (e.body as { error: string }).error
+            : "Speichern fehlgeschlagen.";
+        setFormError(msg);
+      } else {
+        setFormError("Netzwerkfehler");
+      }
     } finally {
       setSaving(false);
     }

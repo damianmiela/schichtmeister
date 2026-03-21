@@ -1,4 +1,8 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
 import MainLayout from "@/components/layout/MainLayout";
+import { ApiError, fetchJson } from "@/lib/api/fetchJson";
 import {
   Box,
   Card,
@@ -10,14 +14,104 @@ import {
   Button,
   Divider,
   Grid,
+  Alert,
+  CircularProgress,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
 } from "@mui/material";
 import SaveIcon from "@mui/icons-material/Save";
+import { shiftTypeLabel } from "@/lib/schedule/viewUtils";
+
+const DAYS = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
+
+type StaffingRow = {
+  id: string;
+  dayOfWeek: number;
+  shiftType: string;
+  minStaffCount: number;
+  requiredQualificationTags: string[];
+};
 
 export default function SettingsPage() {
+  const [staffing, setStaffing] = useState<StaffingRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [savingId, setSavingId] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetchJson<{ staffingRequirements: StaffingRow[] }>(
+        "/api/staffing-requirements",
+      );
+      setStaffing(res.staffingRequirements);
+      const d: Record<string, string> = {};
+      for (const r of res.staffingRequirements) {
+        d[r.id] = String(r.minStaffCount);
+      }
+      setDraft(d);
+    } catch (e) {
+      if (e instanceof ApiError) {
+        const msg =
+          e.body &&
+          typeof e.body === "object" &&
+          e.body !== null &&
+          "error" in e.body &&
+          typeof (e.body as { error: unknown }).error === "string"
+            ? (e.body as { error: string }).error
+            : "Laden fehlgeschlagen.";
+        setError(msg);
+      } else setError("Netzwerkfehler");
+      setStaffing([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const saveRow = async (id: string) => {
+    const raw = draft[id];
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 0) {
+      setError("Mindestanzahl: gültige Zahl ≥ 0.");
+      return;
+    }
+    setSavingId(id);
+    setError(null);
+    try {
+      await fetchJson(`/api/staffing-requirements/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ minStaffCount: n }),
+      });
+      await load();
+    } catch (e) {
+      if (e instanceof ApiError) {
+        const msg =
+          e.body &&
+          typeof e.body === "object" &&
+          e.body !== null &&
+          "error" in e.body &&
+          typeof (e.body as { error: unknown }).error === "string"
+            ? (e.body as { error: string }).error
+            : "Speichern fehlgeschlagen.";
+        setError(msg);
+      }
+    } finally {
+      setSavingId(null);
+    }
+  };
+
   return (
     <MainLayout title="Einstellungen">
       <Grid container spacing={3}>
-        {/* Facility Settings */}
         <Grid size={{ xs: 12, md: 6 }}>
           <Card>
             <CardContent>
@@ -25,25 +119,13 @@ export default function SettingsPage() {
                 Einrichtung
               </Typography>
               <Divider sx={{ mb: 3 }} />
-
-              <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                <TextField
-                  label="Name der Einrichtung"
-                  defaultValue="Demo-Einrichtung"
-                  fullWidth
-                />
-                <TextField
-                  label="Adresse"
-                  defaultValue="Demostraße 1, 12345 Musterstadt"
-                  fullWidth
-                />
-                <TextField label="Telefon" defaultValue="+49 123 456789" fullWidth />
-              </Box>
+              <Typography variant="body2" color="text.secondary">
+                Name und Adresse werden in einer späteren Version über die API gepflegt.
+              </Typography>
             </CardContent>
           </Card>
         </Grid>
 
-        {/* Rules Settings */}
         <Grid size={{ xs: 12, md: 6 }}>
           <Card>
             <CardContent>
@@ -51,91 +133,84 @@ export default function SettingsPage() {
                 Regeln
               </Typography>
               <Divider sx={{ mb: 3 }} />
-
-              <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                <TextField
-                  label="Mindest-Ruhezeit (Stunden)"
-                  type="number"
-                  defaultValue="11"
-                  helperText="Gesetzliche Mindestruhezeit zwischen Schichten"
-                />
-                <TextField
-                  label="Mini-Job Max. Stunden/Monat"
-                  type="number"
-                  defaultValue="43"
-                  helperText="Maximale Arbeitszeit für Mini-Jobs"
-                />
-                <FormControlLabel
-                  control={<Switch defaultChecked />}
-                  label="Überlappende Schichten warnen"
-                />
-                <FormControlLabel
-                  control={<Switch defaultChecked />}
-                  label="Unterbesetzung warnen"
-                />
-              </Box>
+              <Typography variant="body2" color="text.secondary" paragraph>
+                Ruhezeiten und Planungsregeln kommen aus der Konfiguration des Servers. UI zum Bearbeiten
+                folgt.
+              </Typography>
+              <FormControlLabel control={<Switch disabled defaultChecked />} label="Überlappende Schichten warnen" />
+              <FormControlLabel control={<Switch disabled defaultChecked />} label="Unterbesetzung warnen" />
             </CardContent>
           </Card>
         </Grid>
 
-        {/* Staffing Requirements */}
-        <Grid size={{ xs: 12, md: 6 }}>
+        <Grid size={{ xs: 12 }}>
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom>
-                Mindestbesetzung
+                Mindestbesetzung (nach Wochentag)
               </Typography>
-              <Divider sx={{ mb: 3 }} />
-
-              <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                <Box sx={{ display: "flex", gap: 2 }}>
-                  <TextField
-                    label="Frühschicht"
-                    type="number"
-                    defaultValue="8"
-                    sx={{ flex: 1 }}
-                  />
-                  <TextField
-                    label="Davon Fachkräfte"
-                    type="number"
-                    defaultValue="4"
-                    sx={{ flex: 1 }}
-                  />
+              <Divider sx={{ mb: 2 }} />
+              {error && (
+                <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+                  {error}
+                </Alert>
+              )}
+              {loading ? (
+                <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
+                  <CircularProgress />
                 </Box>
-                <Box sx={{ display: "flex", gap: 2 }}>
-                  <TextField
-                    label="Spätschicht"
-                    type="number"
-                    defaultValue="7"
-                    sx={{ flex: 1 }}
-                  />
-                  <TextField
-                    label="Davon Fachkräfte"
-                    type="number"
-                    defaultValue="3"
-                    sx={{ flex: 1 }}
-                  />
-                </Box>
-                <Box sx={{ display: "flex", gap: 2 }}>
-                  <TextField
-                    label="Nachtschicht"
-                    type="number"
-                    defaultValue="3"
-                    sx={{ flex: 1 }}
-                  />
-                  <TextField
-                    label="Davon Fachkräfte"
-                    type="number"
-                    defaultValue="1"
-                    sx={{ flex: 1 }}
-                  />
-                </Box>
-              </Box>
+              ) : (
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Tag</TableCell>
+                      <TableCell>Schichttyp</TableCell>
+                      <TableCell>Minimum</TableCell>
+                      <TableCell align="right">Aktion</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {staffing.map((r) => (
+                      <TableRow key={r.id}>
+                        <TableCell>{DAYS[r.dayOfWeek] ?? r.dayOfWeek}</TableCell>
+                        <TableCell>{shiftTypeLabel(r.shiftType)}</TableCell>
+                        <TableCell sx={{ maxWidth: 120 }}>
+                          <TextField
+                            size="small"
+                            type="number"
+                            value={draft[r.id] ?? ""}
+                            onChange={(ev) =>
+                              setDraft((prev) => ({ ...prev, [r.id]: ev.target.value }))
+                            }
+                            inputProps={{ min: 0 }}
+                          />
+                        </TableCell>
+                        <TableCell align="right">
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            startIcon={
+                              savingId === r.id ? (
+                                <CircularProgress size={16} />
+                              ) : (
+                                <SaveIcon fontSize="small" />
+                              )
+                            }
+                            disabled={savingId === r.id}
+                            onClick={() => void saveRow(r.id)}
+                          >
+                            Speichern
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
         </Grid>
 
-        {/* Notifications */}
         <Grid size={{ xs: 12, md: 6 }}>
           <Card>
             <CardContent>
@@ -143,38 +218,11 @@ export default function SettingsPage() {
                 Benachrichtigungen
               </Typography>
               <Divider sx={{ mb: 3 }} />
-
-              <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                <FormControlLabel
-                  control={<Switch defaultChecked />}
-                  label="E-Mail bei neuen Dienstwünschen"
-                />
-                <FormControlLabel
-                  control={<Switch defaultChecked />}
-                  label="E-Mail bei Tausch-Anfragen"
-                />
-                <FormControlLabel
-                  control={<Switch />}
-                  label="Tägliche Zusammenfassung"
-                />
-                <TextField
-                  label="E-Mail für Benachrichtigungen"
-                  type="email"
-                  defaultValue="planer@example.com"
-                  fullWidth
-                />
-              </Box>
+              <Typography variant="body2" color="text.secondary">
+                E-Mail-Benachrichtigungen sind für Phase 12 (n8n) vorgesehen.
+              </Typography>
             </CardContent>
           </Card>
-        </Grid>
-
-        {/* Save Button */}
-        <Grid size={12}>
-          <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
-            <Button variant="contained" startIcon={<SaveIcon />} size="large">
-              Einstellungen speichern
-            </Button>
-          </Box>
         </Grid>
       </Grid>
     </MainLayout>

@@ -1,12 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import MainLayout from "@/components/layout/MainLayout";
 import MonthView from "@/components/schedule/MonthView";
 import MonthTableView from "@/components/schedule/MonthTableView";
 import WeekView from "@/components/schedule/WeekView";
 import DayView from "@/components/schedule/DayView";
-import StationFilter from "@/components/schedule/StationFilter";
 import {
   Box,
   Button,
@@ -17,6 +16,8 @@ import {
   Link,
   ToggleButton,
   ToggleButtonGroup,
+  Alert,
+  CircularProgress,
 } from "@mui/material";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
@@ -27,10 +28,24 @@ import CalendarViewWeekIcon from "@mui/icons-material/CalendarViewWeek";
 import TodayIcon from "@mui/icons-material/Today";
 import TableChartIcon from "@mui/icons-material/TableChart";
 import GridViewIcon from "@mui/icons-material/GridView";
-import { getWeekNumber } from "@/lib/schedule-data";
+import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import { ApiError, fetchJson } from "@/lib/api/fetchJson";
+import {
+  monthRangeIso,
+  pickScheduleForMonth,
+  type ScheduleSummary,
+} from "@/lib/schedule/monthSchedule";
+import type {
+  AssignmentJson,
+  EmployeeJson,
+  ScheduleJson,
+  ShiftProfileJson,
+  StaffingJson,
+} from "@/lib/schedule/scheduleTypes";
+import { getWeekNumber } from "@/lib/schedule/viewUtils";
 
 type ViewType = "month" | "week" | "day";
-type MonthViewMode = "table" | "overview"; // table = paper-like, overview = numeric Besetzungsübersicht
+type MonthViewMode = "table" | "overview";
 
 interface ViewState {
   type: ViewType;
@@ -63,10 +78,83 @@ export default function SchedulePage() {
     year: today.getFullYear(),
     month: today.getMonth(),
   });
-  const [selectedStation, setSelectedStation] = useState<string | null>(null);
-  const [monthViewMode, setMonthViewMode] = useState<MonthViewMode>("table"); // Default to table (paper-like)
+  const [monthViewMode, setMonthViewMode] = useState<MonthViewMode>("table");
 
-  // Navigation handlers
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [schedule, setSchedule] = useState<ScheduleJson | null>(null);
+  const [assignments, setAssignments] = useState<AssignmentJson[]>([]);
+  const [employees, setEmployees] = useState<EmployeeJson[]>([]);
+  const [profilesById, setProfilesById] = useState<Record<string, ShiftProfileJson>>({});
+  const [staffing, setStaffing] = useState<StaffingJson[]>([]);
+  const [publishBusy, setPublishBusy] = useState(false);
+  const [generateBusy, setGenerateBusy] = useState(false);
+  const [actionMsg, setActionMsg] = useState<string | null>(null);
+
+  const loadBundle = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    setActionMsg(null);
+    const { year, month } = viewState;
+    const { monthStart, monthEnd } = monthRangeIso(year, month);
+
+    try {
+      const listRes = await fetchJson<{ schedules: ScheduleSummary[] }>("/api/schedules");
+      let picked = pickScheduleForMonth(listRes.schedules, monthStart, monthEnd);
+      if (!picked) {
+        const created = await fetchJson<{ schedule: ScheduleSummary }>("/api/schedules", {
+          method: "POST",
+          body: JSON.stringify({ periodStart: monthStart, periodEnd: monthEnd }),
+        });
+        picked = created.schedule;
+      }
+
+      const detail = await fetchJson<{
+        schedule: ScheduleJson;
+        assignments?: AssignmentJson[];
+      }>(`/api/schedules/${picked.id}?include=assignments`);
+
+      const [empsRes, profsRes, staffRes] = await Promise.all([
+        fetchJson<{ employees: EmployeeJson[] }>("/api/employees"),
+        fetchJson<{ shiftProfiles: ShiftProfileJson[] }>("/api/shift-profiles"),
+        fetchJson<{ staffingRequirements: StaffingJson[] }>("/api/staffing-requirements"),
+      ]);
+
+      const profMap: Record<string, ShiftProfileJson> = {};
+      for (const p of profsRes.shiftProfiles) {
+        profMap[p.id] = p;
+      }
+
+      setSchedule(detail.schedule);
+      setAssignments(detail.assignments ?? []);
+      setEmployees(empsRes.employees);
+      setProfilesById(profMap);
+      setStaffing(staffRes.staffingRequirements);
+    } catch (e) {
+      if (e instanceof ApiError) {
+        const err =
+          e.body &&
+          typeof e.body === "object" &&
+          e.body !== null &&
+          "error" in e.body &&
+          typeof (e.body as { error: unknown }).error === "string"
+            ? (e.body as { error: string }).error
+            : "Laden fehlgeschlagen.";
+        setError(err);
+      } else {
+        setError("Netzwerkfehler");
+      }
+      setSchedule(null);
+      setAssignments([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [viewState.year, viewState.month]);
+
+  useEffect(() => {
+    void loadBundle();
+  }, [loadBundle]);
+
   const handlePrevious = () => {
     if (viewState.type === "month") {
       const newMonth = viewState.month - 1;
@@ -140,7 +228,6 @@ export default function SchedulePage() {
 
   const handleBackToWeek = () => {
     if (viewState.date) {
-      // Get Monday of the current date's week
       const monday = new Date(viewState.date);
       const day = monday.getDay();
       const diff = day === 0 ? -6 : 1 - day;
@@ -155,7 +242,6 @@ export default function SchedulePage() {
     }
   };
 
-  // Get current view title
   const getViewTitle = () => {
     if (viewState.type === "month") {
       return `${MONTH_NAMES[viewState.month]} ${viewState.year}`;
@@ -176,9 +262,74 @@ export default function SchedulePage() {
     return "";
   };
 
+  const employeesById = Object.fromEntries(employees.map((e) => [e.id, e]));
+
+  const onPublish = async () => {
+    if (!schedule) return;
+    setPublishBusy(true);
+    setActionMsg(null);
+    try {
+      const res = await fetchJson<{ alreadyPublished?: boolean }>(
+        `/api/schedules/${schedule.id}/publish`,
+        { method: "POST" },
+      );
+      setActionMsg(
+        res.alreadyPublished === true
+          ? "War bereits veröffentlicht."
+          : "Dienstplan veröffentlicht.",
+      );
+      await loadBundle();
+    } catch (e) {
+      if (e instanceof ApiError) {
+        const msg =
+          e.body &&
+          typeof e.body === "object" &&
+          e.body !== null &&
+          "error" in e.body &&
+          typeof (e.body as { error: unknown }).error === "string"
+            ? (e.body as { error: string }).error
+            : "Veröffentlichen fehlgeschlagen.";
+        setActionMsg(msg);
+      }
+    } finally {
+      setPublishBusy(false);
+    }
+  };
+
+  const onGenerate = async () => {
+    if (!schedule) return;
+    setGenerateBusy(true);
+    setActionMsg(null);
+    try {
+      await fetchJson(`/api/schedules/${schedule.id}/generate`, { method: "POST" });
+      setActionMsg("Entwurf neu befüllt.");
+      await loadBundle();
+    } catch (e) {
+      if (e instanceof ApiError) {
+        const msg =
+          e.body &&
+          typeof e.body === "object" &&
+          e.body !== null &&
+          "error" in e.body &&
+          typeof (e.body as { error: unknown }).error === "string"
+            ? (e.body as { error: string }).error
+            : "Generierung fehlgeschlagen.";
+        setActionMsg(msg);
+      }
+    } finally {
+      setGenerateBusy(false);
+    }
+  };
+
+  const statusChip =
+    schedule?.status === "PUBLISHED" ? (
+      <Chip label="VERÖFFENTLICHT" color="success" size="small" />
+    ) : (
+      <Chip label="ENTWURF" color="warning" size="small" />
+    );
+
   return (
     <MainLayout title="Monatplan">
-      {/* Breadcrumb navigation */}
       <Box sx={{ mb: 2 }}>
         <Breadcrumbs>
           <Link
@@ -225,7 +376,6 @@ export default function SchedulePage() {
         </Breadcrumbs>
       </Box>
 
-      {/* Header Actions */}
       <Box
         sx={{
           display: "flex",
@@ -237,19 +387,18 @@ export default function SchedulePage() {
         }}
       >
         <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-          <IconButton onClick={handlePrevious}>
+          <IconButton onClick={handlePrevious} disabled={loading}>
             <ChevronLeftIcon />
           </IconButton>
           <Typography variant="h6" sx={{ minWidth: 280, textAlign: "center" }}>
             {getViewTitle()}
           </Typography>
-          <IconButton onClick={handleNext}>
+          <IconButton onClick={handleNext} disabled={loading}>
             <ChevronRightIcon />
           </IconButton>
-          <Chip label="ENTWURF" color="warning" size="small" />
+          {schedule && statusChip}
         </Box>
         <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
-          {/* View mode toggle - only show in month view */}
           {viewState.type === "month" && (
             <>
               <ToggleButtonGroup
@@ -277,49 +426,88 @@ export default function SchedulePage() {
               <Box sx={{ width: 1, height: 24, bgcolor: "divider", mx: 1 }} />
             </>
           )}
-          <StationFilter selected={selectedStation} onChange={setSelectedStation} />
-          <Box sx={{ width: 1, height: 24, bgcolor: "divider", mx: 1 }} />
-          <Button variant="outlined" startIcon={<DownloadIcon />}>
+          <Button variant="outlined" startIcon={<DownloadIcon />} disabled>
             Export
           </Button>
-          <Button variant="contained" startIcon={<PublishIcon />}>
-            Veröffentlichen
+          <Button
+            variant="outlined"
+            startIcon={<AutoAwesomeIcon />}
+            disabled={loading || !schedule || schedule.status !== "DRAFT" || generateBusy}
+            onClick={() => void onGenerate()}
+          >
+            {generateBusy ? <CircularProgress size={20} /> : "Entwurf füllen"}
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<PublishIcon />}
+            disabled={loading || !schedule || schedule.status !== "DRAFT" || publishBusy}
+            onClick={() => void onPublish()}
+          >
+            {publishBusy ? <CircularProgress size={20} color="inherit" /> : "Veröffentlichen"}
           </Button>
         </Box>
       </Box>
 
-      {/* Views */}
-      {viewState.type === "month" && monthViewMode === "table" && (
-        <MonthTableView
-          year={viewState.year}
-          month={viewState.month}
-          selectedStation={selectedStation}
-          onDayClick={handleDayClick}
-        />
+      {actionMsg && (
+        <Alert severity="info" sx={{ mb: 2 }} onClose={() => setActionMsg(null)}>
+          {actionMsg}
+        </Alert>
+      )}
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
       )}
 
-      {viewState.type === "month" && monthViewMode === "overview" && (
-        <MonthView
-          year={viewState.year}
-          month={viewState.month}
-          selectedStation={selectedStation}
-          onWeekClick={handleWeekClick}
-          onDayClick={handleDayClick}
-        />
-      )}
+      {loading ? (
+        <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}>
+          <CircularProgress />
+        </Box>
+      ) : schedule ? (
+        <>
+          {viewState.type === "month" && monthViewMode === "table" && (
+            <MonthTableView
+              year={viewState.year}
+              monthIndex={viewState.month}
+              assignments={assignments}
+              employees={employees}
+              profilesById={profilesById}
+              onDayClick={handleDayClick}
+            />
+          )}
 
-      {viewState.type === "week" && viewState.weekStartDate && (
-        <WeekView
-          weekNumber={viewState.weekNumber!}
-          startDate={viewState.weekStartDate}
-          selectedStation={selectedStation}
-          onDayClick={handleDayClick}
-        />
-      )}
+          {viewState.type === "month" && monthViewMode === "overview" && (
+            <MonthView
+              year={viewState.year}
+              monthIndex={viewState.month}
+              assignments={assignments}
+              profilesById={profilesById}
+              staffing={staffing}
+              onWeekClick={handleWeekClick}
+              onDayClick={handleDayClick}
+            />
+          )}
 
-      {viewState.type === "day" && viewState.date && (
-        <DayView date={viewState.date} selectedStation={selectedStation} />
-      )}
+          {viewState.type === "week" && viewState.weekStartDate && (
+            <WeekView
+              weekStartDate={viewState.weekStartDate}
+              assignments={assignments}
+              employees={employees}
+              profilesById={profilesById}
+              onDayClick={handleDayClick}
+            />
+          )}
+
+          {viewState.type === "day" && viewState.date && (
+            <DayView
+              date={viewState.date}
+              assignments={assignments}
+              employeesById={employeesById}
+              profilesById={profilesById}
+            />
+          )}
+        </>
+      ) : null}
     </MainLayout>
   );
 }

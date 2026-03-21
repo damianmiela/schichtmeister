@@ -2,9 +2,52 @@ import { NextRequest, NextResponse } from "next/server";
 import { SwapStatus, UserRole } from "@prisma/client";
 import { parseJsonBody, plannerJsonErrors } from "@/lib/api/validation";
 import { swapCreateBodySchema } from "@/lib/api/swapSchemas";
-import { serializeSwap } from "@/lib/api/swapSerialize";
-import { requireAuth } from "@/lib/auth/session";
+import {
+  serializeSwap,
+  serializeSwapListItem,
+} from "@/lib/api/swapSerialize";
+import { requireAuth, requirePlanner } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
+
+const SWAP_STATUS_SET = new Set<string>(Object.values(SwapStatus));
+
+/** Planner: all swap requests for assignments in this facility. */
+export async function GET(request: NextRequest) {
+  const { session, error } = await requirePlanner();
+  if (error === "UNAUTHORIZED") return plannerJsonErrors.unauthorized();
+  if (error === "FORBIDDEN") return plannerJsonErrors.forbidden();
+
+  const facilityId = session!.user.facilityId;
+  const statusParam = request.nextUrl.searchParams.get("status");
+  const statusIn: SwapStatus[] | undefined =
+    statusParam && statusParam.length > 0
+      ? statusParam
+          .split(",")
+          .map((s) => s.trim())
+          .filter((s): s is SwapStatus => SWAP_STATUS_SET.has(s))
+      : undefined;
+
+  const swaps = await prisma.swapRequest.findMany({
+    where: {
+      ...(statusIn && statusIn.length > 0 ? { status: { in: statusIn } } : {}),
+      fromAssignment: { schedule: { facilityId } },
+    },
+    include: {
+      fromAssignment: {
+        include: {
+          employee: true,
+          shiftProfile: true,
+        },
+      },
+      toEmployee: true,
+    },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+  });
+
+  return NextResponse.json({
+    swaps: swaps.map(serializeSwapListItem),
+  });
+}
 
 /**
  * MVP: **Planner** may create a swap for any assignment in the facility.

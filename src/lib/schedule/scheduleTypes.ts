@@ -1,0 +1,39 @@
+export type ScheduleJson = {
+  id: string;
+  periodStart: string;
+  periodEnd: string;
+  status: string;
+  publishedAt: string | null;
+};
+
+export type AssignmentJson = {
+  id: string;
+  scheduleId: string;
+  date: string;
+  shiftProfileId: string;
+  employeeId: string;
+};
+
+export type EmployeeJson = {
+  id: string;
+  firstName: string;
+  lastName: string;
+};
+
+export type ShiftProfileJson = {
+  id: string;
+  name: string;
+  shiftType: string;
+  startTime: string;
+  endTime: string;
+  breakMinutes: number;
+  isActive: boolean;
+};
+
+export type StaffingJson = {
+  id: string;
+  dayOfWeek: number;
+  shiftType: string;
+  minStaffCount: number;
+  requiredQualificationTags: string[];
+};
