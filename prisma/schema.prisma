@@ -1,7 +1,9 @@
 // Prisma schema — MVP domain (see _LOCAL_DOCS/#MVP_SPEC.md)
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // Alpine (node:*-alpine) uses musl + OpenSSL 3; without this, runtime fails with libssl.so.1.1 missing
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
 datasource db {

@@ -59,9 +59,17 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch (e) {
-    console.error("register", e);
+    const message = e instanceof Error ? e.message : String(e);
+    console.error("POST /api/auth/register", message, e);
+    const hint =
+      message.includes("Prisma") || message.includes("libssl") || message.includes("openssl")
+        ? " (Prisma/DB engine — check Docker image OpenSSL / prisma binaryTargets)"
+        : "";
     return NextResponse.json(
-      { error: "Registrierung fehlgeschlagen." },
+      {
+        error: "Registrierung fehlgeschlagen.",
+        ...(process.env.NODE_ENV !== "production" && { debug: message + hint }),
+      },
       { status: 500 }
     );
   }
