@@ -1,56 +1,47 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
 import { ContractType, TargetHoursPeriod } from "@prisma/client";
-import { prisma } from "@/lib/db/prisma";
+import { employeeCreateSchema } from "@/lib/api/employeeSchemas";
+import { serializeEmployee } from "@/lib/api/employeeSerialize";
+import { parseJsonBody, plannerJsonErrors } from "@/lib/api/validation";
 import { requirePlanner } from "@/lib/auth/session";
+import { prisma } from "@/lib/db/prisma";
 
-const createSchema = z.object({
-  firstName: z.string().min(1).max(120),
-  lastName: z.string().min(1).max(120),
-  contractType: z.enum(["FULL_TIME", "PART_TIME", "MINI_JOB"]),
-  targetHours: z.number().positive().optional().nullable(),
-  targetHoursPeriod: z.enum(["WEEKLY", "MONTHLY"]).optional().nullable(),
-  qualificationTags: z.array(z.string()).optional(),
-});
-
-function serializeEmployee(e: {
-  id: string;
-  firstName: string;
-  lastName: string;
-  contractType: ContractType;
-  targetHours: { toString(): string } | null;
-  targetHoursPeriod: string | null;
-  miniJobMaxMonthlyHours: { toString(): string } | null;
-  qualificationTags: string[];
-  createdAt: Date;
-}) {
-  return {
-    id: e.id,
-    firstName: e.firstName,
-    lastName: e.lastName,
-    contractType: e.contractType,
-    targetHours: e.targetHours != null ? Number(e.targetHours) : null,
-    targetHoursPeriod: e.targetHoursPeriod,
-    miniJobMaxMonthlyHours:
-      e.miniJobMaxMonthlyHours != null
-        ? Number(e.miniJobMaxMonthlyHours)
-        : null,
-    qualificationTags: e.qualificationTags,
-    createdAt: e.createdAt.toISOString(),
-  };
-}
-
-export async function GET() {
+export async function GET(request: NextRequest) {
   const { session, error } = await requirePlanner();
-  if (error === "UNAUTHORIZED") {
-    return NextResponse.json({ error: "Nicht angemeldet" }, { status: 401 });
-  }
-  if (error === "FORBIDDEN") {
-    return NextResponse.json({ error: "Keine Berechtigung" }, { status: 403 });
+  if (error === "UNAUTHORIZED") return plannerJsonErrors.unauthorized();
+  if (error === "FORBIDDEN") return plannerJsonErrors.forbidden();
+
+  const facilityId = session!.user.facilityId;
+  const where = { facilityId };
+  const params = request.nextUrl.searchParams;
+  const pageParam = params.get("page");
+
+  if (pageParam != null) {
+    const page = Math.max(1, parseInt(pageParam, 10) || 1);
+    const pageSize = Math.min(
+      100,
+      Math.max(1, parseInt(params.get("pageSize") ?? "50", 10) || 50),
+    );
+    const skip = (page - 1) * pageSize;
+    const [employees, total] = await prisma.$transaction([
+      prisma.employee.findMany({
+        where,
+        orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
+        skip,
+        take: pageSize,
+      }),
+      prisma.employee.count({ where }),
+    ]);
+    return NextResponse.json({
+      employees: employees.map(serializeEmployee),
+      page,
+      pageSize,
+      total,
+    });
   }
 
   const employees = await prisma.employee.findMany({
-    where: { facilityId: session!.user.facilityId },
+    where,
     orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
   });
 
@@ -61,23 +52,13 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   const { session, error } = await requirePlanner();
-  if (error === "UNAUTHORIZED") {
-    return NextResponse.json({ error: "Nicht angemeldet" }, { status: 401 });
-  }
-  if (error === "FORBIDDEN") {
-    return NextResponse.json({ error: "Keine Berechtigung" }, { status: 403 });
-  }
+  if (error === "UNAUTHORIZED") return plannerJsonErrors.unauthorized();
+  if (error === "FORBIDDEN") return plannerJsonErrors.forbidden();
+
+  const parsed = await parseJsonBody(request, employeeCreateSchema);
+  if (!parsed.ok) return parsed.response;
 
   try {
-    const json = await request.json();
-    const parsed = createSchema.safeParse(json);
-    if (!parsed.success) {
-      return NextResponse.json(
-        { error: "Ungültige Eingabe", details: parsed.error.flatten() },
-        { status: 400 }
-      );
-    }
-
     const data = parsed.data;
     const employee = await prisma.employee.create({
       data: {
@@ -91,19 +72,24 @@ export async function POST(request: NextRequest) {
             ? (data.targetHoursPeriod as TargetHoursPeriod | null) ??
               TargetHoursPeriod.WEEKLY
             : undefined,
+        miniJobMaxMonthlyHours:
+          data.miniJobMaxMonthlyHours === undefined
+            ? undefined
+            : data.miniJobMaxMonthlyHours,
         qualificationTags: data.qualificationTags ?? [],
+        preferredShiftTypes: data.preferredShiftTypes ?? [],
       },
     });
 
     return NextResponse.json(
       { employee: serializeEmployee(employee) },
-      { status: 201 }
+      { status: 201 },
     );
   } catch (e) {
     console.error("POST /api/employees", e);
     return NextResponse.json(
       { error: "Mitarbeiter konnte nicht angelegt werden." },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
