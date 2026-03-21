@@ -24,7 +24,6 @@ export function staffingMinimumRule(ctx: RuleContext): RuleResult {
 
   for (const req of ctx.staffingRequirements) {
     for (const d of dates) {
-      if (d.getUTCDay() !== req.dayOfWeek) continue;
       let count = 0;
       for (const a of ctx.assignments) {
         if (!sameUtcCalendarDay(a.date, d)) continue;

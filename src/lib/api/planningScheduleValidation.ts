@@ -117,7 +117,6 @@ export async function validateScheduleAssignments(
   }
 
   const staffingRequirements: StaffingRequirementInput[] = staffingRows.map((r) => ({
-    dayOfWeek: r.dayOfWeek,
     shiftType: r.shiftType,
     minStaffCount: r.minStaffCount,
     requiredQualificationTags: r.requiredQualificationTags,

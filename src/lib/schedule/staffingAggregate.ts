@@ -1,21 +1,16 @@
-import { localDayOfWeekFromIsoDate } from "@/lib/schedule/viewUtils";
-
 export type StaffingRow = {
-  dayOfWeek: number;
   shiftType: string;
   minStaffCount: number;
 };
 
+/** Same minimum staffing applies every calendar day. */
 export function requiredCountsForIsoDate(
-  iso: string,
+  _iso: string,
   staffing: StaffingRow[],
 ): Record<string, number> {
-  const dow = localDayOfWeekFromIsoDate(iso);
   const out: Record<string, number> = {};
   for (const r of staffing) {
-    if (r.dayOfWeek === dow) {
-      out[r.shiftType] = (out[r.shiftType] ?? 0) + r.minStaffCount;
-    }
+    out[r.shiftType] = (out[r.shiftType] ?? 0) + r.minStaffCount;
   }
   return out;
 }

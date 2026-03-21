@@ -48,7 +48,6 @@ export async function GET() {
   const facilityId = session!.user.facilityId;
   const todayDate = localTodayUtcDate();
   const { mon, sun } = localMondaySundayUtc();
-  const todayDow = new Date().getDay();
 
   const [
     employeeCount,
@@ -95,7 +94,7 @@ export async function GET() {
       orderBy: { periodStart: "desc" },
     }),
     prisma.staffingRequirement.findMany({
-      where: { facilityId, dayOfWeek: todayDow },
+      where: { facilityId },
     }),
     prisma.wish.findMany({
       where: { employee: { facilityId } },

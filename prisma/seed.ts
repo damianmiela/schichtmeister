@@ -130,7 +130,7 @@ async function main() {
     },
   });
 
-  // dayOfWeek: 0 = Sunday … 6 = Saturday (same as Date.getDay())
+  /** Same minimum staffing every calendar day (one row per shift type). */
   const perShift: Record<
     ShiftType,
     { minStaffCount: number; requiredQualificationTags: string[] }
@@ -140,23 +140,16 @@ async function main() {
     [ShiftType.NIGHT]: { minStaffCount: 2, requiredQualificationTags: ["NurseQualified"] },
   };
 
-  for (let dayOfWeek = 0; dayOfWeek <= 6; dayOfWeek++) {
-    for (const shiftType of Object.values(ShiftType)) {
-      const cfg = perShift[shiftType];
-      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-      const minStaffCount =
-        shiftType === ShiftType.LATE && isWeekend ? 2 : cfg.minStaffCount;
-
-      await prisma.staffingRequirement.create({
-        data: {
-          facilityId: facility.id,
-          dayOfWeek,
-          shiftType,
-          minStaffCount,
-          requiredQualificationTags: cfg.requiredQualificationTags,
-        },
-      });
-    }
+  for (const shiftType of Object.values(ShiftType)) {
+    const cfg = perShift[shiftType];
+    await prisma.staffingRequirement.create({
+      data: {
+        facilityId: facility.id,
+        shiftType,
+        minStaffCount: cfg.minStaffCount,
+        requiredQualificationTags: cfg.requiredQualificationTags,
+      },
+    });
   }
 
   const now = new Date();

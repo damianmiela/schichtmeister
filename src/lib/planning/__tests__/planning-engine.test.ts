@@ -345,7 +345,7 @@ describe("phase 04 — planning rules", () => {
         ],
         profilesById: profiles,
         staffingRequirements: [
-          { dayOfWeek: 1, shiftType: ShiftType.EARLY, minStaffCount: 2, requiredQualificationTags: [] },
+          { shiftType: ShiftType.EARLY, minStaffCount: 2, requiredQualificationTags: [] },
         ],
         snapshot: baseSnapshot({
           ruleStates: {
@@ -397,7 +397,6 @@ describe("phase 04 — planning rules", () => {
         profilesById: profiles,
         staffingRequirements: [
           {
-            dayOfWeek: 1,
             shiftType: ShiftType.NIGHT,
             minStaffCount: 1,
             requiredQualificationTags: ["NurseQualified"],

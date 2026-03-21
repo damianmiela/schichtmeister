@@ -27,6 +27,8 @@ import {
   DialogActions,
   MenuItem,
   IconButton,
+  Autocomplete,
+  Chip,
 } from "@mui/material";
 import SaveIcon from "@mui/icons-material/Save";
 import AddIcon from "@mui/icons-material/Add";
@@ -34,54 +36,69 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import GridOnIcon from "@mui/icons-material/GridOn";
 import { shiftTypeLabel } from "@/lib/schedule/viewUtils";
 
-const DAYS = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
-const DAY_OPTIONS = DAYS.map((label, value) => ({ value, label }));
-
 const SHIFT_TYPES = ["EARLY", "LATE", "NIGHT"] as const;
 type ShiftTypeValue = (typeof SHIFT_TYPES)[number];
 
 type StaffingRow = {
   id: string;
-  dayOfWeek: number;
   shiftType: string;
   minStaffCount: number;
   requiredQualificationTags: string[];
 };
 
+type EmployeeTagSource = { qualificationTags: string[] };
+
+function shiftSortIndex(st: string): number {
+  const i = SHIFT_TYPES.indexOf(st as ShiftTypeValue);
+  return i === -1 ? 99 : i;
+}
+
 export default function SettingsPage() {
   const [staffing, setStaffing] = useState<StaffingRow[]>([]);
+  const [employees, setEmployees] = useState<EmployeeTagSource[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<Record<string, string>>({});
-  const [draftTags, setDraftTags] = useState<Record<string, string>>({});
+  const [tagSelections, setTagSelections] = useState<Record<string, string[]>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
   const [templateBusy, setTemplateBusy] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [addBusy, setAddBusy] = useState(false);
   const [addFormError, setAddFormError] = useState<string | null>(null);
-  const [newDay, setNewDay] = useState(1);
   const [newShift, setNewShift] = useState<ShiftTypeValue>("EARLY");
   const [newMin, setNewMin] = useState("1");
-  const [newTags, setNewTags] = useState("");
+  const [newTags, setNewTags] = useState<string[]>([]);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+
+  const qualificationTagOptions = useMemo(() => {
+    const s = new Set<string>();
+    for (const e of employees) {
+      for (const t of e.qualificationTags) {
+        if (t.trim()) s.add(t.trim());
+      }
+    }
+    return [...s].sort((a, b) => a.localeCompare(b, "de"));
+  }, [employees]);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetchJson<{ staffingRequirements: StaffingRow[] }>(
-        "/api/staffing-requirements",
-      );
-      setStaffing(res.staffingRequirements);
+      const [staffRes, empRes] = await Promise.all([
+        fetchJson<{ staffingRequirements: StaffingRow[] }>("/api/staffing-requirements"),
+        fetchJson<{ employees: EmployeeTagSource[] }>("/api/employees"),
+      ]);
+      setStaffing(staffRes.staffingRequirements);
+      setEmployees(empRes.employees ?? []);
       const d: Record<string, string> = {};
-      const t: Record<string, string> = {};
-      for (const r of res.staffingRequirements) {
+      const ts: Record<string, string[]> = {};
+      for (const r of staffRes.staffingRequirements) {
         d[r.id] = String(r.minStaffCount);
-        t[r.id] = r.requiredQualificationTags.join(", ");
+        ts[r.id] = [...r.requiredQualificationTags];
       }
       setDraft(d);
-      setDraftTags(t);
+      setTagSelections(ts);
     } catch (e) {
       if (e instanceof ApiError) {
         const msg =
@@ -95,6 +112,7 @@ export default function SettingsPage() {
         setError(msg);
       } else setError("Netzwerkfehler");
       setStaffing([]);
+      setEmployees([]);
     } finally {
       setLoading(false);
     }
@@ -104,14 +122,18 @@ export default function SettingsPage() {
     void load();
   }, [load]);
 
-  const parseTags = (raw: string): string[] => [
-    ...new Set(
-      raw
-        .split(",")
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0),
-    ),
-  ];
+  const sortedStaffing = useMemo(
+    () =>
+      [...staffing].sort(
+        (a, b) => shiftSortIndex(a.shiftType) - shiftSortIndex(b.shiftType),
+      ),
+    [staffing],
+  );
+
+  const missingShiftTypes = useMemo(() => {
+    const have = new Set(staffing.map((r) => r.shiftType));
+    return SHIFT_TYPES.filter((st) => !have.has(st));
+  }, [staffing]);
 
   const saveRow = async (id: string) => {
     const raw = draft[id];
@@ -120,6 +142,7 @@ export default function SettingsPage() {
       setError("Mindestanzahl: gültige Zahl ≥ 0.");
       return;
     }
+    const tags = (tagSelections[id] ?? []).filter((t) => qualificationTagOptions.includes(t));
     setSavingId(id);
     setError(null);
     try {
@@ -127,7 +150,7 @@ export default function SettingsPage() {
         method: "PATCH",
         body: JSON.stringify({
           minStaffCount: n,
-          requiredQualificationTags: parseTags(draftTags[id] ?? ""),
+          requiredQualificationTags: tags,
         }),
       });
       await load();
@@ -148,25 +171,22 @@ export default function SettingsPage() {
     }
   };
 
-  const applyWeekTemplate = async () => {
+  const applyAllShiftsTemplate = async () => {
     setTemplateBusy(true);
     setError(null);
     try {
-      const existing = new Set(staffing.map((r) => `${r.dayOfWeek}:${r.shiftType}`));
-      for (let dow = 0; dow <= 6; dow++) {
-        for (const st of SHIFT_TYPES) {
-          if (existing.has(`${dow}:${st}`)) continue;
-          await fetchJson("/api/staffing-requirements", {
-            method: "POST",
-            body: JSON.stringify({
-              dayOfWeek: dow,
-              shiftType: st,
-              minStaffCount: 1,
-              requiredQualificationTags: [],
-            }),
-          });
-          existing.add(`${dow}:${st}`);
-        }
+      const have = new Set(staffing.map((r) => r.shiftType));
+      for (const st of SHIFT_TYPES) {
+        if (have.has(st)) continue;
+        await fetchJson("/api/staffing-requirements", {
+          method: "POST",
+          body: JSON.stringify({
+            shiftType: st,
+            minStaffCount: 1,
+            requiredQualificationTags: [],
+          }),
+        });
+        have.add(st);
       }
       await load();
     } catch (e) {
@@ -187,11 +207,11 @@ export default function SettingsPage() {
   };
 
   const openAddDialog = () => {
+    if (missingShiftTypes.length === 0) return;
     setAddFormError(null);
-    setNewDay(1);
-    setNewShift("EARLY");
+    setNewShift(missingShiftTypes[0] ?? "EARLY");
     setNewMin("1");
-    setNewTags("");
+    setNewTags([]);
     setAddOpen(true);
   };
 
@@ -201,10 +221,11 @@ export default function SettingsPage() {
       setAddFormError("Minimum: gültige Zahl ≥ 0.");
       return;
     }
-    if (staffing.some((r) => r.dayOfWeek === newDay && r.shiftType === newShift)) {
-      setAddFormError("Diese Kombination aus Wochentag und Schicht gibt es bereits.");
+    if (staffing.some((r) => r.shiftType === newShift)) {
+      setAddFormError("Für diesen Schichttyp existiert bereits ein Eintrag.");
       return;
     }
+    const tags = newTags.filter((t) => qualificationTagOptions.includes(t));
     setAddBusy(true);
     setAddFormError(null);
     setError(null);
@@ -212,10 +233,9 @@ export default function SettingsPage() {
       await fetchJson("/api/staffing-requirements", {
         method: "POST",
         body: JSON.stringify({
-          dayOfWeek: newDay,
           shiftType: newShift,
           minStaffCount: Math.floor(n),
-          requiredQualificationTags: parseTags(newTags),
+          requiredQualificationTags: tags,
         }),
       });
       setAddOpen(false);
@@ -262,16 +282,6 @@ export default function SettingsPage() {
     }
   };
 
-  const sortedStaffing = useMemo(
-    () =>
-      [...staffing].sort((a, b) =>
-        a.dayOfWeek !== b.dayOfWeek
-          ? a.dayOfWeek - b.dayOfWeek
-          : a.shiftType.localeCompare(b.shiftType),
-      ),
-    [staffing],
-  );
-
   return (
     <MainLayout title="Einstellungen">
       <Grid container spacing={3}>
@@ -313,10 +323,9 @@ export default function SettingsPage() {
                 Mindestbesetzung (Personalbedarf)
               </Typography>
               <Typography variant="body2" color="text.secondary" paragraph>
-                Für jeden Wochentag und Schichttyp legen Sie fest, wie viele Personen mindestens eingeplant
-                werden sollen. Optional: Qualifikationsbegriffe (wie bei Mitarbeitern) — nur Mitarbeiter mit
-                allen genannten Tags werden für diese Slots bevorzugt. Ohne Einträge kann „Entwurf füllen“ im
-                Monatplan nichts erzeugen.
+                Dieselben Mindestzahlen gelten <strong>jeden Kalendertag</strong> (kein separates Raster pro
+                Wochentag). Pro Schichttyp (Früh / Spät / Nacht) gibt es höchstens einen Eintrag. Qualifikationen
+                wählen Sie aus den Begriffen, die bereits bei Mitarbeitern dieser Einrichtung vorkommen.
               </Typography>
               <Divider sx={{ mb: 2 }} />
               {error && (
@@ -332,9 +341,14 @@ export default function SettingsPage() {
                 <>
                   {staffing.length === 0 && (
                     <Alert severity="info" sx={{ mb: 2 }}>
-                      Noch keine Personalbedarfs-Einträge. Nutzen Sie „Grundraster anlegen“, um alle
-                      Kombinationen (7 Tage × Früh/Spät/Nacht) mit Minimum 1 anzulegen — oder fügen Sie einzelne
-                      Zeilen hinzu.
+                      Noch kein Personalbedarf. „Alle Schichttypen anlegen“ erstellt Früh, Spät und Nacht je
+                      mit Minimum 1 — anschließend anpassen und speichern.
+                    </Alert>
+                  )}
+                  {qualificationTagOptions.length === 0 && (
+                    <Alert severity="warning" sx={{ mb: 2 }}>
+                      Noch keine Qualifikationsbegriffe bei Mitarbeitern — unter „Mitarbeiter“ Tags pflegen,
+                      dann erscheinen sie hier zur Auswahl.
                     </Alert>
                   )}
                   <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, mb: 2 }}>
@@ -343,45 +357,41 @@ export default function SettingsPage() {
                       startIcon={
                         templateBusy ? <CircularProgress size={18} color="inherit" /> : <GridOnIcon />
                       }
-                      disabled={templateBusy || loading}
-                      onClick={() => void applyWeekTemplate()}
+                      disabled={templateBusy || loading || missingShiftTypes.length === 0}
+                      onClick={() => void applyAllShiftsTemplate()}
                     >
-                      Grundraster anlegen (7×3, fehlende je 1)
+                      Alle Schichttypen anlegen (fehlende je 1)
                     </Button>
                     <Button
                       variant="outlined"
                       startIcon={<AddIcon />}
-                      disabled={loading}
+                      disabled={loading || missingShiftTypes.length === 0}
                       onClick={openAddDialog}
                     >
-                      Eintrag hinzufügen
+                      Schichttyp hinzufügen
                     </Button>
                   </Box>
                   <Table size="small">
                     <TableHead>
                       <TableRow>
-                        <TableCell>Tag</TableCell>
                         <TableCell>Schichttyp</TableCell>
-                        <TableCell sx={{ minWidth: 100 }}>Minimum</TableCell>
-                        <TableCell sx={{ minWidth: 220 }}>
-                          Qualifikationen (kommagetrennt)
-                        </TableCell>
+                        <TableCell sx={{ minWidth: 100 }}>Minimum / Tag</TableCell>
+                        <TableCell sx={{ minWidth: 280 }}>Qualifikationen</TableCell>
                         <TableCell align="right">Aktion</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
                       {sortedStaffing.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={5}>
+                          <TableCell colSpan={4}>
                             <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
-                              Keine Zeilen — Raster anlegen oder Eintrag hinzufügen.
+                              Keine Einträge.
                             </Typography>
                           </TableCell>
                         </TableRow>
                       ) : (
                         sortedStaffing.map((r) => (
                           <TableRow key={r.id}>
-                            <TableCell>{DAYS[r.dayOfWeek] ?? r.dayOfWeek}</TableCell>
                             <TableCell>{shiftTypeLabel(r.shiftType)}</TableCell>
                             <TableCell>
                               <TextField
@@ -396,14 +406,36 @@ export default function SettingsPage() {
                               />
                             </TableCell>
                             <TableCell>
-                              <TextField
-                                size="small"
-                                fullWidth
-                                placeholder="z. B. NurseQualified, Hilfskraft"
-                                value={draftTags[r.id] ?? ""}
-                                onChange={(ev) =>
-                                  setDraftTags((prev) => ({ ...prev, [r.id]: ev.target.value }))
+                              <Autocomplete
+                                multiple
+                                options={qualificationTagOptions}
+                                value={tagSelections[r.id] ?? []}
+                                onChange={(_, v) =>
+                                  setTagSelections((prev) => ({ ...prev, [r.id]: v }))
                                 }
+                                disableCloseOnSelect
+                                disabled={qualificationTagOptions.length === 0}
+                                renderTags={(value, getTagProps) =>
+                                  value.map((option, index) => (
+                                    <Chip
+                                      variant="outlined"
+                                      label={option}
+                                      {...getTagProps({ index })}
+                                      key={option}
+                                    />
+                                  ))
+                                }
+                                renderInput={(params) => (
+                                  <TextField
+                                    {...params}
+                                    placeholder={
+                                      qualificationTagOptions.length === 0
+                                        ? "Zuerst Tags bei Mitarbeitern anlegen"
+                                        : "Aus Liste wählen"
+                                    }
+                                    size="small"
+                                  />
+                                )}
                               />
                             </TableCell>
                             <TableCell align="right">
@@ -439,8 +471,8 @@ export default function SettingsPage() {
                   </Table>
                   {sortedStaffing.length > 0 && (
                     <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
-                      {sortedStaffing.length} Einträge · Minimum 0 = Schicht an diesem Tag nicht durch
-                      Personalbedarf erzwungen.
+                      {sortedStaffing.length} von {SHIFT_TYPES.length} Schichttypen · Minimum 0 = Schicht wird
+                      durch Bedarf nicht erzwungen.
                     </Typography>
                   )}
                 </>
@@ -465,23 +497,9 @@ export default function SettingsPage() {
       </Grid>
 
       <Dialog open={addOpen} onClose={() => !addBusy && setAddOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Personalbedarf hinzufügen</DialogTitle>
+        <DialogTitle>Schichttyp hinzufügen</DialogTitle>
         <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 2, pt: 1 }}>
           {addFormError && <Alert severity="error">{addFormError}</Alert>}
-          <TextField
-            select
-            label="Wochentag"
-            value={String(newDay)}
-            onChange={(e) => setNewDay(Number(e.target.value))}
-            fullWidth
-            disabled={addBusy}
-          >
-            {DAY_OPTIONS.map((o) => (
-              <MenuItem key={o.value} value={String(o.value)}>
-                {o.label}
-              </MenuItem>
-            ))}
-          </TextField>
           <TextField
             select
             label="Schichttyp"
@@ -490,14 +508,14 @@ export default function SettingsPage() {
             fullWidth
             disabled={addBusy}
           >
-            {SHIFT_TYPES.map((st) => (
+            {missingShiftTypes.map((st) => (
               <MenuItem key={st} value={st}>
                 {shiftTypeLabel(st)}
               </MenuItem>
             ))}
           </TextField>
           <TextField
-            label="Mindestanzahl"
+            label="Mindestanzahl (pro Kalendertag)"
             type="number"
             value={newMin}
             onChange={(e) => setNewMin(e.target.value)}
@@ -505,14 +523,29 @@ export default function SettingsPage() {
             disabled={addBusy}
             inputProps={{ min: 0 }}
           />
-          <TextField
-            label="Qualifikationen (optional)"
+          <Autocomplete
+            multiple
+            options={qualificationTagOptions}
             value={newTags}
-            onChange={(e) => setNewTags(e.target.value)}
-            fullWidth
-            disabled={addBusy}
-            placeholder="Kommagetrennt, wie bei Mitarbeitern"
-            helperText="Nur Kandidaten mit allen Tags werden für diesen Bedarf bevorzugt."
+            onChange={(_, v) => setNewTags(v)}
+            disableCloseOnSelect
+            disabled={qualificationTagOptions.length === 0}
+            renderTags={(value, getTagProps) =>
+              value.map((option, index) => (
+                <Chip variant="outlined" label={option} {...getTagProps({ index })} key={option} />
+              ))
+            }
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Qualifikationen"
+                placeholder={
+                  qualificationTagOptions.length === 0
+                    ? "Zuerst bei Mitarbeitern anlegen"
+                    : "Nur aus Liste"
+                }
+              />
+            )}
           />
         </DialogContent>
         <DialogActions>
@@ -529,7 +562,7 @@ export default function SettingsPage() {
         <DialogTitle>Eintrag löschen?</DialogTitle>
         <DialogContent>
           <Typography variant="body2">
-            Dieser Personalbedarf wird entfernt. Sie können ihn später neu anlegen.
+            Dieser Personalbedarf wird entfernt. Sie können den Schichttyp später wieder anlegen.
           </Typography>
         </DialogContent>
         <DialogActions>

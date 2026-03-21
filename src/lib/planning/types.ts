@@ -43,7 +43,6 @@ export type ShiftProfileInput = {
 };
 
 export type StaffingRequirementInput = {
-  dayOfWeek: number;
   shiftType: ShiftType;
   minStaffCount: number;
   requiredQualificationTags: string[];

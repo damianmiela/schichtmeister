@@ -28,7 +28,7 @@ export function shiftTypeLabel(t: string): string {
   return SHIFT_TYPE_DE[t] ?? t;
 }
 
-/** Local calendar `YYYY-MM-DD` → `Date.getDay()` 0–6 (matches staffing `dayOfWeek` in DB). */
+/** Local calendar `YYYY-MM-DD` → `Date.getDay()` 0–6 (So–Sa). */
 export function localDayOfWeekFromIsoDate(iso: string): number {
   const [y, m, d] = iso.split("-").map(Number);
   return new Date(y, m - 1, d).getDay();

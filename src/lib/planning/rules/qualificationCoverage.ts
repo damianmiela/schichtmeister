@@ -28,7 +28,6 @@ export function qualificationCoverageRule(ctx: RuleContext): RuleResult {
   for (const req of ctx.staffingRequirements) {
     if (req.requiredQualificationTags.length === 0) continue;
     for (const d of dates) {
-      if (d.getUTCDay() !== req.dayOfWeek) continue;
       const onShift: string[] = [];
       for (const a of ctx.assignments) {
         if (!sameUtcCalendarDay(a.date, d)) continue;

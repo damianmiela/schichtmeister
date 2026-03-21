@@ -24,16 +24,16 @@ export type MergedStaffingEntry = {
   requiredQualificationTags: string[];
 };
 
-/** Merge DB rows that share (dayOfWeek, shiftType) — sums counts, unions tags. */
+/** Merge DB rows that share shiftType (defensive if duplicates exist) — sums counts, unions tags. */
 export function mergeStaffingRequirements(
   rows: Pick<
     StaffingRequirement,
-    "dayOfWeek" | "shiftType" | "minStaffCount" | "requiredQualificationTags"
+    "shiftType" | "minStaffCount" | "requiredQualificationTags"
   >[],
 ): Map<string, MergedStaffingEntry> {
   const map = new Map<string, MergedStaffingEntry>();
   for (const r of rows) {
-    const k = `${r.dayOfWeek}:${r.shiftType}`;
+    const k = r.shiftType;
     const cur = map.get(k);
     if (!cur) {
       map.set(k, {
@@ -50,10 +50,6 @@ export function mergeStaffingRequirements(
     }
   }
   return map;
-}
-
-export function staffingKey(dayOfWeek: number, shiftType: ShiftType): string {
-  return `${dayOfWeek}:${shiftType}`;
 }
 
 export function eachUtcDateInPeriod(periodStart: Date, periodEnd: Date): Date[] {
@@ -356,9 +352,8 @@ export async function runGreedyScheduleGeneration(
   }
 
   for (const date of dates) {
-    const dow = date.getUTCDay();
     for (const shiftType of SHIFT_TYPE_ORDER) {
-      const req = ctx.mergedStaffing.get(staffingKey(dow, shiftType));
+      const req = ctx.mergedStaffing.get(shiftType);
       if (!req) {
         continue;
       }

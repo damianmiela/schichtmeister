@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ShiftType } from "@prisma/client";
+import { Prisma, ShiftType } from "@prisma/client";
 import { z } from "zod";
 import { shiftTypeZ } from "@/lib/api/employeeSchemas";
 import { parseJsonBody, plannerJsonErrors } from "@/lib/api/validation";
@@ -8,7 +8,6 @@ import { prisma } from "@/lib/db/prisma";
 
 const patchSchema = z
   .object({
-    dayOfWeek: z.number().int().min(0).max(6).optional(),
     shiftType: shiftTypeZ.optional(),
     minStaffCount: z.number().int().min(0).optional(),
     requiredQualificationTags: z.array(z.string()).optional(),
@@ -19,7 +18,6 @@ const patchSchema = z
 
 function serialize(r: {
   id: string;
-  dayOfWeek: number;
   shiftType: ShiftType;
   minStaffCount: number;
   requiredQualificationTags: string[];
@@ -27,7 +25,6 @@ function serialize(r: {
 }) {
   return {
     id: r.id,
-    dayOfWeek: r.dayOfWeek,
     shiftType: r.shiftType,
     minStaffCount: r.minStaffCount,
     requiredQualificationTags: r.requiredQualificationTags,
@@ -58,7 +55,6 @@ export async function PATCH(request: NextRequest, context: RouteCtx) {
     const row = await prisma.staffingRequirement.update({
       where: { id },
       data: {
-        ...(data.dayOfWeek !== undefined && { dayOfWeek: data.dayOfWeek }),
         ...(data.shiftType !== undefined && { shiftType: data.shiftType as ShiftType }),
         ...(data.minStaffCount !== undefined && { minStaffCount: data.minStaffCount }),
         ...(data.requiredQualificationTags !== undefined && {
@@ -68,6 +64,12 @@ export async function PATCH(request: NextRequest, context: RouteCtx) {
     });
     return NextResponse.json({ staffingRequirement: serialize(row) });
   } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      return NextResponse.json(
+        { error: "Für diesen Schichttyp existiert bereits ein Eintrag." },
+        { status: 409 },
+      );
+    }
     console.error("PATCH /api/staffing-requirements/[id]", e);
     return NextResponse.json(
       { error: "Aktualisierung fehlgeschlagen." },

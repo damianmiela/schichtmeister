@@ -16,7 +16,6 @@ import {
   isUnavailableOnDate,
   mergeStaffingRequirements,
   preferencePenalty,
-  staffingKey,
   sumPaidHoursForEmployeeInProposed,
   schedulingTargetHoursBonus,
   wishBonusForSlot,
@@ -31,22 +30,20 @@ describe("phase 07 — generate draft schedule (pure helpers)", () => {
     ]);
   });
 
-  it("merges staffing rows on same day + shift type", () => {
+  it("merges staffing rows on same shift type (defensive)", () => {
     const m = mergeStaffingRequirements([
       {
-        dayOfWeek: 1,
         shiftType: ShiftType.EARLY,
         minStaffCount: 2,
         requiredQualificationTags: ["A"],
       },
       {
-        dayOfWeek: 1,
         shiftType: ShiftType.EARLY,
         minStaffCount: 1,
         requiredQualificationTags: ["B"],
       },
     ]);
-    const e = m.get(staffingKey(1, ShiftType.EARLY));
+    const e = m.get(ShiftType.EARLY);
     expect(e?.minStaffCount).toBe(3);
     expect(e?.requiredQualificationTags.sort()).toEqual(["A", "B"]);
   });

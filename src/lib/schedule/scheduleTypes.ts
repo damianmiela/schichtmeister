@@ -32,7 +32,6 @@ export type ShiftProfileJson = {
 
 export type StaffingJson = {
   id: string;
-  dayOfWeek: number;
   shiftType: string;
   minStaffCount: number;
   requiredQualificationTags: string[];
