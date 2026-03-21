@@ -18,6 +18,8 @@ import {
   ToggleButtonGroup,
   Alert,
   CircularProgress,
+  Menu,
+  MenuItem,
 } from "@mui/material";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
@@ -90,6 +92,8 @@ export default function SchedulePage() {
   const [publishBusy, setPublishBusy] = useState(false);
   const [generateBusy, setGenerateBusy] = useState(false);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
+  const [exportMenuEl, setExportMenuEl] = useState<null | HTMLElement>(null);
+  const [exportBusy, setExportBusy] = useState(false);
 
   const loadBundle = useCallback(async () => {
     setLoading(true);
@@ -296,6 +300,45 @@ export default function SchedulePage() {
     }
   };
 
+  const downloadExport = async (kind: "excel" | "pdf") => {
+    if (!schedule) return;
+    setExportBusy(true);
+    setActionMsg(null);
+    try {
+      const res = await fetch(`/api/schedules/${schedule.id}/export/${kind}`, {
+        credentials: "include",
+      });
+      if (res.status === 401) {
+        window.location.assign("/login");
+        return;
+      }
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        setActionMsg(data.error ?? "Export fehlgeschlagen.");
+        return;
+      }
+      const blob = await res.blob();
+      const cd = res.headers.get("Content-Disposition");
+      const m = cd?.match(/filename="([^"]+)"/);
+      const fallback = kind === "excel" ? "dienstplan.xlsx" : "dienstplan.pdf";
+      const filename = m?.[1] ?? fallback;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      setActionMsg("Export fehlgeschlagen.");
+    } finally {
+      setExportBusy(false);
+      setExportMenuEl(null);
+    }
+  };
+
   const onGenerate = async () => {
     if (!schedule) return;
     setGenerateBusy(true);
@@ -426,9 +469,34 @@ export default function SchedulePage() {
               <Box sx={{ width: 1, height: 24, bgcolor: "divider", mx: 1 }} />
             </>
           )}
-          <Button variant="outlined" startIcon={<DownloadIcon />} disabled>
-            Export
-          </Button>
+          <>
+            <Button
+              variant="outlined"
+              startIcon={<DownloadIcon />}
+              disabled={loading || !schedule || exportBusy}
+              onClick={(e) => setExportMenuEl(e.currentTarget)}
+            >
+              {exportBusy ? <CircularProgress size={20} /> : "Export"}
+            </Button>
+            <Menu
+              anchorEl={exportMenuEl}
+              open={Boolean(exportMenuEl)}
+              onClose={() => setExportMenuEl(null)}
+            >
+              <MenuItem
+                onClick={() => void downloadExport("excel")}
+                disabled={exportBusy}
+              >
+                Excel (.xlsx)
+              </MenuItem>
+              <MenuItem
+                onClick={() => void downloadExport("pdf")}
+                disabled={exportBusy}
+              >
+                PDF
+              </MenuItem>
+            </Menu>
+          </>
           <Button
             variant="outlined"
             startIcon={<AutoAwesomeIcon />}

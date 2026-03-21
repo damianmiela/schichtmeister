@@ -219,7 +219,7 @@ export default function SettingsPage() {
               </Typography>
               <Divider sx={{ mb: 3 }} />
               <Typography variant="body2" color="text.secondary">
-                E-Mail-Benachrichtigungen sind für Phase 12 (n8n) vorgesehen.
+                E-Mail-Benachrichtigungen können später über externe Automation (z. B. Webhooks) ergänzt werden.
               </Typography>
             </CardContent>
           </Card>
