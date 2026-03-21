@@ -13,6 +13,7 @@ import {
 } from "@mui/material";
 import NotificationsIcon from "@mui/icons-material/Notifications";
 import { useState } from "react";
+import { signOut, useSession } from "next-auth/react";
 import { DRAWER_WIDTH } from "./Sidebar";
 
 interface HeaderProps {
@@ -21,6 +22,7 @@ interface HeaderProps {
 
 export default function Header({ title }: HeaderProps) {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const { data: session } = useSession();
 
   const handleMenu = (event: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(event.currentTarget);
@@ -29,6 +31,12 @@ export default function Header({ title }: HeaderProps) {
   const handleClose = () => {
     setAnchorEl(null);
   };
+
+  const initials =
+    session?.user?.email
+      ?.split("@")[0]
+      .slice(0, 2)
+      .toUpperCase() ?? "?";
 
   return (
     <AppBar
@@ -55,7 +63,7 @@ export default function Header({ title }: HeaderProps) {
           </IconButton>
           <IconButton onClick={handleMenu}>
             <Avatar sx={{ bgcolor: "primary.main", width: 36, height: 36 }}>
-              P
+              {initials}
             </Avatar>
           </IconButton>
           <Menu
@@ -65,8 +73,18 @@ export default function Header({ title }: HeaderProps) {
             anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
             transformOrigin={{ vertical: "top", horizontal: "right" }}
           >
+            <MenuItem disabled sx={{ opacity: "1 !important", fontSize: 12 }}>
+              {session?.user?.email}
+            </MenuItem>
             <MenuItem onClick={handleClose}>Profil</MenuItem>
-            <MenuItem onClick={handleClose}>Abmelden</MenuItem>
+            <MenuItem
+              onClick={() => {
+                handleClose();
+                void signOut({ callbackUrl: "/login" });
+              }}
+            >
+              Abmelden
+            </MenuItem>
           </Menu>
         </Box>
       </Toolbar>

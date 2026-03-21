@@ -2,6 +2,8 @@
 
 import { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import { signIn } from "next-auth/react";
 import {
   Container,
   Paper,
@@ -15,11 +17,13 @@ import {
 import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
 
 function LoginForm() {
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
+  const justRegistered = searchParams.get("registered") === "1";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,23 +31,22 @@ function LoginForm() {
     setLoading(true);
 
     try {
-      const formData = new FormData();
-      formData.append("password", password);
-      
-      const response = await fetch("/api/auth/login", {
-        method: "POST",
-        body: formData,
+      const res = await signIn("credentials", {
+        email: email.trim().toLowerCase(),
+        password,
+        redirect: false,
       });
 
-      if (response.ok) {
-        const from = searchParams.get("from") || "/";
-        router.push(from);
-        router.refresh();
-      } else {
-        setError("Falsches Passwort");
+      if (res?.error) {
+        setError("E-Mail oder Passwort ist falsch.");
+        return;
       }
+
+      const from = searchParams.get("from") || "/";
+      router.push(from);
+      router.refresh();
     } catch {
-      setError("Ein Fehler ist aufgetreten");
+      setError("Ein Fehler ist aufgetreten.");
     } finally {
       setLoading(false);
     }
@@ -74,10 +77,15 @@ function LoginForm() {
           SchichtMeister DienstPlanner
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-          Bitte Passwort eingeben
+          Mit E-Mail und Passwort anmelden
         </Typography>
       </Box>
 
+      {justRegistered && (
+        <Alert severity="success" sx={{ mb: 2 }}>
+          Registrierung erfolgreich. Bitte melden Sie sich an.
+        </Alert>
+      )}
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {error}
@@ -87,11 +95,22 @@ function LoginForm() {
       <form onSubmit={handleSubmit}>
         <TextField
           fullWidth
+          type="email"
+          label="E-Mail"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          autoComplete="email"
+          autoFocus
+          disabled={loading}
+          sx={{ mb: 2 }}
+        />
+        <TextField
+          fullWidth
           type="password"
           label="Passwort"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          autoFocus
+          autoComplete="current-password"
           disabled={loading}
           sx={{ mb: 2 }}
         />
@@ -100,11 +119,18 @@ function LoginForm() {
           fullWidth
           variant="contained"
           size="large"
-          disabled={loading || !password}
+          disabled={loading || !email || !password}
         >
-          {loading ? "Wird geprüft..." : "Anmelden"}
+          {loading ? "Wird geprüft…" : "Anmelden"}
         </Button>
       </form>
+
+      <Typography variant="body2" color="text.secondary" sx={{ mt: 2, textAlign: "center" }}>
+        Noch kein Konto?{" "}
+        <Link href="/register" style={{ fontWeight: 600 }}>
+          Registrieren
+        </Link>
+      </Typography>
     </Paper>
   );
 }
