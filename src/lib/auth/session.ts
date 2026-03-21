@@ -23,6 +23,19 @@ export async function requirePlanner() {
   return { session: result.session, error: null };
 }
 
+/** Employee role with linked `User.employeeId` (Mitarbeiter-Login). */
+export async function requireEmployeeSession() {
+  const result = await requireAuth();
+  if (result.error) return result;
+  if (result.session!.user.role !== "EMPLOYEE") {
+    return { session: null, error: "FORBIDDEN" as const };
+  }
+  if (!result.session!.user.employeeId) {
+    return { session: null, error: "FORBIDDEN" as const };
+  }
+  return { session: result.session, error: null };
+}
+
 export function isPlannerRole(role: UserRole) {
   return role === "PLANNER";
 }
