@@ -16,6 +16,34 @@ import {
  */
 type RouteCtx = { params: Promise<{ id: string }> };
 
+/** Safe, JSON-serializable diagnostics for the UI (no stack traces). */
+function serializeGenerateError(e: unknown): Record<string, unknown> {
+  if (e instanceof Prisma.PrismaClientKnownRequestError) {
+    return {
+      kind: "PrismaClientKnownRequestError",
+      code: e.code,
+      message: e.message,
+      meta: e.meta as Record<string, unknown>,
+    };
+  }
+  if (e instanceof Prisma.PrismaClientValidationError) {
+    return { kind: "PrismaClientValidationError", message: e.message };
+  }
+  if (e instanceof Prisma.PrismaClientUnknownRequestError) {
+    return { kind: "PrismaClientUnknownRequestError", message: e.message };
+  }
+  if (e instanceof Prisma.PrismaClientInitializationError) {
+    return { kind: "PrismaClientInitializationError", message: e.message };
+  }
+  if (e instanceof Prisma.PrismaClientRustPanicError) {
+    return { kind: "PrismaClientRustPanicError", message: e.message };
+  }
+  if (e instanceof Error) {
+    return { kind: e.name || "Error", message: e.message };
+  }
+  return { kind: "unknown", message: String(e) };
+}
+
 export async function POST(_request: Request, context: RouteCtx) {
   const { session, error } = await requirePlanner();
   if (error === "UNAUTHORIZED") return plannerJsonErrors.unauthorized();
@@ -66,11 +94,13 @@ export async function POST(_request: Request, context: RouteCtx) {
     console.error("POST /api/schedules/[id]/generate", e);
     const isTxTimeout =
       e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2034";
+    const details = serializeGenerateError(e);
     return NextResponse.json(
       {
         error: isTxTimeout
           ? "Generierung hat das Zeitlimit überschritten. Bitte erneut versuchen oder die Periode aufteilen."
           : "Generierung fehlgeschlagen.",
+        details,
       },
       { status: 500 },
     );

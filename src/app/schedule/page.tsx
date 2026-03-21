@@ -98,6 +98,7 @@ export default function SchedulePage() {
   const [publishBusy, setPublishBusy] = useState(false);
   const [generateBusy, setGenerateBusy] = useState(false);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
+  const [actionDebugPayload, setActionDebugPayload] = useState<unknown>(null);
   const [actionAlertSeverity, setActionAlertSeverity] = useState<
     "info" | "success" | "warning" | "error"
   >("info");
@@ -109,6 +110,7 @@ export default function SchedulePage() {
     setError(null);
     if (!opts?.preserveActionMessage) {
       setActionMsg(null);
+      setActionDebugPayload(null);
       setActionAlertSeverity("info");
     }
     const { year, month } = viewState;
@@ -327,6 +329,7 @@ export default function SchedulePage() {
     if (!schedule) return;
     setPublishBusy(true);
     setActionMsg(null);
+    setActionDebugPayload(null);
     setActionAlertSeverity("info");
     try {
       const res = await fetchJson<{ alreadyPublished?: boolean }>(
@@ -364,6 +367,7 @@ export default function SchedulePage() {
     if (!schedule) return;
     setExportBusy(true);
     setActionMsg(null);
+    setActionDebugPayload(null);
     setActionAlertSeverity("info");
     try {
       const res = await fetch(`/api/schedules/${schedule.id}/export/${kind}`, {
@@ -406,6 +410,7 @@ export default function SchedulePage() {
     if (!schedule) return;
     setGenerateBusy(true);
     setActionMsg(null);
+    setActionDebugPayload(null);
     setActionAlertSeverity("info");
     try {
       const res = await fetchJson<GenerateScheduleResponse>(
@@ -434,6 +439,7 @@ export default function SchedulePage() {
         unmet > 0;
       setActionAlertSeverity(hasIssue ? "warning" : "success");
       setActionMsg(parts.join(" "));
+      setActionDebugPayload(null);
     } catch (e) {
       setActionAlertSeverity("error");
       if (e instanceof ApiError) {
@@ -446,8 +452,24 @@ export default function SchedulePage() {
             ? (e.body as { error: string }).error
             : "Generierung fehlgeschlagen.";
         setActionMsg(msg);
+        const raw = e.body;
+        const details =
+          raw &&
+          typeof raw === "object" &&
+          raw !== null &&
+          "details" in raw
+            ? (raw as { details: unknown }).details
+            : undefined;
+        setActionDebugPayload(
+          details !== undefined
+            ? { httpStatus: e.status, details }
+            : { httpStatus: e.status, responseBody: raw },
+        );
+        console.error("Entwurf füllen — API-Fehler", e.status, raw);
       } else {
         setActionMsg("Generierung fehlgeschlagen (Netzwerk).");
+        setActionDebugPayload({ kind: "client", message: String(e) });
+        console.error("Entwurf füllen — Client/Netzwerk", e);
       }
     } finally {
       setGenerateBusy(false);
@@ -612,10 +634,33 @@ export default function SchedulePage() {
           sx={{ mb: 2 }}
           onClose={() => {
             setActionMsg(null);
+            setActionDebugPayload(null);
             setActionAlertSeverity("info");
           }}
         >
-          {actionMsg}
+          <Typography component="span" variant="body2">
+            {actionMsg}
+          </Typography>
+          {actionAlertSeverity === "error" && actionDebugPayload != null && (
+            <Box
+              component="pre"
+              sx={{
+                mt: 1.5,
+                mb: 0,
+                p: 1,
+                borderRadius: 1,
+                bgcolor: "action.hover",
+                fontSize: "0.7rem",
+                lineHeight: 1.4,
+                overflow: "auto",
+                maxHeight: 240,
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+              }}
+            >
+              {JSON.stringify(actionDebugPayload, null, 2)}
+            </Box>
+          )}
         </Alert>
       )}
       {error && (
