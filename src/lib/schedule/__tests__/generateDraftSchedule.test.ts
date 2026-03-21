@@ -18,7 +18,7 @@ import {
   preferencePenalty,
   staffingKey,
   sumPaidHoursForEmployeeInProposed,
-  weeklyTargetHoursBonus,
+  schedulingTargetHoursBonus,
   wishBonusForSlot,
 } from "@/lib/schedule/generateDraftSchedule";
 
@@ -114,10 +114,16 @@ describe("phase 07 — generate draft schedule (pure helpers)", () => {
     expect(preferencePenalty([], ShiftType.NIGHT)).toBe(0);
   });
 
-  it("weekly target bonus when under hours", () => {
-    const b = weeklyTargetHoursBonus(40, TargetHoursPeriod.WEEKLY, 10);
+  it("scheduling target bonus when under weekly hours", () => {
+    const b = schedulingTargetHoursBonus(40, TargetHoursPeriod.WEEKLY, 10);
     expect(b).toBeGreaterThan(0);
-    expect(weeklyTargetHoursBonus(40, TargetHoursPeriod.WEEKLY, 50)).toBe(0);
+    expect(schedulingTargetHoursBonus(40, TargetHoursPeriod.WEEKLY, 50)).toBe(0);
+  });
+
+  it("scheduling target bonus when under monthly hours", () => {
+    const b = schedulingTargetHoursBonus(173, TargetHoursPeriod.MONTHLY, 50);
+    expect(b).toBeGreaterThan(0);
+    expect(schedulingTargetHoursBonus(173, TargetHoursPeriod.MONTHLY, 200)).toBe(0);
   });
 
   it("sums paid hours from proposed slice", () => {

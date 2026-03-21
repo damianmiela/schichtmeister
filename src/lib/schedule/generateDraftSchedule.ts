@@ -117,14 +117,22 @@ export function preferencePenalty(preferred: ShiftType[], shiftType: ShiftType):
   return preferred.includes(shiftType) ? 0 : 5;
 }
 
-export function weeklyTargetHoursBonus(
+/** Soft bonus when employee is below weekly/monthly Soll (same cumulative hours input for both). */
+export function schedulingTargetHoursBonus(
   targetHours: number | null,
   targetPeriod: TargetHoursPeriod | null,
-  hoursAssignedInPeriod: number,
+  hoursAssignedSoFar: number,
 ): number {
-  if (targetHours == null || targetPeriod !== TargetHoursPeriod.WEEKLY) return 0;
-  if (hoursAssignedInPeriod >= targetHours) return 0;
-  return Math.min(targetHours - hoursAssignedInPeriod, 24) * 0.75;
+  if (targetHours == null || targetPeriod == null) return 0;
+  if (hoursAssignedSoFar >= targetHours) return 0;
+  const slack = targetHours - hoursAssignedSoFar;
+  if (targetPeriod === TargetHoursPeriod.WEEKLY) {
+    return Math.min(slack, 24) * 0.75;
+  }
+  if (targetPeriod === TargetHoursPeriod.MONTHLY) {
+    return Math.min(slack, 40) * 0.75;
+  }
+  return 0;
 }
 
 export type GenEmployee = {
@@ -193,7 +201,7 @@ function sortCandidatesDeterministic(
     const score =
       qualBoost +
       wishBonusForSlot(wishes, e.id, dateIso, shiftType, profileId) +
-      weeklyTargetHoursBonus(e.targetHours, e.targetHoursPeriod, hours) -
+      schedulingTargetHoursBonus(e.targetHours, e.targetHoursPeriod, hours) -
       preferencePenalty(e.preferredShiftTypes, shiftType);
     return { e, score };
   });

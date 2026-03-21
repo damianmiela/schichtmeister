@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import MainLayout from "@/components/layout/MainLayout";
 import {
   Box,
@@ -33,17 +33,9 @@ import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import { ApiError, fetchJson } from "@/lib/api/fetchJson";
-import { REFERENCE_FULL_TIME_WEEKLY_HOURS } from "@/lib/employeeContractDenorm";
+import { REFERENCE_FULL_TIME_MONTHLY_HOURS } from "@/lib/employeeContractDenorm";
 
 type ContractType = "FULL_TIME" | "PART_TIME" | "MINI_JOB";
-
-type WorkProfileOption = {
-  id: string;
-  name: string;
-  targetHoursPercent: number;
-  contractType: ContractType;
-  miniJobMaxMonthlyHours: number | null;
-};
 
 interface EmployeeRow {
   id: string;
@@ -64,19 +56,8 @@ const CONTRACT_LABELS: Record<ContractType, string> = {
   MINI_JOB: "Mini-Job",
 };
 
-function parseQualificationTags(input: string): string[] {
-  return input
-    .split(/[,;\n]+/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-}
-
-function formatQualificationTags(tags: string[]): string {
-  return tags.join(", ");
-}
-
-function weeklyHoursLabel(percent: number): string {
-  const h = (percent / 100) * REFERENCE_FULL_TIME_WEEKLY_HOURS;
+function monthlyHoursLabel(percent: number): string {
+  const h = (percent / 100) * REFERENCE_FULL_TIME_MONTHLY_HOURS;
   const rounded = Math.round(h * 100) / 100;
   return String(rounded).replace(".", ",");
 }
@@ -89,31 +70,13 @@ function parsePercentInput(raw: string): number | null {
   return n;
 }
 
-function valuesMatchTemplate(
-  wp: WorkProfileOption,
-  contractType: ContractType,
-  percentStr: string,
-  miniStr: string,
-): boolean {
-  if (wp.contractType !== contractType) return false;
-  const pct = parsePercentInput(percentStr);
-  if (pct == null || Math.abs(wp.targetHoursPercent - pct) > 0.001) return false;
-  const m = miniStr.trim() === "" ? null : Number(miniStr.replace(",", "."));
-  const wm = wp.miniJobMaxMonthlyHours;
-  if (m === null && wm === null) return true;
-  if (m === null || wm === null) return false;
-  return Math.abs(m - wm) < 0.001;
-}
-
 export default function EmployeesPage() {
   const [employees, setEmployees] = useState<EmployeeRow[]>([]);
-  const [workProfiles, setWorkProfiles] = useState<WorkProfileOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [initialWorkProfileId, setInitialWorkProfileId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [firstName, setFirstName] = useState("");
@@ -121,25 +84,19 @@ export default function EmployeesPage() {
   const [contractType, setContractType] = useState<ContractType>("FULL_TIME");
   const [percentStr, setPercentStr] = useState("");
   const [miniStr, setMiniStr] = useState("");
-  const [selectedTemplate, setSelectedTemplate] = useState<WorkProfileOption | null>(null);
-  const [qualificationsText, setQualificationsText] = useState("");
+  const [qualificationTags, setQualificationTags] = useState<string[]>([]);
   const [deleteTarget, setDeleteTarget] = useState<EmployeeRow | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
-  const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
-  const [templateName, setTemplateName] = useState("");
-  const [templateSaving, setTemplateSaving] = useState(false);
-  const [templateError, setTemplateError] = useState<string | null>(null);
 
-  const loadWorkProfiles = useCallback(async () => {
-    try {
-      const res = await fetchJson<{ workProfiles: WorkProfileOption[] }>(
-        "/api/employee-work-profiles",
-      );
-      setWorkProfiles(res.workProfiles ?? []);
-    } catch {
-      setWorkProfiles([]);
+  const qualificationTagOptions = useMemo(() => {
+    const s = new Set<string>();
+    for (const e of employees) {
+      for (const t of e.qualificationTags) {
+        if (t.trim()) s.add(t.trim());
+      }
     }
-  }, []);
+    return [...s].sort((a, b) => a.localeCompare(b, "de"));
+  }, [employees]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -147,7 +104,6 @@ export default function EmployeesPage() {
     try {
       const empRes = await fetchJson<{ employees: EmployeeRow[] }>("/api/employees");
       setEmployees(empRes.employees ?? []);
-      await loadWorkProfiles();
     } catch (e) {
       if (e instanceof ApiError) {
         const msg =
@@ -164,7 +120,7 @@ export default function EmployeesPage() {
     } finally {
       setLoading(false);
     }
-  }, [loadWorkProfiles]);
+  }, []);
 
   useEffect(() => {
     void load();
@@ -173,11 +129,9 @@ export default function EmployeesPage() {
   const filtered = employees.filter((e) => {
     if (!search.trim()) return true;
     const q = search.toLowerCase();
-    const tpl = e.workProfile?.name.toLowerCase() ?? "";
     return (
       `${e.firstName} ${e.lastName}`.toLowerCase().includes(q) ||
-      e.qualificationTags.some((t) => t.toLowerCase().includes(q)) ||
-      tpl.includes(q)
+      e.qualificationTags.some((t) => t.toLowerCase().includes(q))
     );
   });
 
@@ -188,10 +142,8 @@ export default function EmployeesPage() {
     setContractType("FULL_TIME");
     setPercentStr("");
     setMiniStr("");
-    setSelectedTemplate(null);
-    setQualificationsText("");
+    setQualificationTags([]);
     setEditingId(null);
-    setInitialWorkProfileId(null);
   };
 
   const openCreateDialog = () => {
@@ -199,10 +151,9 @@ export default function EmployeesPage() {
     setDialogOpen(true);
   };
 
-  const openEditDialog = async (e: EmployeeRow) => {
+  const openEditDialog = (e: EmployeeRow) => {
     setFormError(null);
     setEditingId(e.id);
-    setInitialWorkProfileId(e.workProfile?.id ?? null);
     setFirstName(e.firstName);
     setLastName(e.lastName);
     setContractType(e.contractType);
@@ -216,27 +167,11 @@ export default function EmployeesPage() {
         ? String(e.miniJobMaxMonthlyHours).replace(".", ",")
         : "",
     );
-    let profiles = workProfiles;
-    if (e.workProfile != null && profiles.every((w) => w.id !== e.workProfile!.id)) {
-      try {
-        const res = await fetchJson<{ workProfiles: WorkProfileOption[] }>(
-          "/api/employee-work-profiles",
-        );
-        profiles = res.workProfiles ?? [];
-        setWorkProfiles(profiles);
-      } catch {
-        /* keep existing list */
-      }
-    }
-    const tpl =
-      e.workProfile != null ? profiles.find((w) => w.id === e.workProfile!.id) ?? null : null;
-    setSelectedTemplate(tpl);
-    setQualificationsText(formatQualificationTags(e.qualificationTags));
+    setQualificationTags([...e.qualificationTags]);
     setDialogOpen(true);
   };
 
   const buildContractPayload = (): { ok: true; body: Record<string, unknown> } | { ok: false; message: string } => {
-    const tags = parseQualificationTags(qualificationsText);
     if (!firstName.trim() || !lastName.trim()) {
       return { ok: false, message: "Vor- und Nachname sind erforderlich." };
     }
@@ -262,36 +197,15 @@ export default function EmployeesPage() {
       pct = p;
     }
 
-    const match =
-      selectedTemplate != null &&
-      valuesMatchTemplate(selectedTemplate, contractType, percentStr, miniStr);
-
     const body: Record<string, unknown> = {
       firstName: firstName.trim(),
       lastName: lastName.trim(),
-      qualificationTags: tags,
+      qualificationTags: qualificationTags,
+      workProfileId: null,
+      contractType,
+      targetHoursPercent: pct,
+      miniJobMaxMonthlyHours: contractType === "MINI_JOB" ? mini : null,
     };
-
-    if (editingId) {
-      if (match && selectedTemplate) {
-        body.workProfileId = selectedTemplate.id;
-      } else if (initialWorkProfileId && !match) {
-        body.workProfileId = null;
-      }
-      if (!match || !selectedTemplate) {
-        body.contractType = contractType;
-        body.targetHoursPercent = pct;
-        body.miniJobMaxMonthlyHours = contractType === "MINI_JOB" ? mini : null;
-      }
-    } else {
-      if (match && selectedTemplate) {
-        body.workProfileId = selectedTemplate.id;
-      } else {
-        body.contractType = contractType;
-        body.targetHoursPercent = pct;
-        body.miniJobMaxMonthlyHours = contractType === "MINI_JOB" ? mini : null;
-      }
-    }
 
     return { ok: true, body };
   };
@@ -339,62 +253,6 @@ export default function EmployeesPage() {
     }
   };
 
-  const saveNewTemplate = async () => {
-    setTemplateError(null);
-    const name = templateName.trim();
-    if (!name) {
-      setTemplateError("Name für die Vorlage eingeben.");
-      return;
-    }
-    const pct = parsePercentInput(percentStr);
-    if (contractType !== "MINI_JOB" && (percentStr.trim() === "" || pct == null)) {
-      setTemplateError("Soll-Prozent angeben, um eine Vorlage zu speichern.");
-      return;
-    }
-    let mini: number | null = null;
-    if (contractType === "MINI_JOB") {
-      const mj = miniStr.trim();
-      if (mj) {
-        const n = Number(mj.replace(",", "."));
-        if (!Number.isFinite(n) || n <= 0) {
-          setTemplateError("Mini-Job: gültige Max-Stunden/Monat.");
-          return;
-        }
-        mini = n;
-      }
-    }
-
-    setTemplateSaving(true);
-    try {
-      await fetchJson("/api/employee-work-profiles", {
-        method: "POST",
-        body: JSON.stringify({
-          name,
-          targetHoursPercent: contractType === "MINI_JOB" ? 0 : (pct as number),
-          contractType,
-          miniJobMaxMonthlyHours: contractType === "MINI_JOB" ? mini : null,
-        }),
-      });
-      setTemplateDialogOpen(false);
-      setTemplateName("");
-      await loadWorkProfiles();
-    } catch (e) {
-      if (e instanceof ApiError) {
-        const msg =
-          e.body &&
-          typeof e.body === "object" &&
-          e.body !== null &&
-          "error" in e.body &&
-          typeof (e.body as { error: unknown }).error === "string"
-            ? (e.body as { error: string }).error
-            : "Speichern fehlgeschlagen.";
-        setTemplateError(msg);
-      } else setTemplateError("Netzwerkfehler");
-    } finally {
-      setTemplateSaving(false);
-    }
-  };
-
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     setDeleteBusy(true);
@@ -429,13 +287,13 @@ export default function EmployeesPage() {
         : "Mini-Job";
     }
     if (e.targetHoursPercent != null) {
-      return `${e.targetHoursPercent}% · ≈ ${weeklyHoursLabel(e.targetHoursPercent)} h/Woche (${REFERENCE_FULL_TIME_WEEKLY_HOURS}h = 100%)`;
-    }
-    if (e.targetHours != null && e.targetHoursPeriod === "WEEKLY") {
-      return `${e.targetHours} h/Woche`;
+      return `${e.targetHoursPercent}% · ≈ ${monthlyHoursLabel(e.targetHoursPercent)} h/Monat (${String(REFERENCE_FULL_TIME_MONTHLY_HOURS).replace(".", ",")} h = 100%)`;
     }
     if (e.targetHours != null && e.targetHoursPeriod === "MONTHLY") {
       return `${e.targetHours} h/Monat`;
+    }
+    if (e.targetHours != null && e.targetHoursPeriod === "WEEKLY") {
+      return `${e.targetHours} h/Woche`;
     }
     return `${CONTRACT_LABELS[e.contractType]} · kein Soll-%`;
   };
@@ -490,7 +348,6 @@ export default function EmployeesPage() {
                   <TableRow>
                     <TableCell>Mitarbeiter</TableCell>
                     <TableCell>Arbeitszeit</TableCell>
-                    <TableCell>Gespeicherte Vorlage</TableCell>
                     <TableCell>Qualifikationen</TableCell>
                     <TableCell align="right">Aktionen</TableCell>
                   </TableRow>
@@ -498,7 +355,7 @@ export default function EmployeesPage() {
                 <TableBody>
                   {filtered.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={5}>
+                      <TableCell colSpan={4}>
                         <Typography color="text.secondary" sx={{ py: 2 }}>
                           Keine Mitarbeiter.
                         </Typography>
@@ -524,15 +381,6 @@ export default function EmployeesPage() {
                           </Typography>
                         </TableCell>
                         <TableCell>
-                          {employee.workProfile ? (
-                            <Typography variant="body2">{employee.workProfile.name}</Typography>
-                          ) : (
-                            <Typography variant="body2" color="text.secondary">
-                              —
-                            </Typography>
-                          )}
-                        </TableCell>
-                        <TableCell>
                           <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
                             {employee.qualificationTags.length === 0 ? (
                               <Typography variant="caption" color="text.secondary">
@@ -549,7 +397,7 @@ export default function EmployeesPage() {
                           <IconButton
                             size="small"
                             aria-label="Bearbeiten"
-                            onClick={() => void openEditDialog(employee)}
+                            onClick={() => openEditDialog(employee)}
                           >
                             <EditIcon fontSize="small" />
                           </IconButton>
@@ -603,48 +451,11 @@ export default function EmployeesPage() {
             disabled={saving}
           />
 
-          <Autocomplete
-            options={workProfiles}
-            getOptionLabel={(o) =>
-              o.contractType === "MINI_JOB"
-                ? `${o.name} (Mini-Job${o.miniJobMaxMonthlyHours != null ? ` · max ${o.miniJobMaxMonthlyHours} h/Mo` : ""})`
-                : `${o.name} (${o.targetHoursPercent}% · ${CONTRACT_LABELS[o.contractType]})`
-            }
-            value={selectedTemplate}
-            onChange={(_, v) => {
-              setSelectedTemplate(v);
-              if (v) {
-                setContractType(v.contractType);
-                setPercentStr(
-                  Number.isInteger(v.targetHoursPercent)
-                    ? String(v.targetHoursPercent)
-                    : String(v.targetHoursPercent).replace(".", ","),
-                );
-                setMiniStr(
-                  v.miniJobMaxMonthlyHours != null
-                    ? String(v.miniJobMaxMonthlyHours).replace(".", ",")
-                    : "",
-                );
-              }
-            }}
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                label="Gespeicherte Arbeitszeit-Vorlage"
-                helperText="Aus Liste wählen oder unten manuell eintragen. Änderungen an den Feldern lösen die Auswahl."
-              />
-            )}
-            disabled={saving}
-          />
-
           <TextField
             select
             label="Vertragsart"
             value={contractType}
-            onChange={(e) => {
-              setContractType(e.target.value as ContractType);
-              setSelectedTemplate(null);
-            }}
+            onChange={(e) => setContractType(e.target.value as ContractType)}
             fullWidth
             disabled={saving}
           >
@@ -657,13 +468,10 @@ export default function EmployeesPage() {
             <TextField
               label="Soll-Stunden (Prozent)"
               value={percentStr}
-              onChange={(e) => {
-                setPercentStr(e.target.value);
-                setSelectedTemplate(null);
-              }}
+              onChange={(e) => setPercentStr(e.target.value)}
               fullWidth
               disabled={saving}
-              helperText={`Bezug: ${REFERENCE_FULL_TIME_WEEKLY_HOURS}h/Woche = 100%. Leer = kein wöchentliches Soll im Planungsbonus.`}
+              helperText={`Bezug: ${String(REFERENCE_FULL_TIME_MONTHLY_HOURS).replace(".", ",")} h/Monat = 100 %. Leer = kein monatliches Soll im Planungsbonus.`}
             />
           )}
 
@@ -671,30 +479,44 @@ export default function EmployeesPage() {
             <TextField
               label="Max. Stunden pro Monat (optional)"
               value={miniStr}
-              onChange={(e) => {
-                setMiniStr(e.target.value);
-                setSelectedTemplate(null);
-              }}
+              onChange={(e) => setMiniStr(e.target.value)}
               fullWidth
               disabled={saving}
               helperText="Leer = Standard der Einrichtung bei Prüfregeln"
             />
           )}
 
-          <Button variant="outlined" size="small" onClick={() => setTemplateDialogOpen(true)} disabled={saving}>
-            Aktuelle Werte als Vorlage speichern…
-          </Button>
-
-          <TextField
-            label="Qualifikationen"
-            value={qualificationsText}
-            onChange={(e) => setQualificationsText(e.target.value)}
-            fullWidth
+          <Autocomplete
+            multiple
+            freeSolo
+            openOnFocus
+            options={qualificationTagOptions}
+            value={qualificationTags}
+            onChange={(_, v) => {
+              const next = [
+                ...new Set(
+                  v
+                    .map((x) => String(x).trim())
+                    .filter((s) => s.length > 0),
+                ),
+              ];
+              setQualificationTags(next);
+            }}
+            filterSelectedOptions
+            renderTags={(value, getTagProps) =>
+              value.map((option, index) => (
+                <Chip variant="outlined" label={option} {...getTagProps({ index })} key={`${option}-${index}`} />
+              ))
+            }
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Qualifikationen"
+                placeholder="Tippen oder aus bestehenden wählen"
+                helperText="Vorschläge aus allen Mitarbeitern dieser Einrichtung; neue Begriffe möglich."
+              />
+            )}
             disabled={saving}
-            multiline
-            minRows={2}
-            placeholder="z. B. NurseQualified, Hilfskraft"
-            helperText="Mehrere Einträge durch Komma oder Zeilenumbruch trennen"
           />
         </DialogContent>
         <DialogActions>
@@ -709,32 +531,6 @@ export default function EmployeesPage() {
           </Button>
           <Button variant="contained" onClick={() => void submitEmployee()} disabled={saving}>
             {saving ? <CircularProgress size={22} /> : "Speichern"}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={templateDialogOpen} onClose={() => !templateSaving && setTemplateDialogOpen(false)}>
-        <DialogTitle>Vorlage speichern</DialogTitle>
-        <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 2, pt: 1, minWidth: 320 }}>
-          {templateError && <Alert severity="error">{templateError}</Alert>}
-          <TextField
-            label="Name der Vorlage"
-            value={templateName}
-            onChange={(e) => setTemplateName(e.target.value)}
-            fullWidth
-            disabled={templateSaving}
-            autoFocus
-          />
-          <Typography variant="caption" color="text.secondary">
-            Wird in der Autovervollständigung für weitere Mitarbeiter angeboten (eindeutiger Name pro Einrichtung).
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setTemplateDialogOpen(false)} disabled={templateSaving}>
-            Abbrechen
-          </Button>
-          <Button variant="contained" onClick={() => void saveNewTemplate()} disabled={templateSaving}>
-            {templateSaving ? <CircularProgress size={22} /> : "Vorlage anlegen"}
           </Button>
         </DialogActions>
       </Dialog>

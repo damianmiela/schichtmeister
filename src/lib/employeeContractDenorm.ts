@@ -1,11 +1,12 @@
 import type { ContractType } from "@prisma/client";
 import { ContractType as CT, TargetHoursPeriod } from "@prisma/client";
 
-/** Reference full-time week for converting targetHoursPercent → weekly target hours. */
-export const REFERENCE_FULL_TIME_WEEKLY_HOURS = 40;
+/** 40h/week × 52 weeks / 12 months — reference for 100% monthly Soll. */
+export const REFERENCE_FULL_TIME_MONTHLY_HOURS =
+  Math.round(((40 * 52) / 12) * 100) / 100;
 
-export function weeklyTargetHoursFromPercent(percent: number): number {
-  const v = (percent / 100) * REFERENCE_FULL_TIME_WEEKLY_HOURS;
+export function monthlyTargetHoursFromPercent(percent: number): number {
+  const v = (percent / 100) * REFERENCE_FULL_TIME_MONTHLY_HOURS;
   return Math.round(v * 100) / 100;
 }
 
@@ -58,8 +59,8 @@ export function denormalizedContractFromInputs(
 
   return {
     contractType,
-    targetHours: weeklyTargetHoursFromPercent(pct),
-    targetHoursPeriod: TargetHoursPeriod.WEEKLY,
+    targetHours: monthlyTargetHoursFromPercent(pct),
+    targetHoursPeriod: TargetHoursPeriod.MONTHLY,
     miniJobMaxMonthlyHours: null,
     targetHoursPercent: pct,
   };
