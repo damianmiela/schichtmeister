@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { SwapStatus } from "@prisma/client";
+import { AuditAction, SwapStatus } from "@prisma/client";
 import { parseJsonBody, plannerJsonErrors } from "@/lib/api/validation";
 import { swapRejectBodySchema } from "@/lib/api/swapSchemas";
 import { serializeSwap } from "@/lib/api/swapSerialize";
+import {
+  AUDIT_ENTITY_SWAP_REQUEST,
+  swapAuditSnapshot,
+  writeAuditLog,
+} from "@/lib/audit";
 import { requirePlanner } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 
@@ -35,12 +40,23 @@ export async function PATCH(request: NextRequest, context: RouteCtx) {
     );
   }
 
-  const updated = await prisma.swapRequest.update({
-    where: { id },
-    data: {
-      status: SwapStatus.REJECTED,
-      plannerDecisionReason: parsed.data.plannerDecisionReason ?? undefined,
-    },
+  const updated = await prisma.$transaction(async (tx) => {
+    const next = await tx.swapRequest.update({
+      where: { id },
+      data: {
+        status: SwapStatus.REJECTED,
+        plannerDecisionReason: parsed.data.plannerDecisionReason ?? undefined,
+      },
+    });
+    await writeAuditLog(tx, {
+      entityType: AUDIT_ENTITY_SWAP_REQUEST,
+      entityId: id,
+      action: AuditAction.UPDATE,
+      actorUserId: session!.user.id,
+      before: swapAuditSnapshot(swap),
+      after: swapAuditSnapshot(next),
+    });
+    return next;
   });
 
   return NextResponse.json({ swap: serializeSwap(updated) });

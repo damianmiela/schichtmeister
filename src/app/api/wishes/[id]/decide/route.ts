@@ -3,6 +3,12 @@ import { WishStatus } from "@prisma/client";
 import { parseJsonBody, plannerJsonErrors } from "@/lib/api/validation";
 import { wishDecideBodySchema } from "@/lib/api/wishSchemas";
 import { serializeWish } from "@/lib/api/wishSerialize";
+import {
+  AUDIT_ENTITY_WISH,
+  AuditAction,
+  wishAuditSnapshot,
+  writeAuditLog,
+} from "@/lib/audit";
 import { requirePlanner } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 
@@ -30,15 +36,26 @@ export async function PATCH(request: NextRequest, context: RouteCtx) {
     );
   }
 
-  const updated = await prisma.wish.update({
-    where: { id },
-    data: {
-      status:
-        parsed.data.status === "FULFILLED"
-          ? WishStatus.FULFILLED
-          : WishStatus.NOT_FULFILLED,
-      decisionReason: parsed.data.decisionReason ?? undefined,
-    },
+  const updated = await prisma.$transaction(async (tx) => {
+    const next = await tx.wish.update({
+      where: { id },
+      data: {
+        status:
+          parsed.data.status === "FULFILLED"
+            ? WishStatus.FULFILLED
+            : WishStatus.NOT_FULFILLED,
+        decisionReason: parsed.data.decisionReason ?? undefined,
+      },
+    });
+    await writeAuditLog(tx, {
+      entityType: AUDIT_ENTITY_WISH,
+      entityId: id,
+      action: AuditAction.UPDATE,
+      actorUserId: session!.user.id,
+      before: wishAuditSnapshot(wish),
+      after: wishAuditSnapshot(next),
+    });
+    return next;
   });
 
   return NextResponse.json({ wish: serializeWish(updated) });

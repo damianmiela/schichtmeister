@@ -12,6 +12,12 @@ import {
 } from "@/lib/api/assignmentMutations";
 import { parseIsoDateOnly, toIsoDateOnly } from "@/lib/api/dateOnly";
 import { parseJsonBody, plannerJsonErrors } from "@/lib/api/validation";
+import {
+  assignmentAuditSnapshot,
+  AUDIT_ENTITY_ASSIGNMENT,
+  AuditAction,
+  writeAuditLog,
+} from "@/lib/audit";
 import { requirePlanner } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 import { ScheduleStatus } from "@prisma/client";
@@ -114,10 +120,23 @@ export async function PATCH(request: NextRequest, context: RouteCtx) {
         data.employeeId = parsed.data.employeeId;
       }
 
-      return tx.assignment.update({
+      const beforeSnap = assignmentAuditSnapshot(row);
+
+      const updated = await tx.assignment.update({
         where: { id: assignmentId },
         data,
       });
+
+      await writeAuditLog(tx, {
+        entityType: AUDIT_ENTITY_ASSIGNMENT,
+        entityId: assignmentId,
+        action: AuditAction.UPDATE,
+        actorUserId: session!.user.id,
+        before: beforeSnap,
+        after: assignmentAuditSnapshot(updated),
+      });
+
+      return updated;
     });
 
     return NextResponse.json({ assignment: serializeAssignment(updated) });
@@ -161,6 +180,13 @@ export async function DELETE(_request: NextRequest, context: RouteCtx) {
           error: "Nur Entwürfe können bearbeitet werden.",
         });
       }
+      await writeAuditLog(tx, {
+        entityType: AUDIT_ENTITY_ASSIGNMENT,
+        entityId: assignmentId,
+        action: AuditAction.DELETE,
+        actorUserId: session!.user.id,
+        before: assignmentAuditSnapshot(row),
+      });
       await tx.assignment.delete({ where: { id: assignmentId } });
     });
     return new NextResponse(null, { status: 204 });

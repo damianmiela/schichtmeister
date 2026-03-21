@@ -1,5 +1,12 @@
 import type { Prisma } from "@prisma/client";
-import { SwapStatus } from "@prisma/client";
+import { AuditAction, SwapStatus } from "@prisma/client";
+import {
+  assignmentAuditSnapshot,
+  AUDIT_ENTITY_ASSIGNMENT,
+  AUDIT_ENTITY_SWAP_REQUEST,
+  swapAuditSnapshot,
+  writeAuditLog,
+} from "@/lib/audit";
 import { validateScheduleAssignments } from "@/lib/api/planningScheduleValidation";
 import type { AssignmentInput } from "@/lib/planning/types";
 
@@ -45,6 +52,14 @@ export async function applyApprovedSwap(
         status: 400,
         error: "Ziel-Mitarbeiter ist bereits für diese Schicht eingeteilt.",
       },
+    };
+  }
+
+  const swapBefore = await tx.swapRequest.findUnique({ where: { id: swapId } });
+  if (!swapBefore || swapBefore.fromAssignmentId !== fromAssignmentId) {
+    return {
+      ok: false,
+      failure: { kind: "http", status: 404, error: "Tausch nicht gefunden." },
     };
   }
 
@@ -96,6 +111,8 @@ export async function applyApprovedSwap(
     };
   }
 
+  const assignmentBefore = assignmentAuditSnapshot(from);
+
   await tx.assignment.update({
     where: { id: from.id },
     data: { employeeId: toEmployeeId },
@@ -110,6 +127,29 @@ export async function applyApprovedSwap(
       approvedAt: new Date(),
       plannerDecisionReason: null,
     },
+  });
+
+  const assignmentAfter = assignmentAuditSnapshot({
+    ...from,
+    employeeId: toEmployeeId,
+  });
+  await writeAuditLog(tx, {
+    entityType: AUDIT_ENTITY_ASSIGNMENT,
+    entityId: from.id,
+    action: AuditAction.UPDATE,
+    actorUserId: approvedByUserId,
+    before: assignmentBefore,
+    after: assignmentAfter,
+  });
+
+  const swapAfter = await tx.swapRequest.findUniqueOrThrow({ where: { id: swapId } });
+  await writeAuditLog(tx, {
+    entityType: AUDIT_ENTITY_SWAP_REQUEST,
+    entityId: swapId,
+    action: AuditAction.UPDATE,
+    actorUserId: approvedByUserId,
+    before: swapAuditSnapshot(swapBefore),
+    after: swapAuditSnapshot(swapAfter),
   });
 
   return { ok: true };

@@ -12,6 +12,12 @@ import {
 } from "@/lib/api/assignmentMutations";
 import { parseIsoDateOnly, toIsoDateOnly } from "@/lib/api/dateOnly";
 import { parseJsonBody, plannerJsonErrors } from "@/lib/api/validation";
+import {
+  assignmentAuditSnapshot,
+  AUDIT_ENTITY_ASSIGNMENT,
+  AuditAction,
+  writeAuditLog,
+} from "@/lib/audit";
 import { requirePlanner } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 
@@ -75,7 +81,7 @@ export async function POST(request: NextRequest) {
       });
       if (!rules.ok) throw new AssignmentOpRejected(rules.failure);
 
-      return tx.assignment.create({
+      const row = await tx.assignment.create({
         data: {
           scheduleId: parsed.data.scheduleId,
           date,
@@ -84,6 +90,14 @@ export async function POST(request: NextRequest) {
           createdByUserId: userId,
         },
       });
+      await writeAuditLog(tx, {
+        entityType: AUDIT_ENTITY_ASSIGNMENT,
+        entityId: row.id,
+        action: AuditAction.CREATE,
+        actorUserId: userId,
+        after: assignmentAuditSnapshot(row),
+      });
+      return row;
     });
 
     return NextResponse.json(
