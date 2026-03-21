@@ -46,6 +46,12 @@ import type {
 } from "@/lib/schedule/scheduleTypes";
 import { getWeekNumber } from "@/lib/schedule/viewUtils";
 
+type GenerateScheduleResponse = {
+  createdAssignments: number;
+  unmetStaffing: { date: string; shiftType: string; requested: number; assigned: number }[];
+  warnings: string[];
+};
+
 type ViewType = "month" | "week" | "day";
 type MonthViewMode = "table" | "overview";
 
@@ -92,13 +98,19 @@ export default function SchedulePage() {
   const [publishBusy, setPublishBusy] = useState(false);
   const [generateBusy, setGenerateBusy] = useState(false);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
+  const [actionAlertSeverity, setActionAlertSeverity] = useState<
+    "info" | "success" | "warning" | "error"
+  >("info");
   const [exportMenuEl, setExportMenuEl] = useState<null | HTMLElement>(null);
   const [exportBusy, setExportBusy] = useState(false);
 
-  const loadBundle = useCallback(async () => {
+  const loadBundle = useCallback(async (opts?: { preserveActionMessage?: boolean }) => {
     setLoading(true);
     setError(null);
-    setActionMsg(null);
+    if (!opts?.preserveActionMessage) {
+      setActionMsg(null);
+      setActionAlertSeverity("info");
+    }
     const { year, month } = viewState;
     const { monthStart, monthEnd } = monthRangeIso(year, month);
 
@@ -272,18 +284,21 @@ export default function SchedulePage() {
     if (!schedule) return;
     setPublishBusy(true);
     setActionMsg(null);
+    setActionAlertSeverity("info");
     try {
       const res = await fetchJson<{ alreadyPublished?: boolean }>(
         `/api/schedules/${schedule.id}/publish`,
         { method: "POST" },
       );
+      await loadBundle({ preserveActionMessage: true });
+      setActionAlertSeverity("success");
       setActionMsg(
         res.alreadyPublished === true
           ? "War bereits veröffentlicht."
           : "Dienstplan veröffentlicht.",
       );
-      await loadBundle();
     } catch (e) {
+      setActionAlertSeverity("error");
       if (e instanceof ApiError) {
         const msg =
           e.body &&
@@ -294,6 +309,8 @@ export default function SchedulePage() {
             ? (e.body as { error: string }).error
             : "Veröffentlichen fehlgeschlagen.";
         setActionMsg(msg);
+      } else {
+        setActionMsg("Veröffentlichen fehlgeschlagen (Netzwerk).");
       }
     } finally {
       setPublishBusy(false);
@@ -304,6 +321,7 @@ export default function SchedulePage() {
     if (!schedule) return;
     setExportBusy(true);
     setActionMsg(null);
+    setActionAlertSeverity("info");
     try {
       const res = await fetch(`/api/schedules/${schedule.id}/export/${kind}`, {
         credentials: "include",
@@ -314,6 +332,7 @@ export default function SchedulePage() {
       }
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
+        setActionAlertSeverity("error");
         setActionMsg(data.error ?? "Export fehlgeschlagen.");
         return;
       }
@@ -332,6 +351,7 @@ export default function SchedulePage() {
       a.remove();
       URL.revokeObjectURL(url);
     } catch {
+      setActionAlertSeverity("error");
       setActionMsg("Export fehlgeschlagen.");
     } finally {
       setExportBusy(false);
@@ -343,11 +363,36 @@ export default function SchedulePage() {
     if (!schedule) return;
     setGenerateBusy(true);
     setActionMsg(null);
+    setActionAlertSeverity("info");
     try {
-      await fetchJson(`/api/schedules/${schedule.id}/generate`, { method: "POST" });
-      setActionMsg("Entwurf neu befüllt.");
-      await loadBundle();
+      const res = await fetchJson<GenerateScheduleResponse>(
+        `/api/schedules/${schedule.id}/generate`,
+        { method: "POST" },
+      );
+      await loadBundle({ preserveActionMessage: true });
+
+      const parts: string[] = [];
+      if (res.createdAssignments > 0) {
+        parts.push(`${res.createdAssignments} Dienste eingetragen.`);
+      } else {
+        parts.push("Es wurden keine Dienste eingetragen.");
+      }
+      for (const w of res.warnings ?? []) {
+        if (w.trim()) parts.push(w.trim());
+      }
+      const unmet = res.unmetStaffing?.length ?? 0;
+      if (unmet > 0) {
+        parts.push(`${unmet} Bedarfsslots nur teilweise oder gar nicht besetzt.`);
+      }
+
+      const hasIssue =
+        res.createdAssignments === 0 ||
+        (res.warnings?.length ?? 0) > 0 ||
+        unmet > 0;
+      setActionAlertSeverity(hasIssue ? "warning" : "success");
+      setActionMsg(parts.join(" "));
     } catch (e) {
+      setActionAlertSeverity("error");
       if (e instanceof ApiError) {
         const msg =
           e.body &&
@@ -358,6 +403,8 @@ export default function SchedulePage() {
             ? (e.body as { error: string }).error
             : "Generierung fehlgeschlagen.";
         setActionMsg(msg);
+      } else {
+        setActionMsg("Generierung fehlgeschlagen (Netzwerk).");
       }
     } finally {
       setGenerateBusy(false);
@@ -517,7 +564,14 @@ export default function SchedulePage() {
       </Box>
 
       {actionMsg && (
-        <Alert severity="info" sx={{ mb: 2 }} onClose={() => setActionMsg(null)}>
+        <Alert
+          severity={actionAlertSeverity}
+          sx={{ mb: 2 }}
+          onClose={() => {
+            setActionMsg(null);
+            setActionAlertSeverity("info");
+          }}
+        >
           {actionMsg}
         </Alert>
       )}
