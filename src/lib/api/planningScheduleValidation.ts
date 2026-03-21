@@ -61,11 +61,21 @@ function buildProfileInput(p: {
  * Loads facility reference data and runs planning rules on the given assignment set
  * (full proposed roster for the schedule).
  */
+export type ValidateScheduleAssignmentsOptions = {
+  /**
+   * Greedy generation validates after each tentative assignment. Rules that require a **complete**
+   * roster (`staffingMinimum`, `qualificationCoverage`) would fail for every unfilled slot and block
+   * the first placement — disable them for this call only.
+   */
+  incrementalGreedy?: boolean;
+};
+
 export async function validateScheduleAssignments(
   db: ScheduleValidationDb,
   facilityId: string,
   schedule: { periodStart: Date; periodEnd: Date },
   assignments: AssignmentInput[],
+  options?: ValidateScheduleAssignmentsOptions,
 ): Promise<
   | { ok: true; result: PlanningValidationResult }
   | { ok: false; error: string; status: number }
@@ -122,7 +132,24 @@ export async function validateScheduleAssignments(
     requiredQualificationTags: r.requiredQualificationTags,
   }));
 
-  const snapshot = mergePlanningRules(facility, defaultPlanningRulesConfig);
+  let snapshot = mergePlanningRules(facility, defaultPlanningRulesConfig);
+  if (options?.incrementalGreedy) {
+    const rs = snapshot.ruleStates;
+    snapshot = {
+      ...snapshot,
+      ruleStates: {
+        ...rs,
+        staffingMinimum: {
+          enabled: false,
+          params: rs.staffingMinimum?.params ?? {},
+        },
+        qualificationCoverage: {
+          enabled: false,
+          params: rs.qualificationCoverage?.params ?? {},
+        },
+      },
+    };
+  }
 
   const ctx: RuleContext = {
     periodStart: schedule.periodStart,
