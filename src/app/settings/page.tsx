@@ -219,7 +219,7 @@ export default function SettingsPage() {
               </Typography>
               <Divider sx={{ mb: 3 }} />
               <Typography variant="body2" color="text.secondary">
-                E-Mail-Benachrichtigungen können später über externe Automation (z. B. Webhooks) ergänzt werden.
+                E-Mail-Benachrichtigungen können später über externe Automation (z. B. Webhooks) ergänzt werden.
               </Typography>
             </CardContent>
           </Card>

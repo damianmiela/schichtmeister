@@ -32,18 +32,29 @@ import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import { ApiError, fetchJson } from "@/lib/api/fetchJson";
+import { REFERENCE_FULL_TIME_WEEKLY_HOURS } from "@/lib/employeeShiftProfileSync";
 
 type ContractType = "FULL_TIME" | "PART_TIME" | "MINI_JOB";
-type TargetHoursPeriod = "WEEKLY" | "MONTHLY";
+
+interface ShiftProfileOption {
+  id: string;
+  name: string;
+  targetHoursPercent: number;
+  contractType: ContractType;
+  isActive: boolean;
+}
 
 interface EmployeeRow {
   id: string;
   firstName: string;
   lastName: string;
-  contractType: ContractType;
-  targetHours: number | null;
-  targetHoursPeriod: string | null;
-  miniJobMaxMonthlyHours: number | null;
+  shiftProfile: {
+    id: string;
+    name: string;
+    shiftType: string;
+    targetHoursPercent: number;
+    contractType: ContractType;
+  } | null;
   qualificationTags: string[];
 }
 
@@ -52,14 +63,6 @@ const CONTRACT_LABELS: Record<ContractType, string> = {
   PART_TIME: "Teilzeit",
   MINI_JOB: "Mini-Job",
 };
-
-function contractChipColor(
-  c: ContractType,
-): "success" | "info" | "warning" | "default" {
-  if (c === "FULL_TIME") return "success";
-  if (c === "PART_TIME") return "info";
-  return "warning";
-}
 
 function parseQualificationTags(input: string): string[] {
   return input
@@ -72,8 +75,15 @@ function formatQualificationTags(tags: string[]): string {
   return tags.join(", ");
 }
 
+function weeklyHoursLabel(percent: number): string {
+  const h = (percent / 100) * REFERENCE_FULL_TIME_WEEKLY_HOURS;
+  const rounded = Math.round(h * 100) / 100;
+  return String(rounded).replace(".", ",");
+}
+
 export default function EmployeesPage() {
   const [employees, setEmployees] = useState<EmployeeRow[]>([]);
+  const [shiftProfiles, setShiftProfiles] = useState<ShiftProfileOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -83,11 +93,7 @@ export default function EmployeesPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
-  const [contractType, setContractType] = useState<ContractType>("FULL_TIME");
-  const [targetHours, setTargetHours] = useState("");
-  const [targetHoursPeriod, setTargetHoursPeriod] =
-    useState<TargetHoursPeriod>("WEEKLY");
-  const [miniJobMaxMonthlyHours, setMiniJobMaxMonthlyHours] = useState("");
+  const [shiftProfileId, setShiftProfileId] = useState("");
   const [qualificationsText, setQualificationsText] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<EmployeeRow | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -96,8 +102,12 @@ export default function EmployeesPage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchJson<{ employees: EmployeeRow[] }>("/api/employees");
-      setEmployees(data.employees ?? []);
+      const [empRes, profRes] = await Promise.all([
+        fetchJson<{ employees: EmployeeRow[] }>("/api/employees"),
+        fetchJson<{ shiftProfiles: ShiftProfileOption[] }>("/api/shift-profiles"),
+      ]);
+      setEmployees(empRes.employees ?? []);
+      setShiftProfiles(profRes.shiftProfiles ?? []);
     } catch (e) {
       if (e instanceof ApiError) {
         const msg =
@@ -111,6 +121,7 @@ export default function EmployeesPage() {
         setError(msg);
       } else setError("Netzwerkfehler");
       setEmployees([]);
+      setShiftProfiles([]);
     } finally {
       setLoading(false);
     }
@@ -123,9 +134,11 @@ export default function EmployeesPage() {
   const filtered = employees.filter((e) => {
     if (!search.trim()) return true;
     const q = search.toLowerCase();
+    const profName = e.shiftProfile?.name.toLowerCase() ?? "";
     return (
       `${e.firstName} ${e.lastName}`.toLowerCase().includes(q) ||
-      e.qualificationTags.some((t) => t.toLowerCase().includes(q))
+      e.qualificationTags.some((t) => t.toLowerCase().includes(q)) ||
+      profName.includes(q)
     );
   });
 
@@ -133,10 +146,7 @@ export default function EmployeesPage() {
     setFormError(null);
     setFirstName("");
     setLastName("");
-    setContractType("FULL_TIME");
-    setTargetHours("");
-    setTargetHoursPeriod("WEEKLY");
-    setMiniJobMaxMonthlyHours("");
+    setShiftProfileId("");
     setQualificationsText("");
     setEditingId(null);
   };
@@ -151,86 +161,29 @@ export default function EmployeesPage() {
     setEditingId(e.id);
     setFirstName(e.firstName);
     setLastName(e.lastName);
-    setContractType(e.contractType);
-    setTargetHours(
-      e.targetHours != null ? String(e.targetHours).replace(".", ",") : "",
-    );
-    setTargetHoursPeriod(
-      e.targetHoursPeriod === "MONTHLY" ? "MONTHLY" : "WEEKLY",
-    );
-    setMiniJobMaxMonthlyHours(
-      e.miniJobMaxMonthlyHours != null
-        ? String(e.miniJobMaxMonthlyHours).replace(".", ",")
-        : "",
-    );
+    setShiftProfileId(e.shiftProfile?.id ?? "");
     setQualificationsText(formatQualificationTags(e.qualificationTags));
     setDialogOpen(true);
   };
 
-  const buildPayload = ():
-    | { ok: true; body: Record<string, unknown> }
-    | { ok: false; message: string } => {
+  const submitEmployee = async () => {
+    setFormError(null);
     if (!firstName.trim() || !lastName.trim()) {
-      return { ok: false, message: "Vor- und Nachname sind erforderlich." };
+      setFormError("Vor- und Nachname sind erforderlich.");
+      return;
     }
 
     const tags = parseQualificationTags(qualificationsText);
-
-    const thRaw = targetHours.trim();
-    let targetHoursNum: number | null = null;
-    if (thRaw) {
-      const n = Number(thRaw.replace(",", "."));
-      if (!Number.isFinite(n) || n <= 0) {
-        return { ok: false, message: "Stunden: gültige Zahl eingeben." };
-      }
-      targetHoursNum = n;
-    }
-
-    let miniJobNum: number | null = null;
-    if (contractType === "MINI_JOB") {
-      const mj = miniJobMaxMonthlyHours.trim();
-      if (mj) {
-        const n = Number(mj.replace(",", "."));
-        if (!Number.isFinite(n) || n <= 0) {
-          return {
-            ok: false,
-            message: "Mini-Job: gültige Max-Stunden/Monat eingeben.",
-          };
-        }
-        miniJobNum = n;
-      }
-    }
-
     const body: Record<string, unknown> = {
       firstName: firstName.trim(),
       lastName: lastName.trim(),
-      contractType,
       qualificationTags: tags,
     };
 
-    if (targetHoursNum != null) {
-      body.targetHours = targetHoursNum;
-      body.targetHoursPeriod = targetHoursPeriod;
-    } else {
-      body.targetHours = null;
-      body.targetHoursPeriod = null;
-    }
-
-    if (contractType === "MINI_JOB") {
-      body.miniJobMaxMonthlyHours = miniJobNum;
-    } else {
-      body.miniJobMaxMonthlyHours = null;
-    }
-
-    return { ok: true, body };
-  };
-
-  const submitEmployee = async () => {
-    setFormError(null);
-    const built = buildPayload();
-    if (!built.ok) {
-      setFormError(built.message);
-      return;
+    if (editingId) {
+      body.shiftProfileId = shiftProfileId.trim() ? shiftProfileId.trim() : null;
+    } else if (shiftProfileId.trim()) {
+      body.shiftProfileId = shiftProfileId.trim();
     }
 
     setSaving(true);
@@ -238,20 +191,12 @@ export default function EmployeesPage() {
       if (editingId) {
         await fetchJson(`/api/employees/${editingId}`, {
           method: "PATCH",
-          body: JSON.stringify(built.body),
+          body: JSON.stringify(body),
         });
       } else {
-        const createBody = { ...built.body };
-        if (createBody.targetHours == null) {
-          delete createBody.targetHours;
-          delete createBody.targetHoursPeriod;
-        }
-        if (contractType !== "MINI_JOB" || createBody.miniJobMaxMonthlyHours == null) {
-          delete createBody.miniJobMaxMonthlyHours;
-        }
         await fetchJson("/api/employees", {
           method: "POST",
-          body: JSON.stringify(createBody),
+          body: JSON.stringify(body),
         });
       }
       setDialogOpen(false);
@@ -301,22 +246,6 @@ export default function EmployeesPage() {
     } finally {
       setDeleteBusy(false);
     }
-  };
-
-  const hoursLabel = (e: EmployeeRow) => {
-    if (e.contractType === "MINI_JOB") {
-      if (e.miniJobMaxMonthlyHours != null) {
-        return `max. ${e.miniJobMaxMonthlyHours}h/Monat`;
-      }
-      return "Mini-Job";
-    }
-    if (e.targetHours != null && e.targetHoursPeriod === "WEEKLY") {
-      return `${e.targetHours}h/Woche`;
-    }
-    if (e.targetHours != null && e.targetHoursPeriod === "MONTHLY") {
-      return `${e.targetHours}h/Monat`;
-    }
-    return "—";
   };
 
   return (
@@ -370,8 +299,7 @@ export default function EmployeesPage() {
                 <TableHead>
                   <TableRow>
                     <TableCell>Mitarbeiter</TableCell>
-                    <TableCell>Vertrag</TableCell>
-                    <TableCell>Stunden</TableCell>
+                    <TableCell>Schichtprofil</TableCell>
                     <TableCell>Qualifikationen</TableCell>
                     <TableCell align="right">Aktionen</TableCell>
                   </TableRow>
@@ -379,7 +307,7 @@ export default function EmployeesPage() {
                 <TableBody>
                   {filtered.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={5}>
+                      <TableCell colSpan={4}>
                         <Typography color="text.secondary" sx={{ py: 2 }}>
                           Keine Mitarbeiter. Legen Sie den ersten Datensatz an.
                         </Typography>
@@ -393,22 +321,28 @@ export default function EmployeesPage() {
                             <Avatar sx={{ bgcolor: "primary.main" }}>
                               {(employee.firstName[0] ?? "") + (employee.lastName[0] ?? "")}
                             </Avatar>
-                            <Box>
-                              <Typography variant="body2" fontWeight={500}>
-                                {employee.firstName} {employee.lastName}
-                              </Typography>
-                            </Box>
+                            <Typography variant="body2" fontWeight={500}>
+                              {employee.firstName} {employee.lastName}
+                            </Typography>
                           </Box>
                         </TableCell>
-                        <TableCell>
-                          <Chip
-                            label={CONTRACT_LABELS[employee.contractType]}
-                            size="small"
-                            variant="outlined"
-                            color={contractChipColor(employee.contractType)}
-                          />
+                        <TableCell sx={{ maxWidth: 280 }}>
+                          {employee.shiftProfile ? (
+                            <Box>
+                              <Typography variant="body2">{employee.shiftProfile.name}</Typography>
+                              <Typography variant="caption" color="text.secondary" display="block">
+                                {employee.shiftProfile.targetHoursPercent}% Soll · ≈{" "}
+                                {weeklyHoursLabel(employee.shiftProfile.targetHoursPercent)} h/Woche (
+                                {REFERENCE_FULL_TIME_WEEKLY_HOURS}h = 100%) ·{" "}
+                                {CONTRACT_LABELS[employee.shiftProfile.contractType]}
+                              </Typography>
+                            </Box>
+                          ) : (
+                            <Typography variant="body2" color="text.secondary">
+                              Kein Profil
+                            </Typography>
+                          )}
                         </TableCell>
-                        <TableCell>{hoursLabel(employee)}</TableCell>
                         <TableCell>
                           <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
                             {employee.qualificationTags.length === 0 ? (
@@ -493,47 +427,23 @@ export default function EmployeesPage() {
           />
           <TextField
             select
-            label="Vertragsart"
-            value={contractType}
-            onChange={(e) => setContractType(e.target.value as ContractType)}
+            label="Schichtprofil"
+            value={shiftProfileId}
+            onChange={(e) => setShiftProfileId(e.target.value)}
             fullWidth
             disabled={saving}
+            helperText="Optional. Soll-Stunden und Vertrag kommen aus dem Profil; später zuweisen oder ändern."
           >
-            <MenuItem value="FULL_TIME">Vollzeit</MenuItem>
-            <MenuItem value="PART_TIME">Teilzeit</MenuItem>
-            <MenuItem value="MINI_JOB">Mini-Job</MenuItem>
+            <MenuItem value="">
+              <em>Kein Profil</em>
+            </MenuItem>
+            {shiftProfiles.map((p) => (
+              <MenuItem key={p.id} value={p.id}>
+                {p.name} — {p.targetHoursPercent}% · {CONTRACT_LABELS[p.contractType]}
+                {!p.isActive ? " (inaktiv)" : ""}
+              </MenuItem>
+            ))}
           </TextField>
-          {contractType === "MINI_JOB" && (
-            <TextField
-              label="Max. Stunden pro Monat (Mini-Job)"
-              value={miniJobMaxMonthlyHours}
-              onChange={(e) => setMiniJobMaxMonthlyHours(e.target.value)}
-              fullWidth
-              disabled={saving}
-              helperText="Optional; entspricht der geplanten Obergrenze"
-            />
-          )}
-          <TextField
-            label="Soll-Stunden (optional)"
-            value={targetHours}
-            onChange={(e) => setTargetHours(e.target.value)}
-            fullWidth
-            disabled={saving}
-            helperText="Leer lassen, wenn noch unbekannt"
-          />
-          {targetHours.trim() !== "" && (
-            <TextField
-              select
-              label="Bezugszeitraum"
-              value={targetHoursPeriod}
-              onChange={(e) => setTargetHoursPeriod(e.target.value as TargetHoursPeriod)}
-              fullWidth
-              disabled={saving}
-            >
-              <MenuItem value="WEEKLY">pro Woche</MenuItem>
-              <MenuItem value="MONTHLY">pro Monat</MenuItem>
-            </TextField>
-          )}
           <TextField
             label="Qualifikationen"
             value={qualificationsText}

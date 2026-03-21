@@ -7,7 +7,9 @@ export const shiftTypeZ = z.enum(["EARLY", "LATE", "NIGHT"]);
 export const employeeCreateSchema = z.object({
   firstName: z.string().min(1).max(120),
   lastName: z.string().min(1).max(120),
-  contractType: contractTypeZ,
+  /** Optional: Profil bestimmt Vertrag/Soll (Prozent → Wochenstunden); ohne Profil Standard Vollzeit ohne Soll. */
+  shiftProfileId: z.string().cuid().optional().nullable(),
+  contractType: contractTypeZ.optional(),
   targetHours: z.number().positive().optional().nullable(),
   targetHoursPeriod: targetHoursPeriodZ.optional().nullable(),
   miniJobMaxMonthlyHours: z.number().positive().optional().nullable(),
@@ -19,6 +21,7 @@ export const employeePatchSchema = z
   .object({
     firstName: z.string().min(1).max(120).optional(),
     lastName: z.string().min(1).max(120).optional(),
+    shiftProfileId: z.string().cuid().optional().nullable(),
     contractType: contractTypeZ.optional(),
     targetHours: z.number().positive().optional().nullable(),
     targetHoursPeriod: targetHoursPeriodZ.optional().nullable(),
