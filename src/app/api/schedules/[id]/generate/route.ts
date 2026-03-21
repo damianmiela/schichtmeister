@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { toIsoDateOnly } from "@/lib/api/dateOnly";
 import { plannerJsonErrors } from "@/lib/api/validation";
 import { requirePlanner } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
+import type { GenerateReport } from "@/lib/schedule/generateDraftSchedule";
 import {
   loadGenerateContext,
   runGreedyScheduleGeneration,
@@ -37,20 +39,42 @@ export async function POST(_request: Request, context: RouteCtx) {
     schedule.periodEnd,
   );
 
-  const report = await prisma.$transaction(async (tx) => {
-    await tx.assignment.deleteMany({ where: { scheduleId } });
-    return runGreedyScheduleGeneration(
-      tx,
-      facilityId,
-      {
-        id: schedule.id,
-        periodStart: schedule.periodStart,
-        periodEnd: schedule.periodEnd,
+  /** Greedy fill runs many validation passes; Prisma's default interactive tx timeout (5s) is too low. */
+  const TX_MAX_WAIT_MS = 20_000;
+  const TX_TIMEOUT_MS = 300_000;
+
+  let report: GenerateReport;
+  try {
+    report = await prisma.$transaction(
+      async (tx) => {
+        await tx.assignment.deleteMany({ where: { scheduleId } });
+        return runGreedyScheduleGeneration(
+          tx,
+          facilityId,
+          {
+            id: schedule.id,
+            periodStart: schedule.periodStart,
+            periodEnd: schedule.periodEnd,
+          },
+          userId,
+          genCtx,
+        );
       },
-      userId,
-      genCtx,
+      { maxWait: TX_MAX_WAIT_MS, timeout: TX_TIMEOUT_MS },
     );
-  });
+  } catch (e) {
+    console.error("POST /api/schedules/[id]/generate", e);
+    const isTxTimeout =
+      e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2034";
+    return NextResponse.json(
+      {
+        error: isTxTimeout
+          ? "Generierung hat das Zeitlimit überschritten. Bitte erneut versuchen oder die Periode aufteilen."
+          : "Generierung fehlgeschlagen.",
+      },
+      { status: 500 },
+    );
+  }
 
   const rows = await prisma.assignment.findMany({
     where: { scheduleId },
