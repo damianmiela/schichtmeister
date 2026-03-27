@@ -1,6 +1,6 @@
 export type StaffingRow = {
   shiftType: string;
-  minStaffCount: number;
+  minTotalCount: number;
 };
 
 /** Same minimum staffing applies every calendar day. */
@@ -10,7 +10,7 @@ export function requiredCountsForIsoDate(
 ): Record<string, number> {
   const out: Record<string, number> = {};
   for (const r of staffing) {
-    out[r.shiftType] = (out[r.shiftType] ?? 0) + r.minStaffCount;
+    out[r.shiftType] = (out[r.shiftType] ?? 0) + r.minTotalCount;
   }
   return out;
 }

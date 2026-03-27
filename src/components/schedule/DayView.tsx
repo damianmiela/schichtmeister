@@ -13,6 +13,7 @@ import {
 import type { AssignmentJson, EmployeeJson, ShiftProfileJson } from "@/lib/schedule/scheduleTypes";
 import { localIsoDate } from "@/lib/schedule/monthSchedule";
 import { shiftTypeLabel } from "@/lib/schedule/viewUtils";
+import QualificationPills from "@/components/schedule/QualificationPills";
 
 interface DayViewProps {
   date: Date;
@@ -58,16 +59,18 @@ export default function DayView({
             const emp = employeesById[a.employeeId];
             const prof = profilesById[a.shiftProfileId];
             const name = emp ? `${emp.firstName} ${emp.lastName}` : a.employeeId;
+            const tags = emp?.qualificationTags ?? [];
             return (
               <ListItem key={a.id} sx={{ px: 0, alignItems: "flex-start" }}>
                 <ListItemText
                   primary={
                     <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
                       <Typography fontWeight={500}>{name}</Typography>
+                      <QualificationPills tags={tags} />
                       {prof && (
                         <Chip
                           size="small"
-                          label={`${prof.name} (${prof.startTime}–${prof.endTime})`}
+                          label={`${prof.name} (${prof.startTime}\u2013${prof.endTime})`}
                           color="primary"
                           variant="outlined"
                         />

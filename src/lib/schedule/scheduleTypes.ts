@@ -18,6 +18,10 @@ export type EmployeeJson = {
   id: string;
   firstName: string;
   lastName: string;
+  qualificationTags?: string[];
+  targetHours?: number | null;
+  targetHoursPeriod?: string | null;
+  contractType?: string;
 };
 
 export type ShiftProfileJson = {
@@ -33,6 +37,6 @@ export type ShiftProfileJson = {
 export type StaffingJson = {
   id: string;
   shiftType: string;
-  minStaffCount: number;
-  requiredQualificationTags: string[];
+  minTotalCount: number;
+  qualificationRequirements: { id: string; qualificationTag: string; minCount: number }[];
 };

@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Box,
   Table,
   TableBody,
   TableCell,
@@ -12,6 +13,7 @@ import {
 import type { AssignmentJson, EmployeeJson, ShiftProfileJson } from "@/lib/schedule/scheduleTypes";
 import { weekLocalIsoDays } from "@/lib/schedule/monthSchedule";
 import { shiftTypeLabel } from "@/lib/schedule/viewUtils";
+import QualificationPills from "@/components/schedule/QualificationPills";
 
 interface WeekViewProps {
   weekStartDate: Date;
@@ -71,14 +73,17 @@ export default function WeekView({
           {sortedEmps.map((e) => (
             <TableRow key={e.id} hover>
               <TableCell>
-                {e.firstName} {e.lastName}
+                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                  <span>{e.firstName} {e.lastName}</span>
+                  <QualificationPills tags={e.qualificationTags ?? []} compact />
+                </Box>
               </TableCell>
               {dayIsos.map((iso) => {
                 const pid = byEmpDay.get(`${e.id}|${iso}`);
                 const p = pid ? profilesById[pid] : undefined;
                 const label = p
-                  ? `${p.name} · ${shiftTypeLabel(p.shiftType)}`
-                  : "—";
+                  ? `${p.name} \u00B7 ${shiftTypeLabel(p.shiftType)}`
+                  : "\u2014";
                 const [y, m, d] = iso.split("-").map(Number);
                 return (
                   <TableCell

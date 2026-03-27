@@ -35,7 +35,7 @@ export default function MonthView({
   const rows = monthCalendarRowsLocal(year, monthIndex);
   const staffRows = staffing.map((s) => ({
     shiftType: s.shiftType,
-    minStaffCount: s.minStaffCount,
+    minTotalCount: s.minTotalCount,
   }));
 
   return (
