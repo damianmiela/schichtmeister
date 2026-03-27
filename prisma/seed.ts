@@ -133,11 +133,11 @@ async function main() {
   /** Same minimum staffing every calendar day (one row per shift type). */
   const perShift: Record<
     ShiftType,
-    { minStaffCount: number; requiredQualificationTags: string[] }
+    { minTotalCount: number; qualifications: { tag: string; minCount: number }[] }
   > = {
-    [ShiftType.EARLY]: { minStaffCount: 4, requiredQualificationTags: ["NurseQualified"] },
-    [ShiftType.LATE]: { minStaffCount: 3, requiredQualificationTags: [] },
-    [ShiftType.NIGHT]: { minStaffCount: 2, requiredQualificationTags: ["NurseQualified"] },
+    [ShiftType.EARLY]: { minTotalCount: 8, qualifications: [{ tag: "NurseQualified", minCount: 3 }] },
+    [ShiftType.LATE]: { minTotalCount: 6, qualifications: [] },
+    [ShiftType.NIGHT]: { minTotalCount: 3, qualifications: [{ tag: "NurseQualified", minCount: 1 }] },
   };
 
   for (const shiftType of Object.values(ShiftType)) {
@@ -146,8 +146,13 @@ async function main() {
       data: {
         facilityId: facility.id,
         shiftType,
-        minStaffCount: cfg.minStaffCount,
-        requiredQualificationTags: cfg.requiredQualificationTags,
+        minTotalCount: cfg.minTotalCount,
+        qualificationRequirements: {
+          create: cfg.qualifications.map((q) => ({
+            qualificationTag: q.tag,
+            minCount: q.minCount,
+          })),
+        },
       },
     });
   }

@@ -7,8 +7,19 @@ function decimalToNumber(value: Facility["minRestHours"]): number {
 
 export type FacilityRulesSlice = Pick<
   Facility,
-  "minRestHours" | "miniJobMaxMonthlyHours"
+  "minRestHours" | "miniJobMaxMonthlyHours" | "ruleOverridesJson"
 >;
+
+type RuleOverrides = Record<string, { enabled?: boolean; params?: Record<string, unknown> }>;
+
+function parseOverrides(json: string | null | undefined): RuleOverrides {
+  if (!json) return {};
+  try {
+    return JSON.parse(json) as RuleOverrides;
+  } catch {
+    return {};
+  }
+}
 
 export function mergePlanningRules(
   facility: FacilityRulesSlice,
@@ -20,6 +31,20 @@ export function mergePlanningRules(
       enabled: r.enabled,
       params: r.params ?? {},
     };
+  }
+
+  const overrides = parseOverrides(facility.ruleOverridesJson);
+  for (const [ruleId, ov] of Object.entries(overrides)) {
+    const existing = ruleStates[ruleId];
+    if (existing) {
+      if (ov.enabled !== undefined) existing.enabled = ov.enabled;
+      if (ov.params) existing.params = { ...existing.params, ...ov.params };
+    } else {
+      ruleStates[ruleId] = {
+        enabled: ov.enabled ?? false,
+        params: ov.params ?? {},
+      };
+    }
   }
 
   return {

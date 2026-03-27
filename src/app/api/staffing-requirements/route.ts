@@ -8,22 +8,25 @@ import { prisma } from "@/lib/db/prisma";
 
 const createSchema = z.object({
   shiftType: shiftTypeZ,
-  minStaffCount: z.number().int().min(0),
-  requiredQualificationTags: z.array(z.string()).optional(),
+  minTotalCount: z.number().int().min(0),
 });
 
 function serialize(r: {
   id: string;
   shiftType: ShiftType;
-  minStaffCount: number;
-  requiredQualificationTags: string[];
+  minTotalCount: number;
+  qualificationRequirements: { id: string; qualificationTag: string; minCount: number }[];
   createdAt: Date;
 }) {
   return {
     id: r.id,
     shiftType: r.shiftType,
-    minStaffCount: r.minStaffCount,
-    requiredQualificationTags: r.requiredQualificationTags,
+    minTotalCount: r.minTotalCount,
+    qualificationRequirements: r.qualificationRequirements.map((q) => ({
+      id: q.id,
+      qualificationTag: q.qualificationTag,
+      minCount: q.minCount,
+    })),
     createdAt: r.createdAt.toISOString(),
   };
 }
@@ -35,6 +38,7 @@ export async function GET() {
 
   const rows = await prisma.staffingRequirement.findMany({
     where: { facilityId: session!.user.facilityId },
+    include: { qualificationRequirements: true },
     orderBy: [{ shiftType: "asc" }],
   });
   return NextResponse.json({
@@ -56,9 +60,9 @@ export async function POST(request: NextRequest) {
       data: {
         facilityId: session!.user.facilityId,
         shiftType: data.shiftType as ShiftType,
-        minStaffCount: data.minStaffCount,
-        requiredQualificationTags: data.requiredQualificationTags ?? [],
+        minTotalCount: data.minTotalCount,
       },
+      include: { qualificationRequirements: true },
     });
     return NextResponse.json(
       { staffingRequirement: serialize(row) },

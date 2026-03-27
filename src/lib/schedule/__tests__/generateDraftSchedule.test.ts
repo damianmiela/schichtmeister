@@ -34,18 +34,19 @@ describe("phase 07 — generate draft schedule (pure helpers)", () => {
     const m = mergeStaffingRequirements([
       {
         shiftType: ShiftType.EARLY,
-        minStaffCount: 2,
-        requiredQualificationTags: ["A"],
+        minTotalCount: 2,
+        qualificationRequirements: [{ qualificationTag: "A", minCount: 1 }],
       },
       {
         shiftType: ShiftType.EARLY,
-        minStaffCount: 1,
-        requiredQualificationTags: ["B"],
+        minTotalCount: 1,
+        qualificationRequirements: [{ qualificationTag: "B", minCount: 2 }],
       },
     ]);
     const e = m.get(ShiftType.EARLY);
-    expect(e?.minStaffCount).toBe(3);
-    expect(e?.requiredQualificationTags.sort()).toEqual(["A", "B"]);
+    expect(e?.minTotalCount).toBe(3);
+    expect(e?.qualificationRequirements.map((q) => q.qualificationTag).sort()).toEqual(["A", "B"]);
+    expect(e?.qualificationRequirements.find((q) => q.qualificationTag === "B")?.minCount).toBe(2);
   });
 
   it("iterates UTC dates inclusive", () => {

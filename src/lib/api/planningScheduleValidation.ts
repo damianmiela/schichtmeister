@@ -59,11 +59,6 @@ function buildProfileInput(p: {
 }
 
 export type ValidateScheduleAssignmentsOptions = {
-  /**
-   * When set, only rules with this scope are executed. Used during incremental
-   * generation where global-scope rules (staffing, qualification) would fail
-   * on a partial schedule — pass `'employee'` to skip them naturally.
-   */
   ruleScope?: RuleScope;
 };
 
@@ -85,7 +80,10 @@ export async function validateScheduleAssignments(
   const [employees, profiles, staffingRows] = await Promise.all([
     db.employee.findMany({ where: { facilityId } }),
     db.shiftProfile.findMany({ where: { facilityId } }),
-    db.staffingRequirement.findMany({ where: { facilityId } }),
+    db.staffingRequirement.findMany({
+      where: { facilityId },
+      include: { qualificationRequirements: true },
+    }),
   ]);
 
   const employeesById = new Map<string, EmployeeInput>();
@@ -125,8 +123,11 @@ export async function validateScheduleAssignments(
 
   const staffingRequirements: StaffingRequirementInput[] = staffingRows.map((r) => ({
     shiftType: r.shiftType,
-    minStaffCount: r.minStaffCount,
-    requiredQualificationTags: r.requiredQualificationTags,
+    minTotalCount: r.minTotalCount,
+    qualificationRequirements: r.qualificationRequirements.map((q) => ({
+      qualificationTag: q.qualificationTag,
+      minCount: q.minCount,
+    })),
   }));
 
   const snapshot = mergePlanningRules(facility, defaultPlanningRulesConfig);

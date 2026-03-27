@@ -23,6 +23,7 @@ export type {
   RuleResult,
   RuleScope,
   RuleSeverity,
+  QualificationRequirementInput,
   ShiftProfileInput,
   StaffingRequirementInput,
   WishInput,

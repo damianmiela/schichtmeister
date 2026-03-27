@@ -14,6 +14,7 @@ function mockDb() {
         id: facilityId,
         minRestHours: 11,
         miniJobMaxMonthlyHours: 520,
+        ruleOverridesJson: null,
       }),
     },
     employee: {
@@ -48,13 +49,13 @@ function mockDb() {
       findMany: vi.fn().mockResolvedValue([
         {
           shiftType: ShiftType.EARLY,
-          minStaffCount: 1,
-          requiredQualificationTags: ["Fachkraft"],
+          minTotalCount: 1,
+          qualificationRequirements: [{ qualificationTag: "Fachkraft", minCount: 1 }],
         },
         {
           shiftType: ShiftType.LATE,
-          minStaffCount: 1,
-          requiredQualificationTags: ["Fachkraft"],
+          minTotalCount: 1,
+          qualificationRequirements: [{ qualificationTag: "Fachkraft", minCount: 1 }],
         },
       ]),
     },

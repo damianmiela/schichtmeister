@@ -106,7 +106,7 @@ export async function GET() {
 
   const requiredByType: Record<string, number> = {};
   for (const r of staffingToday) {
-    requiredByType[r.shiftType] = (requiredByType[r.shiftType] ?? 0) + r.minStaffCount;
+    requiredByType[r.shiftType] = (requiredByType[r.shiftType] ?? 0) + r.minTotalCount;
   }
 
   const todaySchedule =

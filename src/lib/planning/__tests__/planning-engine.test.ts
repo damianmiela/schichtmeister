@@ -15,10 +15,12 @@ import type {
 function facilitySlice(
   minRestHours: number,
   miniJobMaxMonthlyHours: number,
+  ruleOverridesJson: string | null = null,
 ): FacilityRulesSlice {
   return {
     minRestHours: new Prisma.Decimal(minRestHours),
     miniJobMaxMonthlyHours: new Prisma.Decimal(miniJobMaxMonthlyHours),
+    ruleOverridesJson,
   };
 }
 
@@ -79,6 +81,22 @@ describe("phase 04 — planning rules", () => {
       const merged = mergePlanningRules(facilitySlice(14, 99), defaultPlanningRulesConfig);
       expect(merged.minRestHours).toBe(14);
       expect(merged.miniJobMaxMonthlyHours).toBe(99);
+    });
+
+    it("applies ruleOverridesJson from facility", () => {
+      const overrides = JSON.stringify({
+        noOverlap: { enabled: false },
+        maxConsecutiveNights: { enabled: true, params: { maxCount: 5 } },
+      });
+      const merged = mergePlanningRules(facilitySlice(11, 520, overrides), defaultPlanningRulesConfig);
+      expect(merged.ruleStates.noOverlap?.enabled).toBe(false);
+      expect(merged.ruleStates.maxConsecutiveNights?.enabled).toBe(true);
+      expect(merged.ruleStates.maxConsecutiveNights?.params?.maxCount).toBe(5);
+    });
+
+    it("ignores invalid ruleOverridesJson", () => {
+      const merged = mergePlanningRules(facilitySlice(11, 520, "not json"), defaultPlanningRulesConfig);
+      expect(merged.ruleStates.noOverlap?.enabled).toBe(true);
     });
   });
 
@@ -325,7 +343,7 @@ describe("phase 04 — planning rules", () => {
   });
 
   describe("staffingMinimum", () => {
-    it("requires minStaffCount per day and shift type", () => {
+    it("requires minTotalCount per day and shift type", () => {
       const profiles = new Map([
         [
           "early",
@@ -346,7 +364,7 @@ describe("phase 04 — planning rules", () => {
         ],
         profilesById: profiles,
         staffingRequirements: [
-          { shiftType: ShiftType.EARLY, minStaffCount: 2, requiredQualificationTags: [] },
+          { shiftType: ShiftType.EARLY, minTotalCount: 2, qualificationRequirements: [] },
         ],
         snapshot: baseSnapshot({
           ruleStates: {
@@ -399,8 +417,106 @@ describe("phase 04 — planning rules", () => {
         staffingRequirements: [
           {
             shiftType: ShiftType.NIGHT,
-            minStaffCount: 1,
-            requiredQualificationTags: ["NurseQualified"],
+            minTotalCount: 1,
+            qualificationRequirements: [{ qualificationTag: "NurseQualified", minCount: 1 }],
+          },
+        ],
+        snapshot: baseSnapshot({
+          ruleStates: {
+            noOverlap: { enabled: false, params: {} },
+            minRestBetweenShifts: { enabled: false, params: {} },
+            miniJobMonthlyHours: { enabled: false, params: {} },
+            staffingMinimum: { enabled: false, params: {} },
+            qualificationCoverage: { enabled: true, params: {} },
+          },
+        }),
+      });
+      const { errors } = runAllRules(ctx);
+      expect(errors.some((e) => e.code === "MISSING_QUALIFICATION")).toBe(true);
+    });
+
+    it("passes when enough employees with required tag are assigned", () => {
+      const profiles = new Map([
+        [
+          "night",
+          {
+            id: "night",
+            shiftType: ShiftType.NIGHT,
+            startTime: "22:00",
+            endTime: "06:00",
+            breakMinutes: 0,
+          },
+        ],
+      ]);
+      const employees = new Map([
+        ["e1", { id: "e1", contractType: ContractType.FULL_TIME, miniJobMaxMonthlyHours: null, qualificationTags: ["NurseQualified"] }],
+        ["e2", { id: "e2", contractType: ContractType.FULL_TIME, miniJobMaxMonthlyHours: null, qualificationTags: ["NurseQualified"] }],
+        ["e3", { id: "e3", contractType: ContractType.FULL_TIME, miniJobMaxMonthlyHours: null, qualificationTags: [] }],
+      ]);
+      const ctx = minimalCtx({
+        periodStart: new Date(Date.UTC(2026, 0, 5)),
+        periodEnd: new Date(Date.UTC(2026, 0, 5)),
+        assignments: [
+          { id: "a1", date: new Date(Date.UTC(2026, 0, 5)), shiftProfileId: "night", employeeId: "e1" },
+          { id: "a2", date: new Date(Date.UTC(2026, 0, 5)), shiftProfileId: "night", employeeId: "e2" },
+          { id: "a3", date: new Date(Date.UTC(2026, 0, 5)), shiftProfileId: "night", employeeId: "e3" },
+        ],
+        employeesById: employees,
+        profilesById: profiles,
+        staffingRequirements: [
+          {
+            shiftType: ShiftType.NIGHT,
+            minTotalCount: 3,
+            qualificationRequirements: [{ qualificationTag: "NurseQualified", minCount: 2 }],
+          },
+        ],
+        snapshot: baseSnapshot({
+          ruleStates: {
+            noOverlap: { enabled: false, params: {} },
+            minRestBetweenShifts: { enabled: false, params: {} },
+            miniJobMonthlyHours: { enabled: false, params: {} },
+            staffingMinimum: { enabled: false, params: {} },
+            qualificationCoverage: { enabled: true, params: {} },
+          },
+        }),
+      });
+      const { errors } = runAllRules(ctx);
+      expect(errors.filter((e) => e.ruleId === "qualificationCoverage")).toEqual([]);
+    });
+
+    it("errors when minCount > 1 and not enough qualified employees assigned", () => {
+      const profiles = new Map([
+        [
+          "early",
+          {
+            id: "early",
+            shiftType: ShiftType.EARLY,
+            startTime: "06:00",
+            endTime: "14:00",
+            breakMinutes: 0,
+          },
+        ],
+      ]);
+      const employees = new Map([
+        ["e1", { id: "e1", contractType: ContractType.FULL_TIME, miniJobMaxMonthlyHours: null, qualificationTags: ["Fachkraft"] }],
+        ["e2", { id: "e2", contractType: ContractType.FULL_TIME, miniJobMaxMonthlyHours: null, qualificationTags: [] }],
+        ["e3", { id: "e3", contractType: ContractType.FULL_TIME, miniJobMaxMonthlyHours: null, qualificationTags: [] }],
+      ]);
+      const ctx = minimalCtx({
+        periodStart: new Date(Date.UTC(2026, 0, 5)),
+        periodEnd: new Date(Date.UTC(2026, 0, 5)),
+        assignments: [
+          { id: "a1", date: new Date(Date.UTC(2026, 0, 5)), shiftProfileId: "early", employeeId: "e1" },
+          { id: "a2", date: new Date(Date.UTC(2026, 0, 5)), shiftProfileId: "early", employeeId: "e2" },
+          { id: "a3", date: new Date(Date.UTC(2026, 0, 5)), shiftProfileId: "early", employeeId: "e3" },
+        ],
+        employeesById: employees,
+        profilesById: profiles,
+        staffingRequirements: [
+          {
+            shiftType: ShiftType.EARLY,
+            minTotalCount: 3,
+            qualificationRequirements: [{ qualificationTag: "Fachkraft", minCount: 3 }],
           },
         ],
         snapshot: baseSnapshot({
@@ -525,7 +641,7 @@ describe("phase 04 — planning rules", () => {
         ],
         profilesById: profiles,
         staffingRequirements: [
-          { shiftType: ShiftType.EARLY, minStaffCount: 5, requiredQualificationTags: [] },
+          { shiftType: ShiftType.EARLY, minTotalCount: 5, qualificationRequirements: [] },
         ],
         snapshot: baseSnapshot({
           ruleStates: {
@@ -569,7 +685,7 @@ describe("phase 04 — planning rules", () => {
         ],
         profilesById: profiles,
         staffingRequirements: [
-          { shiftType: ShiftType.EARLY, minStaffCount: 5, requiredQualificationTags: [] },
+          { shiftType: ShiftType.EARLY, minTotalCount: 5, qualificationRequirements: [] },
         ],
         snapshot: baseSnapshot({
           ruleStates: {

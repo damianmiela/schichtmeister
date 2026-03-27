@@ -68,6 +68,7 @@ model Facility {
   name                    String
   minRestHours            Decimal  @default(11) @db.Decimal(4, 2)
   miniJobMaxMonthlyHours  Decimal  @default(520) @db.Decimal(8, 2)
+  ruleOverridesJson       String?
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
 
@@ -170,17 +171,30 @@ model ShiftProfile {
 }
 
 model StaffingRequirement {
-  id                        String    @id @default(cuid())
-  facilityId                String
-  shiftType                 ShiftType
-  minStaffCount             Int
-  requiredQualificationTags String[]  @default([])
-  createdAt                 DateTime  @default(now())
-  updatedAt                 DateTime  @updatedAt
+  id            String    @id @default(cuid())
+  facilityId    String
+  shiftType     ShiftType
+  minTotalCount Int
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
-  facility Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  facility                  Facility                  @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  qualificationRequirements QualificationRequirement[]
 
   @@unique([facilityId, shiftType])
+}
+
+model QualificationRequirement {
+  id                    String   @id @default(cuid())
+  staffingRequirementId String
+  qualificationTag      String
+  minCount              Int      @default(1)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  staffingRequirement StaffingRequirement @relation(fields: [staffingRequirementId], references: [id], onDelete: Cascade)
+
+  @@unique([staffingRequirementId, qualificationTag])
 }
 
 model Schedule {

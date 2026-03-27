@@ -14,11 +14,11 @@ export function staffingMinimumRule(ctx: RuleContext): RuleResult {
         if (!profile || profile.shiftType !== req.shiftType) continue;
         count += 1;
       }
-      if (count < req.minStaffCount) {
+      if (count < req.minTotalCount) {
         errors.push({
           ruleId: "staffingMinimum",
           code: "UNDERSTAFFED",
-          message: `Need at least ${req.minStaffCount} for ${req.shiftType} on ${d.toISOString().slice(0, 10)} (got ${count}).`,
+          message: `Need at least ${req.minTotalCount} for ${req.shiftType} on ${d.toISOString().slice(0, 10)} (got ${count}).`,
         });
       }
     }

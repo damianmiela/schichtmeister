@@ -9,8 +9,7 @@ import { prisma } from "@/lib/db/prisma";
 const patchSchema = z
   .object({
     shiftType: shiftTypeZ.optional(),
-    minStaffCount: z.number().int().min(0).optional(),
-    requiredQualificationTags: z.array(z.string()).optional(),
+    minTotalCount: z.number().int().min(0).optional(),
   })
   .refine((o) => Object.keys(o).length > 0, {
     message: "Mindestens ein Feld zum Aktualisieren angeben",
@@ -19,15 +18,19 @@ const patchSchema = z
 function serialize(r: {
   id: string;
   shiftType: ShiftType;
-  minStaffCount: number;
-  requiredQualificationTags: string[];
+  minTotalCount: number;
+  qualificationRequirements: { id: string; qualificationTag: string; minCount: number }[];
   createdAt: Date;
 }) {
   return {
     id: r.id,
     shiftType: r.shiftType,
-    minStaffCount: r.minStaffCount,
-    requiredQualificationTags: r.requiredQualificationTags,
+    minTotalCount: r.minTotalCount,
+    qualificationRequirements: r.qualificationRequirements.map((q) => ({
+      id: q.id,
+      qualificationTag: q.qualificationTag,
+      minCount: q.minCount,
+    })),
     createdAt: r.createdAt.toISOString(),
   };
 }
@@ -56,11 +59,9 @@ export async function PATCH(request: NextRequest, context: RouteCtx) {
       where: { id },
       data: {
         ...(data.shiftType !== undefined && { shiftType: data.shiftType as ShiftType }),
-        ...(data.minStaffCount !== undefined && { minStaffCount: data.minStaffCount }),
-        ...(data.requiredQualificationTags !== undefined && {
-          requiredQualificationTags: data.requiredQualificationTags,
-        }),
+        ...(data.minTotalCount !== undefined && { minTotalCount: data.minTotalCount }),
       },
+      include: { qualificationRequirements: true },
     });
     return NextResponse.json({ staffingRequirement: serialize(row) });
   } catch (e) {

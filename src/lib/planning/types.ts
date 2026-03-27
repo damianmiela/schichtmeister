@@ -42,10 +42,15 @@ export type ShiftProfileInput = {
   breakMinutes: number;
 };
 
+export type QualificationRequirementInput = {
+  qualificationTag: string;
+  minCount: number;
+};
+
 export type StaffingRequirementInput = {
   shiftType: ShiftType;
-  minStaffCount: number;
-  requiredQualificationTags: string[];
+  minTotalCount: number;
+  qualificationRequirements: QualificationRequirementInput[];
 };
 
 export type WishInput = {

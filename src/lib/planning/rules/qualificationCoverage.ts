@@ -2,36 +2,36 @@ import type { RuleContext, RuleResult } from "@/lib/planning/types";
 import { datesInPeriodUtc, sameUtcCalendarDay } from "@/lib/planning/time";
 
 /**
- * MVP: for each required tag, at least one assigned employee on that shift must carry the tag.
+ * For each qualification requirement, at least `minCount` assigned employees
+ * on that day/shift type must carry the required tag.
  */
 export function qualificationCoverageRule(ctx: RuleContext): RuleResult {
   const errors: RuleResult["errors"] = [];
   const dates = datesInPeriodUtc(ctx.periodStart, ctx.periodEnd);
 
   for (const req of ctx.staffingRequirements) {
-    if (req.requiredQualificationTags.length === 0) continue;
+    if (req.qualificationRequirements.length === 0) continue;
     for (const d of dates) {
-      const onShift: string[] = [];
+      const onShiftEmpIds: string[] = [];
       for (const a of ctx.assignments) {
         if (!sameUtcCalendarDay(a.date, d)) continue;
         const profile = ctx.profilesById.get(a.shiftProfileId);
         if (!profile || profile.shiftType !== req.shiftType) continue;
-        onShift.push(a.employeeId);
+        onShiftEmpIds.push(a.employeeId);
       }
-      for (const tag of req.requiredQualificationTags) {
-        let covered = false;
-        for (const empId of onShift) {
+      for (const qr of req.qualificationRequirements) {
+        let tagCount = 0;
+        for (const empId of onShiftEmpIds) {
           const emp = ctx.employeesById.get(empId);
-          if (emp?.qualificationTags.includes(tag)) {
-            covered = true;
-            break;
+          if (emp?.qualificationTags.includes(qr.qualificationTag)) {
+            tagCount++;
           }
         }
-        if (!covered) {
+        if (tagCount < qr.minCount) {
           errors.push({
             ruleId: "qualificationCoverage",
             code: "MISSING_QUALIFICATION",
-            message: `No assigned employee with required tag "${tag}" for ${req.shiftType} on ${d.toISOString().slice(0, 10)}.`,
+            message: `Need at least ${qr.minCount} employee(s) with tag "${qr.qualificationTag}" for ${req.shiftType} on ${d.toISOString().slice(0, 10)} (got ${tagCount}).`,
           });
         }
       }
