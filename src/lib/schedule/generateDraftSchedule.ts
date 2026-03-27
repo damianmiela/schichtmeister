@@ -191,9 +191,9 @@ export const STATION_NUMBERS = [1, 2, 3] as const;
 
 /** Build a map from `"EARLY:1"` → profile for station-aware generation. */
 export function buildProfileByTypeStation(
-  profiles: (ShiftProfile & { stationNumber: number })[],
-): Map<string, ShiftProfile & { stationNumber: number }> {
-  const out = new Map<string, ShiftProfile & { stationNumber: number }>();
+  profiles: ShiftProfile[],
+): Map<string, ShiftProfile> {
+  const out = new Map<string, ShiftProfile>();
   for (const p of profiles) {
     if (!p.isActive) continue;
     const key = staffingKey(p.shiftType, p.stationNumber);
@@ -404,9 +404,7 @@ export async function runGreedyScheduleGeneration(
   const proposed: AssignmentInput[] = [];
   const idSeq = { value: 0 };
 
-  const profileByTS = buildProfileByTypeStation(
-    ctx.profiles.map((p) => ({ ...p, stationNumber: (p as unknown as { stationNumber: number }).stationNumber ?? 1 })),
-  );
+  const profileByTS = buildProfileByTypeStation(ctx.profiles);
   const profilesById = new Map(ctx.profiles.map((p) => [p.id, p]));
 
   const dates = eachUtcDateInPeriod(schedule.periodStart, schedule.periodEnd);
@@ -425,6 +423,14 @@ export async function runGreedyScheduleGeneration(
       unfulfilledWishes: unfulfilledOpenWishes(ctx.wishes),
       warnings,
     };
+  }
+
+  for (const [key] of profileByTS) {
+    if (!ctx.mergedStaffing.has(key)) {
+      warnings.push(
+        `Aktives Schichtprofil für ${key} vorhanden, aber kein Personalbedarf konfiguriert — Station wird übersprungen. Bitte in Einstellungen > Mindestbesetzung anlegen.`,
+      );
+    }
   }
 
   for (const date of dates) {
