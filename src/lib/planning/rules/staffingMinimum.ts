@@ -1,22 +1,5 @@
 import type { RuleContext, RuleResult } from "@/lib/planning/types";
-
-function datesInPeriodUtc(start: Date, end: Date): Date[] {
-  const out: Date[] = [];
-  const cur = Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate());
-  const last = Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate());
-  for (let t = cur; t <= last; t += 24 * 60 * 60 * 1000) {
-    out.push(new Date(t));
-  }
-  return out;
-}
-
-function sameUtcCalendarDay(a: Date, b: Date): boolean {
-  return (
-    a.getUTCFullYear() === b.getUTCFullYear() &&
-    a.getUTCMonth() === b.getUTCMonth() &&
-    a.getUTCDate() === b.getUTCDate()
-  );
-}
+import { datesInPeriodUtc, sameUtcCalendarDay } from "@/lib/planning/time";
 
 export function staffingMinimumRule(ctx: RuleContext): RuleResult {
   const errors: RuleResult["errors"] = [];

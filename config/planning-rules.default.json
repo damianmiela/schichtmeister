@@ -11,6 +11,7 @@
     { "id": "qualificationCoverage", "enabled": true },
     { "id": "wishFulfillment", "enabled": false },
     { "id": "fairnessCounters", "enabled": false },
-    { "id": "targetHoursBalance", "enabled": false }
+    { "id": "targetHoursBalance", "enabled": false },
+    { "id": "maxConsecutiveNights", "enabled": true, "params": { "maxCount": 3 } }
   ]
 }

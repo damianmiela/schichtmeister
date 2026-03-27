@@ -79,3 +79,14 @@ export type RuleResult = {
 };
 
 export type RuleFn = (ctx: RuleContext) => RuleResult;
+
+export type RuleSeverity = "hard" | "soft";
+
+export type RuleScope = "employee" | "day" | "global";
+
+export type RuleDescriptor = {
+  id: string;
+  severity: RuleSeverity;
+  scope: RuleScope;
+  description: string;
+};

@@ -400,7 +400,7 @@ export async function runGreedyScheduleGeneration(
             facilityId,
             { periodStart: schedule.periodStart, periodEnd: schedule.periodEnd },
             next,
-            { incrementalGreedy: true },
+            { ruleScope: "employee" },
           );
           if (!v.ok) continue;
           if (v.result.errors.length === 0) {

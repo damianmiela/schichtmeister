@@ -2,12 +2,13 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 import { mergePlanningRules } from "@/lib/planning/merge";
 import { defaultPlanningRulesConfig } from "@/lib/planning/defaultConfig";
 import { registerBuiltInPlanningRules } from "@/lib/planning/registerBuiltInRules";
-import { runAllRules } from "@/lib/planning/registry";
+import { runAllRules, runScopedRules } from "@/lib/planning/registry";
 import type {
   AssignmentInput,
   EmployeeInput,
   RuleContext,
   RuleMessage,
+  RuleScope,
   ShiftProfileInput,
   StaffingRequirementInput,
 } from "@/lib/planning/types";
@@ -57,17 +58,13 @@ function buildProfileInput(p: {
   };
 }
 
-/**
- * Loads facility reference data and runs planning rules on the given assignment set
- * (full proposed roster for the schedule).
- */
 export type ValidateScheduleAssignmentsOptions = {
   /**
-   * Greedy generation validates after each tentative assignment. Rules that require a **complete**
-   * roster (`staffingMinimum`, `qualificationCoverage`) would fail for every unfilled slot and block
-   * the first placement — disable them for this call only.
+   * When set, only rules with this scope are executed. Used during incremental
+   * generation where global-scope rules (staffing, qualification) would fail
+   * on a partial schedule — pass `'employee'` to skip them naturally.
    */
-  incrementalGreedy?: boolean;
+  ruleScope?: RuleScope;
 };
 
 export async function validateScheduleAssignments(
@@ -132,24 +129,7 @@ export async function validateScheduleAssignments(
     requiredQualificationTags: r.requiredQualificationTags,
   }));
 
-  let snapshot = mergePlanningRules(facility, defaultPlanningRulesConfig);
-  if (options?.incrementalGreedy) {
-    const rs = snapshot.ruleStates;
-    snapshot = {
-      ...snapshot,
-      ruleStates: {
-        ...rs,
-        staffingMinimum: {
-          enabled: false,
-          params: rs.staffingMinimum?.params ?? {},
-        },
-        qualificationCoverage: {
-          enabled: false,
-          params: rs.qualificationCoverage?.params ?? {},
-        },
-      },
-    };
-  }
+  const snapshot = mergePlanningRules(facility, defaultPlanningRulesConfig);
 
   const ctx: RuleContext = {
     periodStart: schedule.periodStart,
@@ -163,6 +143,10 @@ export async function validateScheduleAssignments(
   };
 
   registerBuiltInPlanningRules();
-  const { errors, warnings } = runAllRules(ctx);
+
+  const { errors, warnings } = options?.ruleScope
+    ? runScopedRules(ctx, options.ruleScope)
+    : runAllRules(ctx);
+
   return { ok: true, result: { errors, warnings } };
 }

@@ -4,13 +4,15 @@ Versioned defaults live in [`planning-rules.default.json`](./planning-rules.defa
 
 **How they run:** [`src/lib/planning/registry.ts`](../src/lib/planning/registry.ts) walks enabled ids in the snapshot and calls the matching function registered in [`src/lib/planning/registerBuiltInRules.ts`](../src/lib/planning/registerBuiltInRules.ts). Each rule reads [`RuleContext`](../src/lib/planning/types.ts) (assignments, employees, profiles, staffing, wishes, snapshot) and returns hard **errors** or soft **warnings**.
 
-Shared time math (shift start/end on a date, overnight end time, paid hours) lives in [`src/lib/planning/time.ts`](../src/lib/planning/time.ts).
+**Rule metadata:** Every rule is registered with a [`RuleDescriptor`](../src/lib/planning/types.ts) that declares its `id`, `severity` (`hard` | `soft`), `scope` (`employee` | `day` | `global`), and human-readable `description`. This metadata drives scoped execution (the generator only runs `employee`-scoped rules during incremental placement) and can be used by the UI to display rule information.
+
+Shared time math (shift start/end on a date, overnight end time, paid hours, date iteration) lives in [`src/lib/planning/time.ts`](../src/lib/planning/time.ts).
 
 ---
 
 ## Rules (what each one does)
 
-### `noOverlap` — hard
+### `noOverlap` — hard, employee scope
 
 **Idea:** One person must not work two shifts whose time ranges overlap in real time (overnight shifts use the next calendar day for the end time).
 
@@ -18,7 +20,7 @@ Shared time math (shift start/end on a date, overnight end time, paid hours) liv
 
 ---
 
-### `minRestBetweenShifts` — hard
+### `minRestBetweenShifts` — hard, employee scope
 
 **Idea:** After a shift ends, the next shift for the same person must start at least `minRestHours` later. Uses merged facility value on the snapshot (from DB).
 
@@ -26,7 +28,7 @@ Shared time math (shift start/end on a date, overnight end time, paid hours) liv
 
 ---
 
-### `miniJobMonthlyHours` — hard
+### `miniJobMonthlyHours` — hard, employee scope
 
 **Idea:** For employees with contract `MINI_JOB`, total **paid** hours in a calendar month (UTC) cannot exceed their own `miniJobMaxMonthlyHours` if set, otherwise the facility default on the snapshot.
 
@@ -34,7 +36,17 @@ Shared time math (shift start/end on a date, overnight end time, paid hours) liv
 
 ---
 
-### `staffingMinimum` — hard
+### `maxConsecutiveNights` — hard, employee scope
+
+**Idea:** An employee must not work more than N consecutive night shifts. Default N = 3 (configurable via `params.maxCount` in the JSON config or DB).
+
+**Code:** [`src/lib/planning/rules/maxConsecutiveNights.ts`](../src/lib/planning/rules/maxConsecutiveNights.ts); groups NIGHT assignments by employee, sorts by UTC date, detects consecutive-day streaks exceeding the limit.
+
+**Config example:** `{ "id": "maxConsecutiveNights", "enabled": true, "params": { "maxCount": 3 } }`
+
+---
+
+### `staffingMinimum` — hard, global scope
 
 **Idea:** For each day in the schedule period and each [`StaffingRequirement`](../prisma/schema.prisma) row (day of week + shift type), count how many assignments use that shift type on that calendar day. Count must be ≥ `minStaffCount`.
 
@@ -42,9 +54,9 @@ Shared time math (shift start/end on a date, overnight end time, paid hours) liv
 
 ---
 
-### `qualificationCoverage` — hard
+### `qualificationCoverage` — hard, global scope
 
-**Idea:** Where staffing lists `requiredQualificationTags`, each tag must appear on **at least one** assigned employee on that day/shift type (employee `qualificationTags` includes the tag). MVP: “at least one person with this tag,” not a separate headcount per tag.
+**Idea:** Where staffing lists `requiredQualificationTags`, each tag must appear on **at least one** assigned employee on that day/shift type (employee `qualificationTags` includes the tag). MVP: "at least one person with this tag," not a separate headcount per tag.
 
 **Code:** [`src/lib/planning/rules/qualificationCoverage.ts`](../src/lib/planning/rules/qualificationCoverage.ts).
 
@@ -58,17 +70,39 @@ Shared time math (shift start/end on a date, overnight end time, paid hours) liv
 
 ---
 
-### `maxConsecutiveNights` (JSON toggle only)
+## Scoped execution
 
-**Idea:** `maxConsecutiveNights.enabled` is merged into [`PlanningRulesSnapshot`](../src/lib/planning/merge.ts) as `maxConsecutiveNightsEnabled`. There is **no** rule module for it yet; turning it on in JSON does not run extra checks until a rule is added.
+Rules declare a **scope** in their descriptor:
+
+- `employee` — validates constraints for individual employees (overlap, rest, hours, consecutive nights). Safe to run on a partial schedule.
+- `day` — validates per-day constraints (reserved for future use).
+- `global` — validates the complete roster (staffing minimums, qualification coverage). Only meaningful on a full schedule.
+
+During schedule generation, the engine uses `runScopedRules(ctx, 'employee')` so that only employee-scoped rules are checked per tentative placement. Global rules are run once after the full roster is assembled.
 
 ---
 
 ## Add a new rule
 
-1. **Module:** Implement a `RuleFn` in `src/lib/planning/rules/<name>.ts` that reads `RuleContext` and returns `{ errors, warnings }` with `ruleId` on each message (use the same string as the registry id).
-2. **Register:** Call `registerRule("<id>", fn)` from `registerBuiltInPlanningRules()` in `src/lib/planning/registerBuiltInRules.ts`.
-3. **JSON:** Add `{ "id": "<id>", "enabled": true }` (and `params` if needed) to `config/planning-rules.default.json`.
+1. **Module:** Create `src/lib/planning/rules/<name>.ts` implementing a `RuleFn` that reads `RuleContext` and returns `{ errors, warnings }`. Use `ruleId` matching your registry id on each message. Import shared helpers from `@/lib/planning/time`.
+
+2. **Register with descriptor:** In `src/lib/planning/registerBuiltInRules.ts`, call:
+   ```ts
+   registerRule(
+     {
+       id: "<name>",
+       severity: "hard",       // or "soft"
+       scope: "employee",      // or "day" or "global"
+       description: "Human-readable explanation of the rule.",
+     },
+     yourRuleFn,
+   );
+   ```
+
+3. **JSON:** Add `{ "id": "<name>", "enabled": true }` (with `"params": { ... }` if needed) to `config/planning-rules.default.json`.
+
 4. **Tests:** Add cases under `src/lib/planning/__tests__/planning-engine.test.ts` (or a focused `*.test.ts` next to the rule).
+
+5. **Barrel:** Re-export new types if needed from `src/lib/planning/index.ts`.
 
 Load defaults in code via `defaultPlanningRulesConfig` from `@/lib/planning/defaultConfig` (or `@/lib/planning`).

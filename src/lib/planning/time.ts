@@ -32,6 +32,24 @@ export function assignmentPaidHours(
   return Math.max(0, grossMin - breakMinutes) / 60;
 }
 
+export function sameUtcCalendarDay(a: Date, b: Date): boolean {
+  return (
+    a.getUTCFullYear() === b.getUTCFullYear() &&
+    a.getUTCMonth() === b.getUTCMonth() &&
+    a.getUTCDate() === b.getUTCDate()
+  );
+}
+
+export function datesInPeriodUtc(start: Date, end: Date): Date[] {
+  const out: Date[] = [];
+  let t = Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate());
+  const last = Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate());
+  for (; t <= last; t += 24 * 60 * 60 * 1000) {
+    out.push(new Date(t));
+  }
+  return out;
+}
+
 export function utcDayKey(date: Date): string {
   const y = date.getUTCFullYear();
   const m = String(date.getUTCMonth() + 1).padStart(2, "0");

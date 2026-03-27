@@ -3,9 +3,9 @@ import { ContractType, Prisma, ShiftType } from "@prisma/client";
 import { defaultPlanningRulesConfig } from "@/lib/planning/defaultConfig";
 import { mergePlanningRules, type FacilityRulesSlice } from "@/lib/planning/merge";
 import { registerBuiltInPlanningRules } from "@/lib/planning/registerBuiltInRules";
-import { registerRule, resetRuleRegistry, runAllRules } from "@/lib/planning/registry";
+import { registerRule, resetRuleRegistry, runAllRules, runScopedRules, getRegisteredRules } from "@/lib/planning/registry";
 import { parsePlanningRulesConfig } from "@/lib/planning/rules/schema";
-import { shiftIntervalMs, assignmentPaidHours } from "@/lib/planning/time";
+import { shiftIntervalMs, assignmentPaidHours, datesInPeriodUtc, sameUtcCalendarDay } from "@/lib/planning/time";
 import type {
   PlanningRulesSnapshot,
   RuleContext,
@@ -37,6 +37,7 @@ function baseSnapshot(overrides?: Partial<PlanningRulesSnapshot>): PlanningRules
       wishFulfillment: { enabled: false, params: {} },
       fairnessCounters: { enabled: false, params: {} },
       targetHoursBalance: { enabled: false, params: {} },
+      maxConsecutiveNights: { enabled: true, params: { maxCount: 3 } },
     },
     ...overrides,
   };
@@ -107,7 +108,7 @@ describe("phase 04 — planning rules", () => {
         errors: [{ ruleId: "stub", code: "T", message: "test" }],
         warnings: [],
       });
-      registerRule("stub", stub);
+      registerRule({ id: "stub", severity: "hard", scope: "employee", description: "test stub" }, stub);
       const ctx = minimalCtx({
         assignments: [],
         snapshot: baseSnapshot({
@@ -458,6 +459,246 @@ describe("phase 04 — planning rules", () => {
       const out = runAllRules(ctx);
       expect(out.warnings).toEqual([]);
       expect(out.errors).toEqual([]);
+    });
+  });
+
+  describe("shared time utilities", () => {
+    it("datesInPeriodUtc returns inclusive date range", () => {
+      const start = new Date(Date.UTC(2026, 0, 5));
+      const end = new Date(Date.UTC(2026, 0, 7));
+      const dates = datesInPeriodUtc(start, end);
+      expect(dates.map((d) => d.toISOString().slice(0, 10))).toEqual([
+        "2026-01-05",
+        "2026-01-06",
+        "2026-01-07",
+      ]);
+    });
+
+    it("sameUtcCalendarDay matches same day, rejects different", () => {
+      const a = new Date(Date.UTC(2026, 0, 5, 10, 30));
+      const b = new Date(Date.UTC(2026, 0, 5, 23, 59));
+      const c = new Date(Date.UTC(2026, 0, 6, 0, 0));
+      expect(sameUtcCalendarDay(a, b)).toBe(true);
+      expect(sameUtcCalendarDay(a, c)).toBe(false);
+    });
+  });
+
+  describe("RuleDescriptor + registry metadata", () => {
+    it("getRegisteredRules returns descriptors for all built-in rules", () => {
+      const descriptors = getRegisteredRules();
+      expect(descriptors.length).toBeGreaterThanOrEqual(9);
+      const ids = descriptors.map((d) => d.id);
+      expect(ids).toContain("noOverlap");
+      expect(ids).toContain("maxConsecutiveNights");
+    });
+
+    it("descriptors carry severity and scope", () => {
+      const descriptors = getRegisteredRules();
+      const noOverlap = descriptors.find((d) => d.id === "noOverlap");
+      expect(noOverlap?.severity).toBe("hard");
+      expect(noOverlap?.scope).toBe("employee");
+      const staffMin = descriptors.find((d) => d.id === "staffingMinimum");
+      expect(staffMin?.severity).toBe("hard");
+      expect(staffMin?.scope).toBe("global");
+    });
+  });
+
+  describe("runScopedRules", () => {
+    it("runs only employee-scoped rules, skipping global ones", () => {
+      const profiles = new Map([
+        [
+          "early",
+          {
+            id: "early",
+            shiftType: ShiftType.EARLY,
+            startTime: "06:00",
+            endTime: "14:00",
+            breakMinutes: 0,
+          },
+        ],
+      ]);
+      const ctx = minimalCtx({
+        periodStart: new Date(Date.UTC(2026, 0, 5)),
+        periodEnd: new Date(Date.UTC(2026, 0, 5)),
+        assignments: [
+          { id: "a1", date: new Date(Date.UTC(2026, 0, 5)), shiftProfileId: "early", employeeId: "e1" },
+        ],
+        profilesById: profiles,
+        staffingRequirements: [
+          { shiftType: ShiftType.EARLY, minStaffCount: 5, requiredQualificationTags: [] },
+        ],
+        snapshot: baseSnapshot({
+          ruleStates: {
+            noOverlap: { enabled: true, params: {} },
+            minRestBetweenShifts: { enabled: true, params: {} },
+            miniJobMonthlyHours: { enabled: true, params: {} },
+            staffingMinimum: { enabled: true, params: {} },
+            qualificationCoverage: { enabled: true, params: {} },
+            maxConsecutiveNights: { enabled: true, params: { maxCount: 3 } },
+          },
+        }),
+      });
+
+      const allResult = runAllRules(ctx);
+      expect(allResult.errors.some((e) => e.ruleId === "staffingMinimum")).toBe(true);
+
+      const scopedResult = runScopedRules(ctx, "employee");
+      expect(scopedResult.errors.every((e) => e.ruleId !== "staffingMinimum")).toBe(true);
+      expect(scopedResult.errors.every((e) => e.ruleId !== "qualificationCoverage")).toBe(true);
+    });
+
+    it("runs only global-scoped rules when requested", () => {
+      const profiles = new Map([
+        [
+          "p1",
+          {
+            id: "p1",
+            shiftType: ShiftType.EARLY,
+            startTime: "06:00",
+            endTime: "14:00",
+            breakMinutes: 0,
+          },
+        ],
+      ]);
+      const ctx = minimalCtx({
+        periodStart: new Date(Date.UTC(2026, 0, 5)),
+        periodEnd: new Date(Date.UTC(2026, 0, 5)),
+        assignments: [
+          { id: "a1", date: new Date(Date.UTC(2026, 0, 5)), shiftProfileId: "p1", employeeId: "e1" },
+          { id: "a2", date: new Date(Date.UTC(2026, 0, 5)), shiftProfileId: "p1", employeeId: "e1" },
+        ],
+        profilesById: profiles,
+        staffingRequirements: [
+          { shiftType: ShiftType.EARLY, minStaffCount: 5, requiredQualificationTags: [] },
+        ],
+        snapshot: baseSnapshot({
+          ruleStates: {
+            noOverlap: { enabled: true, params: {} },
+            staffingMinimum: { enabled: true, params: {} },
+          },
+        }),
+      });
+
+      const scopedResult = runScopedRules(ctx, "global");
+      expect(scopedResult.errors.some((e) => e.ruleId === "staffingMinimum")).toBe(true);
+      expect(scopedResult.errors.every((e) => e.ruleId !== "noOverlap")).toBe(true);
+    });
+  });
+
+  describe("maxConsecutiveNights", () => {
+    const nightProfile = new Map([
+      [
+        "night",
+        {
+          id: "night",
+          shiftType: ShiftType.NIGHT,
+          startTime: "22:00",
+          endTime: "06:00",
+          breakMinutes: 0,
+        },
+      ],
+    ]);
+
+    function nightsOnlySnapshot(maxCount: number, enabled = true): PlanningRulesSnapshot {
+      return baseSnapshot({
+        ruleStates: {
+          noOverlap: { enabled: false, params: {} },
+          minRestBetweenShifts: { enabled: false, params: {} },
+          miniJobMonthlyHours: { enabled: false, params: {} },
+          staffingMinimum: { enabled: false, params: {} },
+          qualificationCoverage: { enabled: false, params: {} },
+          maxConsecutiveNights: { enabled, params: { maxCount } },
+        },
+      });
+    }
+
+    it("allows up to maxCount consecutive night shifts", () => {
+      const ctx = minimalCtx({
+        periodStart: new Date(Date.UTC(2026, 0, 5)),
+        periodEnd: new Date(Date.UTC(2026, 0, 10)),
+        assignments: [
+          { id: "n1", date: new Date(Date.UTC(2026, 0, 5)), shiftProfileId: "night", employeeId: "e1" },
+          { id: "n2", date: new Date(Date.UTC(2026, 0, 6)), shiftProfileId: "night", employeeId: "e1" },
+          { id: "n3", date: new Date(Date.UTC(2026, 0, 7)), shiftProfileId: "night", employeeId: "e1" },
+        ],
+        profilesById: nightProfile,
+        snapshot: nightsOnlySnapshot(3),
+      });
+      const { errors } = runAllRules(ctx);
+      expect(errors.filter((e) => e.ruleId === "maxConsecutiveNights")).toEqual([]);
+    });
+
+    it("errors when exceeding maxCount consecutive night shifts", () => {
+      const ctx = minimalCtx({
+        periodStart: new Date(Date.UTC(2026, 0, 5)),
+        periodEnd: new Date(Date.UTC(2026, 0, 10)),
+        assignments: [
+          { id: "n1", date: new Date(Date.UTC(2026, 0, 5)), shiftProfileId: "night", employeeId: "e1" },
+          { id: "n2", date: new Date(Date.UTC(2026, 0, 6)), shiftProfileId: "night", employeeId: "e1" },
+          { id: "n3", date: new Date(Date.UTC(2026, 0, 7)), shiftProfileId: "night", employeeId: "e1" },
+          { id: "n4", date: new Date(Date.UTC(2026, 0, 8)), shiftProfileId: "night", employeeId: "e1" },
+        ],
+        profilesById: nightProfile,
+        snapshot: nightsOnlySnapshot(3),
+      });
+      const { errors } = runAllRules(ctx);
+      expect(errors.some((e) => e.code === "MAX_CONSECUTIVE_NIGHTS")).toBe(true);
+    });
+
+    it("resets streak after a gap day", () => {
+      const ctx = minimalCtx({
+        periodStart: new Date(Date.UTC(2026, 0, 5)),
+        periodEnd: new Date(Date.UTC(2026, 0, 12)),
+        assignments: [
+          { id: "n1", date: new Date(Date.UTC(2026, 0, 5)), shiftProfileId: "night", employeeId: "e1" },
+          { id: "n2", date: new Date(Date.UTC(2026, 0, 6)), shiftProfileId: "night", employeeId: "e1" },
+          { id: "n3", date: new Date(Date.UTC(2026, 0, 8)), shiftProfileId: "night", employeeId: "e1" },
+          { id: "n4", date: new Date(Date.UTC(2026, 0, 9)), shiftProfileId: "night", employeeId: "e1" },
+        ],
+        profilesById: nightProfile,
+        snapshot: nightsOnlySnapshot(3),
+      });
+      const { errors } = runAllRules(ctx);
+      expect(errors.filter((e) => e.ruleId === "maxConsecutiveNights")).toEqual([]);
+    });
+
+    it("emits no errors when rule is disabled", () => {
+      const ctx = minimalCtx({
+        periodStart: new Date(Date.UTC(2026, 0, 5)),
+        periodEnd: new Date(Date.UTC(2026, 0, 10)),
+        assignments: [
+          { id: "n1", date: new Date(Date.UTC(2026, 0, 5)), shiftProfileId: "night", employeeId: "e1" },
+          { id: "n2", date: new Date(Date.UTC(2026, 0, 6)), shiftProfileId: "night", employeeId: "e1" },
+          { id: "n3", date: new Date(Date.UTC(2026, 0, 7)), shiftProfileId: "night", employeeId: "e1" },
+          { id: "n4", date: new Date(Date.UTC(2026, 0, 8)), shiftProfileId: "night", employeeId: "e1" },
+          { id: "n5", date: new Date(Date.UTC(2026, 0, 9)), shiftProfileId: "night", employeeId: "e1" },
+        ],
+        profilesById: nightProfile,
+        snapshot: nightsOnlySnapshot(3, false),
+      });
+      const { errors } = runAllRules(ctx);
+      expect(errors.filter((e) => e.ruleId === "maxConsecutiveNights")).toEqual([]);
+    });
+
+    it("uses default maxCount 3 when params are empty", () => {
+      const ctx = minimalCtx({
+        periodStart: new Date(Date.UTC(2026, 0, 5)),
+        periodEnd: new Date(Date.UTC(2026, 0, 10)),
+        assignments: [
+          { id: "n1", date: new Date(Date.UTC(2026, 0, 5)), shiftProfileId: "night", employeeId: "e1" },
+          { id: "n2", date: new Date(Date.UTC(2026, 0, 6)), shiftProfileId: "night", employeeId: "e1" },
+          { id: "n3", date: new Date(Date.UTC(2026, 0, 7)), shiftProfileId: "night", employeeId: "e1" },
+          { id: "n4", date: new Date(Date.UTC(2026, 0, 8)), shiftProfileId: "night", employeeId: "e1" },
+        ],
+        profilesById: nightProfile,
+        snapshot: baseSnapshot({
+          ruleStates: {
+            maxConsecutiveNights: { enabled: true, params: {} },
+          },
+        }),
+      });
+      const { errors } = runAllRules(ctx);
+      expect(errors.some((e) => e.code === "MAX_CONSECUTIVE_NIGHTS")).toBe(true);
     });
   });
 });

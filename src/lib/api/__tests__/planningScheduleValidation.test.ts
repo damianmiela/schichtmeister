@@ -85,7 +85,7 @@ describe("validateScheduleAssignments", () => {
     }
   });
 
-  it("incrementalGreedy skips global staffing rules so greedy fill can start", async () => {
+  it("ruleScope 'employee' skips global staffing rules so greedy fill can start", async () => {
     const db = mockDb();
     const oneSlot: AssignmentInput[] = [
       {
@@ -100,7 +100,7 @@ describe("validateScheduleAssignments", () => {
       facilityId,
       { periodStart, periodEnd },
       oneSlot,
-      { incrementalGreedy: true },
+      { ruleScope: "employee" },
     );
     expect(v.ok).toBe(true);
     if (v.ok) {
