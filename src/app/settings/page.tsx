@@ -51,6 +51,7 @@ type QualificationRow = {
 type StaffingRow = {
   id: string;
   shiftType: string;
+  stationNumber: number;
   minTotalCount: number;
   qualificationRequirements: QualificationRow[];
 };
@@ -101,6 +102,7 @@ export default function SettingsPage() {
   const [addBusy, setAddBusy] = useState(false);
   const [addFormError, setAddFormError] = useState<string | null>(null);
   const [newShift, setNewShift] = useState<ShiftTypeValue>("EARLY");
+  const [newStation, setNewStation] = useState(1);
   const [newMin, setNewMin] = useState("1");
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -184,13 +186,25 @@ export default function SettingsPage() {
   }, [loadStaffing, loadRules]);
 
   const sortedStaffing = useMemo(
-    () => [...staffing].sort((a, b) => shiftSortIndex(a.shiftType) - shiftSortIndex(b.shiftType)),
+    () => [...staffing].sort((a, b) => {
+      const sd = a.stationNumber - b.stationNumber;
+      if (sd !== 0) return sd;
+      return shiftSortIndex(a.shiftType) - shiftSortIndex(b.shiftType);
+    }),
     [staffing],
   );
 
-  const missingShiftTypes = useMemo(() => {
-    const have = new Set(staffing.map((r) => r.shiftType));
-    return SHIFT_TYPES.filter((st) => !have.has(st));
+  const STATIONS = [1, 2, 3] as const;
+
+  const missingCombos = useMemo(() => {
+    const have = new Set(staffing.map((r) => `${r.shiftType}:${r.stationNumber}`));
+    const missing: { shiftType: ShiftTypeValue; stationNumber: number }[] = [];
+    for (const st of STATIONS) {
+      for (const shift of SHIFT_TYPES) {
+        if (!have.has(`${shift}:${st}`)) missing.push({ shiftType: shift, stationNumber: st });
+      }
+    }
+    return missing;
   }, [staffing]);
 
   // --- Staffing actions ---
@@ -220,14 +234,17 @@ export default function SettingsPage() {
     setTemplateBusy(true);
     setError(null);
     try {
-      const have = new Set(staffing.map((r) => r.shiftType));
-      for (const st of SHIFT_TYPES) {
-        if (have.has(st)) continue;
-        await fetchJson("/api/staffing-requirements", {
-          method: "POST",
-          body: JSON.stringify({ shiftType: st, minTotalCount: 1 }),
-        });
-        have.add(st);
+      const have = new Set(staffing.map((r) => `${r.shiftType}:${r.stationNumber}`));
+      for (const station of STATIONS) {
+        for (const st of SHIFT_TYPES) {
+          const key = `${st}:${station}`;
+          if (have.has(key)) continue;
+          await fetchJson("/api/staffing-requirements", {
+            method: "POST",
+            body: JSON.stringify({ shiftType: st, stationNumber: station, minTotalCount: 1 }),
+          });
+          have.add(key);
+        }
       }
       await loadStaffing();
     } catch (e) {
@@ -238,9 +255,10 @@ export default function SettingsPage() {
   };
 
   const openAddDialog = () => {
-    if (missingShiftTypes.length === 0) return;
+    if (missingCombos.length === 0) return;
     setAddFormError(null);
-    setNewShift(missingShiftTypes[0] ?? "EARLY");
+    setNewShift(missingCombos[0]?.shiftType ?? "EARLY");
+    setNewStation(missingCombos[0]?.stationNumber ?? 1);
     setNewMin("1");
     setAddOpen(true);
   };
@@ -251,8 +269,8 @@ export default function SettingsPage() {
       setAddFormError("Minimum: gültige Zahl >= 0.");
       return;
     }
-    if (staffing.some((r) => r.shiftType === newShift)) {
-      setAddFormError("Für diesen Schichttyp existiert bereits ein Eintrag.");
+    if (staffing.some((r) => r.shiftType === newShift && r.stationNumber === newStation)) {
+      setAddFormError("Für diesen Schichttyp und Station existiert bereits ein Eintrag.");
       return;
     }
     setAddBusy(true);
@@ -261,7 +279,7 @@ export default function SettingsPage() {
     try {
       await fetchJson("/api/staffing-requirements", {
         method: "POST",
-        body: JSON.stringify({ shiftType: newShift, minTotalCount: Math.floor(n) }),
+        body: JSON.stringify({ shiftType: newShift, stationNumber: newStation, minTotalCount: Math.floor(n) }),
       });
       setAddOpen(false);
       await loadStaffing();
@@ -403,7 +421,7 @@ export default function SettingsPage() {
               <Typography variant="h6" gutterBottom>Mindestbesetzung (Personalbedarf)</Typography>
               <Typography variant="body2" color="text.secondary" paragraph>
                 Dieselben Mindestzahlen gelten <strong>jeden Kalendertag</strong>.
-                Pro Schichttyp gibt es höchstens einen Eintrag mit der Gesamtbesetzung.
+                Pro Schichttyp und Station (1–3) gibt es höchstens einen Eintrag mit der Gesamtbesetzung.
                 Darunter können Sie Qualifikationsanforderungen hinzufügen (z.B. &quot;3 Fachkraft&quot;).
               </Typography>
               <Divider sx={{ mb: 2 }} />
@@ -418,25 +436,25 @@ export default function SettingsPage() {
                 <>
                   {staffing.length === 0 && (
                     <Alert severity="info" sx={{ mb: 2 }}>
-                      Noch kein Personalbedarf. &quot;Alle Schichttypen anlegen&quot; erstellt Früh, Spät und Nacht je mit Minimum 1.
+                      Noch kein Personalbedarf. &quot;Alle Schichttypen × Stationen anlegen&quot; erstellt 9 Einträge (Früh/Spät/Nacht × 3 Stationen) je mit Minimum 1.
                     </Alert>
                   )}
                   <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, mb: 2 }}>
                     <Button
                       variant="contained"
                       startIcon={templateBusy ? <CircularProgress size={18} color="inherit" /> : <GridOnIcon />}
-                      disabled={templateBusy || loading || missingShiftTypes.length === 0}
+                      disabled={templateBusy || loading || missingCombos.length === 0}
                       onClick={() => void applyAllShiftsTemplate()}
                     >
-                      Alle Schichttypen anlegen (fehlende je 1)
+                      Alle Schichttypen × Stationen anlegen (fehlende je 1)
                     </Button>
                     <Button
                       variant="outlined"
                       startIcon={<AddIcon />}
-                      disabled={loading || missingShiftTypes.length === 0}
+                      disabled={loading || missingCombos.length === 0}
                       onClick={openAddDialog}
                     >
-                      Schichttyp hinzufügen
+                      Eintrag hinzufügen
                     </Button>
                   </Box>
                   <Table size="small">
@@ -444,6 +462,7 @@ export default function SettingsPage() {
                       <TableRow>
                         <TableCell sx={{ width: 40 }} />
                         <TableCell>Schichttyp</TableCell>
+                        <TableCell>Station</TableCell>
                         <TableCell sx={{ minWidth: 100 }}>Minimum Gesamt / Tag</TableCell>
                         <TableCell>Qualifikationen</TableCell>
                         <TableCell align="right">Aktion</TableCell>
@@ -452,7 +471,7 @@ export default function SettingsPage() {
                     <TableBody>
                       {sortedStaffing.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={5}>
+                          <TableCell colSpan={6}>
                             <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>Keine Einträge.</Typography>
                           </TableCell>
                         </TableRow>
@@ -468,6 +487,7 @@ export default function SettingsPage() {
                                   </IconButton>
                                 </TableCell>
                                 <TableCell>{shiftTypeLabel(r.shiftType)}</TableCell>
+                                <TableCell>{r.stationNumber}</TableCell>
                                 <TableCell>
                                   <TextField
                                     size="small"
@@ -506,7 +526,7 @@ export default function SettingsPage() {
                                 </TableCell>
                               </TableRow>
                               <TableRow>
-                                <TableCell colSpan={5} sx={{ py: 0, borderBottom: isExpanded ? undefined : "none" }}>
+                                <TableCell colSpan={6} sx={{ py: 0, borderBottom: isExpanded ? undefined : "none" }}>
                                   <Collapse in={isExpanded} timeout="auto" unmountOnExit>
                                     <Box sx={{ py: 1, pl: 4 }}>
                                       <Typography variant="subtitle2" gutterBottom>
@@ -678,21 +698,35 @@ export default function SettingsPage() {
 
       {/* Add shift type dialog */}
       <Dialog open={addOpen} onClose={() => !addBusy && setAddOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Schichttyp hinzufügen</DialogTitle>
+        <DialogTitle>Personalbedarfs-Eintrag hinzufügen</DialogTitle>
         <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 2, pt: 1 }}>
           {addFormError && <Alert severity="error">{addFormError}</Alert>}
-          <TextField
-            select
-            label="Schichttyp"
-            value={newShift}
-            onChange={(e) => setNewShift(e.target.value as ShiftTypeValue)}
-            fullWidth
-            disabled={addBusy}
-          >
-            {missingShiftTypes.map((st) => (
-              <MenuItem key={st} value={st}>{shiftTypeLabel(st)}</MenuItem>
-            ))}
-          </TextField>
+          <Box sx={{ display: "flex", gap: 2 }}>
+            <TextField
+              select
+              label="Schichttyp"
+              value={newShift}
+              onChange={(e) => setNewShift(e.target.value as ShiftTypeValue)}
+              fullWidth
+              disabled={addBusy}
+            >
+              {SHIFT_TYPES.map((st) => (
+                <MenuItem key={st} value={st}>{shiftTypeLabel(st)}</MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              select
+              label="Station"
+              value={newStation}
+              onChange={(e) => setNewStation(Number(e.target.value))}
+              fullWidth
+              disabled={addBusy}
+            >
+              <MenuItem value={1}>Station 1</MenuItem>
+              <MenuItem value={2}>Station 2</MenuItem>
+              <MenuItem value={3}>Station 3</MenuItem>
+            </TextField>
+          </Box>
           <TextField
             label="Mindestanzahl (pro Kalendertag)"
             type="number"

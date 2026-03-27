@@ -9,6 +9,7 @@ import { prisma } from "@/lib/db/prisma";
 const patchSchema = z
   .object({
     shiftType: shiftTypeZ.optional(),
+    stationNumber: z.number().int().min(1).max(3).optional(),
     minTotalCount: z.number().int().min(0).optional(),
   })
   .refine((o) => Object.keys(o).length > 0, {
@@ -18,6 +19,7 @@ const patchSchema = z
 function serialize(r: {
   id: string;
   shiftType: ShiftType;
+  stationNumber: number;
   minTotalCount: number;
   qualificationRequirements: { id: string; qualificationTag: string; minCount: number }[];
   createdAt: Date;
@@ -25,6 +27,7 @@ function serialize(r: {
   return {
     id: r.id,
     shiftType: r.shiftType,
+    stationNumber: r.stationNumber,
     minTotalCount: r.minTotalCount,
     qualificationRequirements: r.qualificationRequirements.map((q) => ({
       id: q.id,
@@ -59,6 +62,7 @@ export async function PATCH(request: NextRequest, context: RouteCtx) {
       where: { id },
       data: {
         ...(data.shiftType !== undefined && { shiftType: data.shiftType as ShiftType }),
+        ...(data.stationNumber !== undefined && { stationNumber: data.stationNumber }),
         ...(data.minTotalCount !== undefined && { minTotalCount: data.minTotalCount }),
       },
       include: { qualificationRequirements: true },
@@ -67,7 +71,7 @@ export async function PATCH(request: NextRequest, context: RouteCtx) {
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
       return NextResponse.json(
-        { error: "Für diesen Schichttyp existiert bereits ein Eintrag." },
+        { error: "Für diesen Schichttyp und Station existiert bereits ein Eintrag." },
         { status: 409 },
       );
     }

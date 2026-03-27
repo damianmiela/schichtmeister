@@ -161,6 +161,7 @@ describe("phase 04 — planning rules", () => {
           {
             id: "p1",
             shiftType: ShiftType.EARLY,
+            stationNumber: 1,
             startTime: "06:00",
             endTime: "14:00",
             breakMinutes: 0,
@@ -186,6 +187,7 @@ describe("phase 04 — planning rules", () => {
           {
             id: "early",
             shiftType: ShiftType.EARLY,
+            stationNumber: 1,
             startTime: "06:00",
             endTime: "14:00",
             breakMinutes: 0,
@@ -196,6 +198,7 @@ describe("phase 04 — planning rules", () => {
           {
             id: "late",
             shiftType: ShiftType.LATE,
+            stationNumber: 1,
             startTime: "14:00",
             endTime: "22:00",
             breakMinutes: 0,
@@ -228,6 +231,7 @@ describe("phase 04 — planning rules", () => {
           {
             id: "a",
             shiftType: ShiftType.EARLY,
+            stationNumber: 1,
             startTime: "06:00",
             endTime: "08:00",
             breakMinutes: 0,
@@ -238,6 +242,7 @@ describe("phase 04 — planning rules", () => {
           {
             id: "b",
             shiftType: ShiftType.LATE,
+            stationNumber: 1,
             startTime: "18:00",
             endTime: "22:00",
             breakMinutes: 0,
@@ -269,6 +274,7 @@ describe("phase 04 — planning rules", () => {
           {
             id: "a",
             shiftType: ShiftType.EARLY,
+            stationNumber: 1,
             startTime: "06:00",
             endTime: "14:30",
             breakMinutes: 0,
@@ -302,6 +308,7 @@ describe("phase 04 — planning rules", () => {
           {
             id: "p",
             shiftType: ShiftType.EARLY,
+            stationNumber: 1,
             startTime: "06:00",
             endTime: "10:00",
             breakMinutes: 0,
@@ -343,13 +350,14 @@ describe("phase 04 — planning rules", () => {
   });
 
   describe("staffingMinimum", () => {
-    it("requires minTotalCount per day and shift type", () => {
+    it("requires minTotalCount per day and shift type and station", () => {
       const profiles = new Map([
         [
           "early",
           {
             id: "early",
             shiftType: ShiftType.EARLY,
+            stationNumber: 1,
             startTime: "06:00",
             endTime: "14:00",
             breakMinutes: 0,
@@ -364,7 +372,7 @@ describe("phase 04 — planning rules", () => {
         ],
         profilesById: profiles,
         staffingRequirements: [
-          { shiftType: ShiftType.EARLY, minTotalCount: 2, qualificationRequirements: [] },
+          { shiftType: ShiftType.EARLY, stationNumber: 1, minTotalCount: 2, qualificationRequirements: [] },
         ],
         snapshot: baseSnapshot({
           ruleStates: {
@@ -389,6 +397,7 @@ describe("phase 04 — planning rules", () => {
           {
             id: "night",
             shiftType: ShiftType.NIGHT,
+            stationNumber: 1,
             startTime: "22:00",
             endTime: "06:00",
             breakMinutes: 0,
@@ -417,6 +426,7 @@ describe("phase 04 — planning rules", () => {
         staffingRequirements: [
           {
             shiftType: ShiftType.NIGHT,
+            stationNumber: 1,
             minTotalCount: 1,
             qualificationRequirements: [{ qualificationTag: "NurseQualified", minCount: 1 }],
           },
@@ -442,6 +452,7 @@ describe("phase 04 — planning rules", () => {
           {
             id: "night",
             shiftType: ShiftType.NIGHT,
+            stationNumber: 1,
             startTime: "22:00",
             endTime: "06:00",
             breakMinutes: 0,
@@ -466,6 +477,7 @@ describe("phase 04 — planning rules", () => {
         staffingRequirements: [
           {
             shiftType: ShiftType.NIGHT,
+            stationNumber: 1,
             minTotalCount: 3,
             qualificationRequirements: [{ qualificationTag: "NurseQualified", minCount: 2 }],
           },
@@ -491,6 +503,7 @@ describe("phase 04 — planning rules", () => {
           {
             id: "early",
             shiftType: ShiftType.EARLY,
+            stationNumber: 1,
             startTime: "06:00",
             endTime: "14:00",
             breakMinutes: 0,
@@ -515,6 +528,7 @@ describe("phase 04 — planning rules", () => {
         staffingRequirements: [
           {
             shiftType: ShiftType.EARLY,
+            stationNumber: 1,
             minTotalCount: 3,
             qualificationRequirements: [{ qualificationTag: "Fachkraft", minCount: 3 }],
           },
@@ -627,6 +641,7 @@ describe("phase 04 — planning rules", () => {
           {
             id: "early",
             shiftType: ShiftType.EARLY,
+            stationNumber: 1,
             startTime: "06:00",
             endTime: "14:00",
             breakMinutes: 0,
@@ -641,7 +656,7 @@ describe("phase 04 — planning rules", () => {
         ],
         profilesById: profiles,
         staffingRequirements: [
-          { shiftType: ShiftType.EARLY, minTotalCount: 5, qualificationRequirements: [] },
+          { shiftType: ShiftType.EARLY, stationNumber: 1, minTotalCount: 5, qualificationRequirements: [] },
         ],
         snapshot: baseSnapshot({
           ruleStates: {
@@ -670,6 +685,7 @@ describe("phase 04 — planning rules", () => {
           {
             id: "p1",
             shiftType: ShiftType.EARLY,
+            stationNumber: 1,
             startTime: "06:00",
             endTime: "14:00",
             breakMinutes: 0,
@@ -685,7 +701,7 @@ describe("phase 04 — planning rules", () => {
         ],
         profilesById: profiles,
         staffingRequirements: [
-          { shiftType: ShiftType.EARLY, minTotalCount: 5, qualificationRequirements: [] },
+          { shiftType: ShiftType.EARLY, stationNumber: 1, minTotalCount: 5, qualificationRequirements: [] },
         ],
         snapshot: baseSnapshot({
           ruleStates: {
@@ -708,6 +724,7 @@ describe("phase 04 — planning rules", () => {
         {
           id: "night",
           shiftType: ShiftType.NIGHT,
+          stationNumber: 1,
           startTime: "22:00",
           endTime: "06:00",
           breakMinutes: 0,

@@ -24,17 +24,23 @@ export type MergedStaffingEntry = {
   qualificationRequirements: QualificationRequirementInput[];
 };
 
-/** Merge DB rows that share shiftType (defensive if duplicates exist) — sums counts, unions qual reqs. */
+/** Key for station-aware staffing lookup: `"EARLY:1"`, `"LATE:2"`, etc. */
+export function staffingKey(shiftType: ShiftType, stationNumber: number): string {
+  return `${shiftType}:${stationNumber}`;
+}
+
+/** Merge DB rows that share (shiftType, stationNumber) — sums counts, unions qual reqs. */
 export function mergeStaffingRequirements(
   rows: {
     shiftType: ShiftType;
+    stationNumber: number;
     minTotalCount: number;
     qualificationRequirements: { qualificationTag: string; minCount: number }[];
   }[],
 ): Map<string, MergedStaffingEntry> {
   const map = new Map<string, MergedStaffingEntry>();
   for (const r of rows) {
-    const k = r.shiftType;
+    const k = staffingKey(r.shiftType, r.stationNumber);
     const cur = map.get(k);
     if (!cur) {
       map.set(k, {
@@ -181,6 +187,24 @@ export function buildDefaultProfileByShiftType(
   return out;
 }
 
+export const STATION_NUMBERS = [1, 2, 3] as const;
+
+/** Build a map from `"EARLY:1"` → profile for station-aware generation. */
+export function buildProfileByTypeStation(
+  profiles: (ShiftProfile & { stationNumber: number })[],
+): Map<string, ShiftProfile & { stationNumber: number }> {
+  const out = new Map<string, ShiftProfile & { stationNumber: number }>();
+  for (const p of profiles) {
+    if (!p.isActive) continue;
+    const key = staffingKey(p.shiftType, p.stationNumber);
+    const existing = out.get(key);
+    if (!existing || p.name.localeCompare(existing.name, "de") < 0) {
+      out.set(key, p);
+    }
+  }
+  return out;
+}
+
 /**
  * Sort candidates by score. When requiredTag is provided, only employees with that tag are returned.
  * When requiredTag is null, all employees are returned sorted by score (qualified first for tiebreaking).
@@ -311,6 +335,7 @@ export async function loadGenerateContext(
 
   const mappedRows = staffingRows.map((r) => ({
     shiftType: r.shiftType,
+    stationNumber: r.stationNumber,
     minTotalCount: r.minTotalCount,
     qualificationRequirements: r.qualificationRequirements.map((q) => ({
       qualificationTag: q.qualificationTag,
@@ -379,7 +404,9 @@ export async function runGreedyScheduleGeneration(
   const proposed: AssignmentInput[] = [];
   const idSeq = { value: 0 };
 
-  const defaultBySt = buildDefaultProfileByShiftType(ctx.profiles);
+  const profileByTS = buildProfileByTypeStation(
+    ctx.profiles.map((p) => ({ ...p, stationNumber: (p as unknown as { stationNumber: number }).stationNumber ?? 1 })),
+  );
   const profilesById = new Map(ctx.profiles.map((p) => [p.id, p]));
 
   const dates = eachUtcDateInPeriod(schedule.periodStart, schedule.periodEnd);
@@ -402,26 +429,58 @@ export async function runGreedyScheduleGeneration(
 
   for (const date of dates) {
     for (const shiftType of SHIFT_TYPE_ORDER) {
-      const req = ctx.mergedStaffing.get(shiftType);
-      if (!req) continue;
+      for (const station of STATION_NUMBERS) {
+        const key = staffingKey(shiftType, station);
+        const req = ctx.mergedStaffing.get(key);
+        if (!req) continue;
 
-      const profile = defaultBySt.get(shiftType) ?? null;
-      if (!profile) {
-        warnings.push(`Kein aktives Schichtprofil für ${shiftType} am ${toIsoDateOnly(date)}.`);
-        unmet.push({ date: toIsoDateOnly(date), shiftType, requested: req.minTotalCount, assigned: 0 });
-        continue;
-      }
+        const profile = profileByTS.get(key) ?? null;
+        if (!profile) {
+          warnings.push(`Kein aktives Schichtprofil für ${shiftType} Station ${station} am ${toIsoDateOnly(date)}.`);
+          unmet.push({ date: toIsoDateOnly(date), shiftType, requested: req.minTotalCount, assigned: 0 });
+          continue;
+        }
 
-      const placedOnSlot = new Set<string>();
-      let filled = 0;
+        const placedOnSlot = new Set<string>();
+        let filled = 0;
 
-      // Pass 1: fill qualification-required slots
-      for (const qr of req.qualificationRequirements) {
-        let qFilled = 0;
-        for (let slot = 0; slot < qr.minCount; slot++) {
+        // Pass 1: fill qualification-required slots
+        for (const qr of req.qualificationRequirements) {
+          let qFilled = 0;
+          for (let slot = 0; slot < qr.minCount; slot++) {
+            const candidates = sortCandidatesDeterministic(
+              ctx.employees, date, shiftType, profile.id,
+              qr.qualificationTag, ctx.wishes, proposed, profilesById, placedOnSlot,
+            );
+            let placed = false;
+            for (const emp of candidates) {
+              const assignment = await tryPlaceEmployee(
+                emp, date, profile.id, proposed, tx, facilityId, schedule, idSeq,
+              );
+              if (assignment) {
+                proposed.push(assignment);
+                placedOnSlot.add(emp.id);
+                filled++;
+                qFilled++;
+                placed = true;
+                break;
+              }
+            }
+            if (!placed) break;
+          }
+          if (qFilled < qr.minCount) {
+            warnings.push(
+              `Nur ${qFilled}/${qr.minCount} "${qr.qualificationTag}" für ${shiftType} St.${station} am ${toIsoDateOnly(date)} besetzt.`,
+            );
+          }
+        }
+
+        // Pass 2: fill remaining general slots
+        const remaining = req.minTotalCount - filled;
+        for (let slot = 0; slot < remaining; slot++) {
           const candidates = sortCandidatesDeterministic(
             ctx.employees, date, shiftType, profile.id,
-            qr.qualificationTag, ctx.wishes, proposed, profilesById, placedOnSlot,
+            null, ctx.wishes, proposed, profilesById, placedOnSlot,
           );
           let placed = false;
           for (const emp of candidates) {
@@ -432,45 +491,16 @@ export async function runGreedyScheduleGeneration(
               proposed.push(assignment);
               placedOnSlot.add(emp.id);
               filled++;
-              qFilled++;
               placed = true;
               break;
             }
           }
           if (!placed) break;
         }
-        if (qFilled < qr.minCount) {
-          warnings.push(
-            `Nur ${qFilled}/${qr.minCount} "${qr.qualificationTag}" für ${shiftType} am ${toIsoDateOnly(date)} besetzt.`,
-          );
-        }
-      }
 
-      // Pass 2: fill remaining general slots
-      const remaining = req.minTotalCount - filled;
-      for (let slot = 0; slot < remaining; slot++) {
-        const candidates = sortCandidatesDeterministic(
-          ctx.employees, date, shiftType, profile.id,
-          null, ctx.wishes, proposed, profilesById, placedOnSlot,
-        );
-        let placed = false;
-        for (const emp of candidates) {
-          const assignment = await tryPlaceEmployee(
-            emp, date, profile.id, proposed, tx, facilityId, schedule, idSeq,
-          );
-          if (assignment) {
-            proposed.push(assignment);
-            placedOnSlot.add(emp.id);
-            filled++;
-            placed = true;
-            break;
-          }
+        if (filled < req.minTotalCount) {
+          unmet.push({ date: toIsoDateOnly(date), shiftType, requested: req.minTotalCount, assigned: filled });
         }
-        if (!placed) break;
-      }
-
-      if (filled < req.minTotalCount) {
-        unmet.push({ date: toIsoDateOnly(date), shiftType, requested: req.minTotalCount, assigned: filled });
       }
     }
   }

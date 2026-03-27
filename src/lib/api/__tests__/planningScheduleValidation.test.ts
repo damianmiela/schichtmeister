@@ -32,6 +32,7 @@ function mockDb() {
         {
           id: "prof-early",
           shiftType: ShiftType.EARLY,
+          stationNumber: 1,
           startTime: "06:00",
           endTime: "14:30",
           breakMinutes: 30,
@@ -39,6 +40,7 @@ function mockDb() {
         {
           id: "prof-late",
           shiftType: ShiftType.LATE,
+          stationNumber: 1,
           startTime: "12:00",
           endTime: "20:30",
           breakMinutes: 30,
@@ -49,11 +51,13 @@ function mockDb() {
       findMany: vi.fn().mockResolvedValue([
         {
           shiftType: ShiftType.EARLY,
+          stationNumber: 1,
           minTotalCount: 1,
           qualificationRequirements: [{ qualificationTag: "Fachkraft", minCount: 1 }],
         },
         {
           shiftType: ShiftType.LATE,
+          stationNumber: 1,
           minTotalCount: 1,
           qualificationRequirements: [{ qualificationTag: "Fachkraft", minCount: 1 }],
         },

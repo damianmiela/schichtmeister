@@ -97,64 +97,75 @@ async function main() {
     },
   });
 
-  const early = await prisma.shiftProfile.create({
-    data: {
-      facilityId: facility.id,
-      name: "Early_100",
-      shiftType: ShiftType.EARLY,
-      startTime: "06:00",
-      endTime: "14:30",
-      breakMinutes: 30,
-    },
-  });
+  const shiftTypePrefix: Record<ShiftType, string> = {
+    [ShiftType.EARLY]: "F",
+    [ShiftType.LATE]: "S",
+    [ShiftType.NIGHT]: "N",
+  };
+  const shiftTimings: Record<ShiftType, { startTime: string; endTime: string; breakMinutes: number }> = {
+    [ShiftType.EARLY]: { startTime: "06:00", endTime: "14:30", breakMinutes: 30 },
+    [ShiftType.LATE]: { startTime: "14:00", endTime: "22:00", breakMinutes: 30 },
+    [ShiftType.NIGHT]: { startTime: "21:30", endTime: "06:30", breakMinutes: 30 },
+  };
 
-  await prisma.shiftProfile.create({
-    data: {
-      facilityId: facility.id,
-      name: "Late_100",
-      shiftType: ShiftType.LATE,
-      startTime: "14:00",
-      endTime: "22:00",
-      breakMinutes: 30,
-    },
-  });
+  const profiles: Record<string, { id: string }> = {};
+  for (const shiftType of Object.values(ShiftType)) {
+    for (const station of [1, 2, 3]) {
+      const name = `${shiftTypePrefix[shiftType]}${station}`;
+      const p = await prisma.shiftProfile.create({
+        data: {
+          facilityId: facility.id,
+          name,
+          shiftType,
+          stationNumber: station,
+          ...shiftTimings[shiftType],
+        },
+      });
+      profiles[name] = p;
+    }
+  }
+  const early = profiles["F1"];
 
-  await prisma.shiftProfile.create({
-    data: {
-      facilityId: facility.id,
-      name: "Night",
-      shiftType: ShiftType.NIGHT,
-      startTime: "21:30",
-      endTime: "06:30",
-      breakMinutes: 30,
-    },
-  });
-
-  /** Same minimum staffing every calendar day (one row per shift type). */
-  const perShift: Record<
-    ShiftType,
-    { minTotalCount: number; qualifications: { tag: string; minCount: number }[] }
-  > = {
-    [ShiftType.EARLY]: { minTotalCount: 8, qualifications: [{ tag: "NurseQualified", minCount: 3 }] },
-    [ShiftType.LATE]: { minTotalCount: 6, qualifications: [] },
-    [ShiftType.NIGHT]: { minTotalCount: 3, qualifications: [{ tag: "NurseQualified", minCount: 1 }] },
+  type StationStaffing = {
+    minTotalCount: number;
+    qualifications: { tag: string; minCount: number }[];
+  };
+  const perShiftStation: Record<ShiftType, StationStaffing[]> = {
+    [ShiftType.EARLY]: [
+      { minTotalCount: 3, qualifications: [{ tag: "NurseQualified", minCount: 1 }] },
+      { minTotalCount: 3, qualifications: [{ tag: "NurseQualified", minCount: 1 }] },
+      { minTotalCount: 2, qualifications: [{ tag: "NurseQualified", minCount: 1 }] },
+    ],
+    [ShiftType.LATE]: [
+      { minTotalCount: 2, qualifications: [] },
+      { minTotalCount: 2, qualifications: [] },
+      { minTotalCount: 2, qualifications: [] },
+    ],
+    [ShiftType.NIGHT]: [
+      { minTotalCount: 1, qualifications: [{ tag: "NurseQualified", minCount: 1 }] },
+      { minTotalCount: 1, qualifications: [] },
+      { minTotalCount: 1, qualifications: [] },
+    ],
   };
 
   for (const shiftType of Object.values(ShiftType)) {
-    const cfg = perShift[shiftType];
-    await prisma.staffingRequirement.create({
-      data: {
-        facilityId: facility.id,
-        shiftType,
-        minTotalCount: cfg.minTotalCount,
-        qualificationRequirements: {
-          create: cfg.qualifications.map((q) => ({
-            qualificationTag: q.tag,
-            minCount: q.minCount,
-          })),
+    for (const station of [1, 2, 3]) {
+      const cfg = perShiftStation[shiftType][station - 1];
+      await prisma.staffingRequirement.create({
+        data: {
+          facilityId: facility.id,
+          shiftType,
+          stationNumber: station,
+          minTotalCount: cfg.minTotalCount,
+          qualificationRequirements: {
+            create: cfg.qualifications.map((q) => ({
+              qualificationTag: q.tag,
+              minCount: q.minCount,
+            })),
+          },
         },
-      },
-    });
+      });
+    }
   }
 
   const now = new Date();

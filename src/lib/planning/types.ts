@@ -37,6 +37,7 @@ export type EmployeeInput = {
 export type ShiftProfileInput = {
   id: string;
   shiftType: ShiftType;
+  stationNumber: number;
   startTime: string;
   endTime: string;
   breakMinutes: number;
@@ -49,6 +50,7 @@ export type QualificationRequirementInput = {
 
 export type StaffingRequirementInput = {
   shiftType: ShiftType;
+  stationNumber: number;
   minTotalCount: number;
   qualificationRequirements: QualificationRequirementInput[];
 };

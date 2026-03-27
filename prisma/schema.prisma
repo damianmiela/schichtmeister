@@ -156,6 +156,7 @@ model ShiftProfile {
   facilityId    String
   name          String
   shiftType     ShiftType
+  stationNumber Int       @default(1)
   startTime     String
   endTime       String
   breakMinutes  Int       @default(0)
@@ -167,13 +168,14 @@ model ShiftProfile {
   assignments Assignment[]
   wishes      Wish[]
 
-  @@unique([facilityId, name])
+  @@unique([facilityId, shiftType, stationNumber])
 }
 
 model StaffingRequirement {
   id            String    @id @default(cuid())
   facilityId    String
   shiftType     ShiftType
+  stationNumber Int       @default(1)
   minTotalCount Int
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -181,7 +183,7 @@ model StaffingRequirement {
   facility                  Facility                  @relation(fields: [facilityId], references: [id], onDelete: Cascade)
   qualificationRequirements QualificationRequirement[]
 
-  @@unique([facilityId, shiftType])
+  @@unique([facilityId, shiftType, stationNumber])
 }
 
 model QualificationRequirement {

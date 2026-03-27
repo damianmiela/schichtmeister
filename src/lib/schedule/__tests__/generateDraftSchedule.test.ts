@@ -30,20 +30,22 @@ describe("phase 07 — generate draft schedule (pure helpers)", () => {
     ]);
   });
 
-  it("merges staffing rows on same shift type (defensive)", () => {
+  it("merges staffing rows on same (shiftType, stationNumber) key (defensive)", () => {
     const m = mergeStaffingRequirements([
       {
         shiftType: ShiftType.EARLY,
+        stationNumber: 1,
         minTotalCount: 2,
         qualificationRequirements: [{ qualificationTag: "A", minCount: 1 }],
       },
       {
         shiftType: ShiftType.EARLY,
+        stationNumber: 1,
         minTotalCount: 1,
         qualificationRequirements: [{ qualificationTag: "B", minCount: 2 }],
       },
     ]);
-    const e = m.get(ShiftType.EARLY);
+    const e = m.get("EARLY:1");
     expect(e?.minTotalCount).toBe(3);
     expect(e?.qualificationRequirements.map((q) => q.qualificationTag).sort()).toEqual(["A", "B"]);
     expect(e?.qualificationRequirements.find((q) => q.qualificationTag === "B")?.minCount).toBe(2);

@@ -28,6 +28,7 @@ export type ShiftProfileJson = {
   id: string;
   name: string;
   shiftType: string;
+  stationNumber: number;
   startTime: string;
   endTime: string;
   breakMinutes: number;
@@ -37,6 +38,7 @@ export type ShiftProfileJson = {
 export type StaffingJson = {
   id: string;
   shiftType: string;
+  stationNumber: number;
   minTotalCount: number;
   qualificationRequirements: { id: string; qualificationTag: string; minCount: number }[];
 };

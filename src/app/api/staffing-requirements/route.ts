@@ -8,12 +8,14 @@ import { prisma } from "@/lib/db/prisma";
 
 const createSchema = z.object({
   shiftType: shiftTypeZ,
+  stationNumber: z.number().int().min(1).max(3),
   minTotalCount: z.number().int().min(0),
 });
 
 function serialize(r: {
   id: string;
   shiftType: ShiftType;
+  stationNumber: number;
   minTotalCount: number;
   qualificationRequirements: { id: string; qualificationTag: string; minCount: number }[];
   createdAt: Date;
@@ -21,6 +23,7 @@ function serialize(r: {
   return {
     id: r.id,
     shiftType: r.shiftType,
+    stationNumber: r.stationNumber,
     minTotalCount: r.minTotalCount,
     qualificationRequirements: r.qualificationRequirements.map((q) => ({
       id: q.id,
@@ -39,7 +42,7 @@ export async function GET() {
   const rows = await prisma.staffingRequirement.findMany({
     where: { facilityId: session!.user.facilityId },
     include: { qualificationRequirements: true },
-    orderBy: [{ shiftType: "asc" }],
+    orderBy: [{ stationNumber: "asc" }, { shiftType: "asc" }],
   });
   return NextResponse.json({
     staffingRequirements: rows.map(serialize),
@@ -60,6 +63,7 @@ export async function POST(request: NextRequest) {
       data: {
         facilityId: session!.user.facilityId,
         shiftType: data.shiftType as ShiftType,
+        stationNumber: data.stationNumber,
         minTotalCount: data.minTotalCount,
       },
       include: { qualificationRequirements: true },
@@ -71,7 +75,7 @@ export async function POST(request: NextRequest) {
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
       return NextResponse.json(
-        { error: "Für diesen Schichttyp existiert bereits ein Eintrag." },
+        { error: "Für diesen Schichttyp und Station existiert bereits ein Eintrag." },
         { status: 409 },
       );
     }

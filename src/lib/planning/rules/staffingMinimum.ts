@@ -12,13 +12,14 @@ export function staffingMinimumRule(ctx: RuleContext): RuleResult {
         if (!sameUtcCalendarDay(a.date, d)) continue;
         const profile = ctx.profilesById.get(a.shiftProfileId);
         if (!profile || profile.shiftType !== req.shiftType) continue;
+        if (profile.stationNumber !== req.stationNumber) continue;
         count += 1;
       }
       if (count < req.minTotalCount) {
         errors.push({
           ruleId: "staffingMinimum",
           code: "UNDERSTAFFED",
-          message: `Need at least ${req.minTotalCount} for ${req.shiftType} on ${d.toISOString().slice(0, 10)} (got ${count}).`,
+          message: `Need at least ${req.minTotalCount} for ${req.shiftType} station ${req.stationNumber} on ${d.toISOString().slice(0, 10)} (got ${count}).`,
         });
       }
     }
