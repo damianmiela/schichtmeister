@@ -25,6 +25,7 @@ interface DayViewProps {
   assignments: AssignmentJson[];
   employeesById: Record<string, EmployeeJson>;
   profilesById: Record<string, ShiftProfileJson>;
+  onEmployeeClick?: (employeeId: string) => void;
 }
 
 const STATIONS = [1, 2, 3] as const;
@@ -59,6 +60,7 @@ export default function DayView({
   assignments,
   employeesById,
   profilesById,
+  onEmployeeClick,
 }: DayViewProps) {
   const theme = useTheme();
   const iso = localIsoDate(date);
@@ -270,7 +272,21 @@ export default function DayView({
                                   ? `${employee.firstName.charAt(0)}${employee.lastName.charAt(0)}`
                                   : <PersonIcon sx={{ fontSize: 14 }} />}
                               </Avatar>
-                              <Typography variant="body2" sx={{ fontWeight: 500, lineHeight: 1.3 }}>
+                              <Typography
+                                variant="body2"
+                                onClick={(ev) => {
+                                  ev.stopPropagation();
+                                  onEmployeeClick?.(assignment.employeeId);
+                                }}
+                                sx={{
+                                  fontWeight: 500,
+                                  lineHeight: 1.3,
+                                  cursor: onEmployeeClick ? "pointer" : "default",
+                                  "&:hover": onEmployeeClick
+                                    ? { textDecoration: "underline", color: "primary.main" }
+                                    : undefined,
+                                }}
+                              >
                                 {name}
                               </Typography>
                               <QualificationPills tags={tags} compact />

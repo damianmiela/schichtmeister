@@ -22,6 +22,7 @@ interface MonthTableViewProps {
   employees: EmployeeJson[];
   profilesById: Record<string, ShiftProfileJson>;
   onDayClick: (date: Date) => void;
+  onEmployeeClick?: (employeeId: string) => void;
 }
 
 function daysInMonth(year: number, monthIndex: number): number {
@@ -48,6 +49,7 @@ export default function MonthTableView({
   employees,
   profilesById,
   onDayClick,
+  onEmployeeClick,
 }: MonthTableViewProps) {
   const days = daysInMonth(year, monthIndex);
   const dayCols = Array.from({ length: days }, (_, i) =>
@@ -136,7 +138,21 @@ export default function MonthTableView({
               <TableRow key={e.id} hover>
                 <TableCell sx={{ whiteSpace: "nowrap", position: "sticky", left: 0, bgcolor: "background.paper", zIndex: 1 }}>
                   <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                    <span>{e.firstName} {e.lastName}</span>
+                    <Box
+                      component="span"
+                      onClick={(ev: React.MouseEvent) => {
+                        ev.stopPropagation();
+                        onEmployeeClick?.(e.id);
+                      }}
+                      sx={{
+                        cursor: onEmployeeClick ? "pointer" : "default",
+                        "&:hover": onEmployeeClick
+                          ? { textDecoration: "underline", color: "primary.main" }
+                          : undefined,
+                      }}
+                    >
+                      {e.firstName} {e.lastName}
+                    </Box>
                     <QualificationPills tags={tags} compact />
                   </Box>
                 </TableCell>

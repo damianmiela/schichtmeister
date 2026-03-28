@@ -6,6 +6,7 @@ import MonthView from "@/components/schedule/MonthView";
 import MonthTableView from "@/components/schedule/MonthTableView";
 import WeekView from "@/components/schedule/WeekView";
 import DayView from "@/components/schedule/DayView";
+import EmployeeView from "@/components/schedule/EmployeeView";
 import {
   Box,
   Button,
@@ -36,6 +37,7 @@ import DownloadIcon from "@mui/icons-material/Download";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import CalendarViewWeekIcon from "@mui/icons-material/CalendarViewWeek";
 import TodayIcon from "@mui/icons-material/Today";
+import PersonIcon from "@mui/icons-material/Person";
 import TableChartIcon from "@mui/icons-material/TableChart";
 import GridViewIcon from "@mui/icons-material/GridView";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
@@ -70,7 +72,7 @@ const GENERATE_STAGES = [
   { label: "Speichere Dienstplan...", pct: 92 },
 ] as const;
 
-type ViewType = "month" | "week" | "day";
+type ViewType = "month" | "week" | "day" | "employee";
 type MonthViewMode = "table" | "overview";
 
 interface ViewState {
@@ -80,6 +82,7 @@ interface ViewState {
   weekNumber?: number;
   weekStartDate?: Date;
   date?: Date;
+  employeeId?: string;
 }
 
 const MONTH_NAMES = [
@@ -238,7 +241,7 @@ export default function SchedulePage() {
   }, [loadBundle]);
 
   const handlePrevious = () => {
-    if (viewState.type === "month") {
+    if (viewState.type === "month" || viewState.type === "employee") {
       const newMonth = viewState.month - 1;
       if (newMonth < 0) {
         setViewState({ ...viewState, year: viewState.year - 1, month: 11 });
@@ -261,7 +264,7 @@ export default function SchedulePage() {
   };
 
   const handleNext = () => {
-    if (viewState.type === "month") {
+    if (viewState.type === "month" || viewState.type === "employee") {
       const newMonth = viewState.month + 1;
       if (newMonth > 11) {
         setViewState({ ...viewState, year: viewState.year + 1, month: 0 });
@@ -324,7 +327,30 @@ export default function SchedulePage() {
     }
   };
 
+  const handleEmployeeClick = (employeeId: string) => {
+    setViewState({
+      ...viewState,
+      type: "employee",
+      employeeId,
+    });
+  };
+
+  const handleBackFromEmployee = () => {
+    const prevType = viewState.date
+      ? "day"
+      : viewState.weekStartDate
+        ? "week"
+        : "month";
+    setViewState({ ...viewState, type: prevType });
+  };
+
   const getViewTitle = () => {
+    if (viewState.type === "employee" && viewState.employeeId) {
+      const emp = employeesById[viewState.employeeId];
+      return emp
+        ? `${emp.firstName} ${emp.lastName}`
+        : "Mitarbeiter";
+    }
     if (viewState.type === "month") {
       return `${MONTH_NAMES[viewState.month]} ${viewState.year}`;
     }
@@ -535,7 +561,7 @@ export default function SchedulePage() {
             <CalendarMonthIcon sx={{ fontSize: 18 }} />
             Monat
           </Link>
-          {(viewState.type === "week" || viewState.type === "day") && (
+          {(viewState.type === "week" || viewState.type === "day" || (viewState.type === "employee" && viewState.weekStartDate)) && (
             <Link
               component="button"
               underline="hover"
@@ -552,13 +578,33 @@ export default function SchedulePage() {
               KW {viewState.weekNumber || getWeekNumber(viewState.date || new Date())}
             </Link>
           )}
-          {viewState.type === "day" && viewState.date && (
+          {((viewState.type === "day") || (viewState.type === "employee" && viewState.date)) && viewState.date && (
+            <Link
+              component="button"
+              underline="hover"
+              color={viewState.type === "day" ? "text.primary" : "inherit"}
+              onClick={() => setViewState({ ...viewState, type: "day" })}
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                gap: 0.5,
+                cursor: "pointer",
+              }}
+            >
+              <TodayIcon sx={{ fontSize: 18 }} />
+              {viewState.date.getDate()}.{viewState.date.getMonth() + 1}.
+            </Link>
+          )}
+          {viewState.type === "employee" && viewState.employeeId && (
             <Typography
               color="text.primary"
               sx={{ display: "flex", alignItems: "center", gap: 0.5 }}
             >
-              <TodayIcon sx={{ fontSize: 18 }} />
-              {viewState.date.getDate()}.{viewState.date.getMonth() + 1}.
+              <PersonIcon sx={{ fontSize: 18 }} />
+              {(() => {
+                const emp = employeesById[viewState.employeeId];
+                return emp ? `${emp.firstName} ${emp.lastName}` : "Mitarbeiter";
+              })()}
             </Typography>
           )}
         </Breadcrumbs>
@@ -739,6 +785,7 @@ export default function SchedulePage() {
               employees={employees}
               profilesById={profilesById}
               onDayClick={handleDayClick}
+              onEmployeeClick={handleEmployeeClick}
             />
           )}
 
@@ -761,6 +808,7 @@ export default function SchedulePage() {
               employees={employees}
               profilesById={profilesById}
               onDayClick={handleDayClick}
+              onEmployeeClick={handleEmployeeClick}
             />
           )}
 
@@ -770,6 +818,18 @@ export default function SchedulePage() {
               assignments={assignments}
               employeesById={employeesById}
               profilesById={profilesById}
+              onEmployeeClick={handleEmployeeClick}
+            />
+          )}
+
+          {viewState.type === "employee" && viewState.employeeId && employeesById[viewState.employeeId] && (
+            <EmployeeView
+              year={viewState.year}
+              monthIndex={viewState.month}
+              employee={employeesById[viewState.employeeId]}
+              assignments={assignments}
+              profilesById={profilesById}
+              onDayClick={handleDayClick}
             />
           )}
         </>

@@ -21,6 +21,7 @@ interface WeekViewProps {
   employees: EmployeeJson[];
   profilesById: Record<string, ShiftProfileJson>;
   onDayClick: (date: Date) => void;
+  onEmployeeClick?: (employeeId: string) => void;
 }
 
 export default function WeekView({
@@ -29,6 +30,7 @@ export default function WeekView({
   employees,
   profilesById,
   onDayClick,
+  onEmployeeClick,
 }: WeekViewProps) {
   const dayIsos = weekLocalIsoDays(weekStartDate);
   const byEmpDay = new Map<string, string>();
@@ -74,7 +76,21 @@ export default function WeekView({
             <TableRow key={e.id} hover>
               <TableCell>
                 <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                  <span>{e.firstName} {e.lastName}</span>
+                  <Box
+                    component="span"
+                    onClick={(ev: React.MouseEvent) => {
+                      ev.stopPropagation();
+                      onEmployeeClick?.(e.id);
+                    }}
+                    sx={{
+                      cursor: onEmployeeClick ? "pointer" : "default",
+                      "&:hover": onEmployeeClick
+                        ? { textDecoration: "underline", color: "primary.main" }
+                        : undefined,
+                    }}
+                  >
+                    {e.firstName} {e.lastName}
+                  </Box>
                   <QualificationPills tags={e.qualificationTags ?? []} compact />
                 </Box>
               </TableCell>
