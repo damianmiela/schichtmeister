@@ -435,6 +435,8 @@ export async function runGreedyScheduleGeneration(
 
   for (const date of dates) {
     for (const shiftType of SHIFT_TYPE_ORDER) {
+      const placedForTypeToday = new Set<string>();
+
       for (const station of STATION_NUMBERS) {
         const key = staffingKey(shiftType, station);
         const req = ctx.mergedStaffing.get(key);
@@ -447,7 +449,7 @@ export async function runGreedyScheduleGeneration(
           continue;
         }
 
-        const placedOnSlot = new Set<string>();
+        const placedOnSlot = new Set<string>(placedForTypeToday);
         let filled = 0;
 
         // Pass 1: fill qualification-required slots
@@ -466,6 +468,7 @@ export async function runGreedyScheduleGeneration(
               if (assignment) {
                 proposed.push(assignment);
                 placedOnSlot.add(emp.id);
+                placedForTypeToday.add(emp.id);
                 filled++;
                 qFilled++;
                 placed = true;
@@ -496,6 +499,7 @@ export async function runGreedyScheduleGeneration(
             if (assignment) {
               proposed.push(assignment);
               placedOnSlot.add(emp.id);
+              placedForTypeToday.add(emp.id);
               filled++;
               placed = true;
               break;

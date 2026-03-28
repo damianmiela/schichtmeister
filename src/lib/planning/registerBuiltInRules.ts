@@ -1,5 +1,6 @@
 import { registerRule } from "@/lib/planning/registry";
 import { fairnessCountersRule, targetHoursBalanceRule, wishFulfillmentRule } from "@/lib/planning/rules/softStubs";
+import { maxConsecutiveDaysRule } from "@/lib/planning/rules/maxConsecutiveDays";
 import { maxConsecutiveNightsRule } from "@/lib/planning/rules/maxConsecutiveNights";
 import { minRestBetweenShiftsRule } from "@/lib/planning/rules/minRestBetweenShifts";
 import { miniJobMonthlyHoursRule } from "@/lib/planning/rules/miniJobMonthlyHours";
@@ -44,5 +45,9 @@ export function registerBuiltInPlanningRules(): void {
   registerRule(
     { id: "maxConsecutiveNights", severity: "hard", scope: "employee", description: "Limit consecutive night shifts per employee (default 3)." },
     maxConsecutiveNightsRule,
+  );
+  registerRule(
+    { id: "maxConsecutiveDays", severity: "hard", scope: "employee", description: "Maximale aufeinanderfolgende Arbeitstage (Standard 7, danach 2 Ruhetage)." },
+    maxConsecutiveDaysRule,
   );
 }

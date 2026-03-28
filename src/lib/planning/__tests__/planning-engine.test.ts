@@ -40,6 +40,7 @@ function baseSnapshot(overrides?: Partial<PlanningRulesSnapshot>): PlanningRules
       fairnessCounters: { enabled: false, params: {} },
       targetHoursBalance: { enabled: false, params: {} },
       maxConsecutiveNights: { enabled: true, params: { maxCount: 3 } },
+      maxConsecutiveDays: { enabled: true, params: { maxDays: 7, requiredRestDays: 2 } },
     },
     ...overrides,
   };
@@ -616,7 +617,7 @@ describe("phase 04 — planning rules", () => {
   describe("RuleDescriptor + registry metadata", () => {
     it("getRegisteredRules returns descriptors for all built-in rules", () => {
       const descriptors = getRegisteredRules();
-      expect(descriptors.length).toBeGreaterThanOrEqual(9);
+      expect(descriptors.length).toBeGreaterThanOrEqual(10);
       const ids = descriptors.map((d) => d.id);
       expect(ids).toContain("noOverlap");
       expect(ids).toContain("maxConsecutiveNights");
@@ -832,6 +833,208 @@ describe("phase 04 — planning rules", () => {
       });
       const { errors } = runAllRules(ctx);
       expect(errors.some((e) => e.code === "MAX_CONSECUTIVE_NIGHTS")).toBe(true);
+    });
+  });
+
+  describe("maxConsecutiveDays", () => {
+    const earlyProfile = new Map([
+      [
+        "early",
+        {
+          id: "early",
+          shiftType: ShiftType.EARLY,
+          stationNumber: 1,
+          startTime: "06:00",
+          endTime: "14:00",
+          breakMinutes: 0,
+        },
+      ],
+    ]);
+
+    function daysOnlySnapshot(maxDays: number, requiredRestDays: number, enabled = true): PlanningRulesSnapshot {
+      return baseSnapshot({
+        ruleStates: {
+          noOverlap: { enabled: false, params: {} },
+          minRestBetweenShifts: { enabled: false, params: {} },
+          miniJobMonthlyHours: { enabled: false, params: {} },
+          staffingMinimum: { enabled: false, params: {} },
+          qualificationCoverage: { enabled: false, params: {} },
+          maxConsecutiveNights: { enabled: false, params: {} },
+          maxConsecutiveDays: { enabled, params: { maxDays, requiredRestDays } },
+        },
+      });
+    }
+
+    it("allows up to maxDays consecutive working days", () => {
+      const assignments = Array.from({ length: 7 }, (_, i) => ({
+        id: `d${i}`,
+        date: new Date(Date.UTC(2026, 0, 5 + i)),
+        shiftProfileId: "early",
+        employeeId: "e1",
+      }));
+      const ctx = minimalCtx({
+        periodStart: new Date(Date.UTC(2026, 0, 5)),
+        periodEnd: new Date(Date.UTC(2026, 0, 20)),
+        assignments,
+        profilesById: earlyProfile,
+        snapshot: daysOnlySnapshot(7, 2),
+      });
+      const { errors } = runAllRules(ctx);
+      expect(errors.filter((e) => e.ruleId === "maxConsecutiveDays")).toEqual([]);
+    });
+
+    it("errors when exceeding maxDays consecutive working days", () => {
+      const assignments = Array.from({ length: 8 }, (_, i) => ({
+        id: `d${i}`,
+        date: new Date(Date.UTC(2026, 0, 5 + i)),
+        shiftProfileId: "early",
+        employeeId: "e1",
+      }));
+      const ctx = minimalCtx({
+        periodStart: new Date(Date.UTC(2026, 0, 5)),
+        periodEnd: new Date(Date.UTC(2026, 0, 20)),
+        assignments,
+        profilesById: earlyProfile,
+        snapshot: daysOnlySnapshot(7, 2),
+      });
+      const { errors } = runAllRules(ctx);
+      expect(errors.some((e) => e.code === "MAX_CONSECUTIVE_DAYS")).toBe(true);
+    });
+
+    it("errors when insufficient rest days after max streak", () => {
+      const assignments = [
+        ...Array.from({ length: 7 }, (_, i) => ({
+          id: `d${i}`,
+          date: new Date(Date.UTC(2026, 0, 5 + i)),
+          shiftProfileId: "early",
+          employeeId: "e1",
+        })),
+        {
+          id: "d7",
+          date: new Date(Date.UTC(2026, 0, 13)),
+          shiftProfileId: "early",
+          employeeId: "e1",
+        },
+      ];
+      const ctx = minimalCtx({
+        periodStart: new Date(Date.UTC(2026, 0, 5)),
+        periodEnd: new Date(Date.UTC(2026, 0, 20)),
+        assignments,
+        profilesById: earlyProfile,
+        snapshot: daysOnlySnapshot(7, 2),
+      });
+      const { errors } = runAllRules(ctx);
+      expect(errors.some((e) => e.code === "INSUFFICIENT_REST_AFTER_MAX_DAYS")).toBe(true);
+    });
+
+    it("allows working after sufficient rest days following max streak", () => {
+      const assignments = [
+        ...Array.from({ length: 7 }, (_, i) => ({
+          id: `d${i}`,
+          date: new Date(Date.UTC(2026, 0, 5 + i)),
+          shiftProfileId: "early",
+          employeeId: "e1",
+        })),
+        {
+          id: "d7",
+          date: new Date(Date.UTC(2026, 0, 14)),
+          shiftProfileId: "early",
+          employeeId: "e1",
+        },
+      ];
+      const ctx = minimalCtx({
+        periodStart: new Date(Date.UTC(2026, 0, 5)),
+        periodEnd: new Date(Date.UTC(2026, 0, 20)),
+        assignments,
+        profilesById: earlyProfile,
+        snapshot: daysOnlySnapshot(7, 2),
+      });
+      const { errors } = runAllRules(ctx);
+      expect(errors.filter((e) => e.ruleId === "maxConsecutiveDays")).toEqual([]);
+    });
+
+    it("resets streak after a gap when streak < maxDays", () => {
+      const assignments = [
+        ...Array.from({ length: 5 }, (_, i) => ({
+          id: `a${i}`,
+          date: new Date(Date.UTC(2026, 0, 5 + i)),
+          shiftProfileId: "early",
+          employeeId: "e1",
+        })),
+        ...Array.from({ length: 5 }, (_, i) => ({
+          id: `b${i}`,
+          date: new Date(Date.UTC(2026, 0, 12 + i)),
+          shiftProfileId: "early",
+          employeeId: "e1",
+        })),
+      ];
+      const ctx = minimalCtx({
+        periodStart: new Date(Date.UTC(2026, 0, 5)),
+        periodEnd: new Date(Date.UTC(2026, 0, 20)),
+        assignments,
+        profilesById: earlyProfile,
+        snapshot: daysOnlySnapshot(7, 2),
+      });
+      const { errors } = runAllRules(ctx);
+      expect(errors.filter((e) => e.ruleId === "maxConsecutiveDays")).toEqual([]);
+    });
+
+    it("emits no errors when rule is disabled", () => {
+      const assignments = Array.from({ length: 10 }, (_, i) => ({
+        id: `d${i}`,
+        date: new Date(Date.UTC(2026, 0, 5 + i)),
+        shiftProfileId: "early",
+        employeeId: "e1",
+      }));
+      const ctx = minimalCtx({
+        periodStart: new Date(Date.UTC(2026, 0, 5)),
+        periodEnd: new Date(Date.UTC(2026, 0, 20)),
+        assignments,
+        profilesById: earlyProfile,
+        snapshot: daysOnlySnapshot(7, 2, false),
+      });
+      const { errors } = runAllRules(ctx);
+      expect(errors.filter((e) => e.ruleId === "maxConsecutiveDays")).toEqual([]);
+    });
+
+    it("uses default maxDays 7 and requiredRestDays 2 when params are empty", () => {
+      const assignments = Array.from({ length: 8 }, (_, i) => ({
+        id: `d${i}`,
+        date: new Date(Date.UTC(2026, 0, 5 + i)),
+        shiftProfileId: "early",
+        employeeId: "e1",
+      }));
+      const ctx = minimalCtx({
+        periodStart: new Date(Date.UTC(2026, 0, 5)),
+        periodEnd: new Date(Date.UTC(2026, 0, 20)),
+        assignments,
+        profilesById: earlyProfile,
+        snapshot: baseSnapshot({
+          ruleStates: {
+            maxConsecutiveDays: { enabled: true, params: {} },
+          },
+        }),
+      });
+      const { errors } = runAllRules(ctx);
+      expect(errors.some((e) => e.code === "MAX_CONSECUTIVE_DAYS")).toBe(true);
+    });
+
+    it("respects custom maxDays param", () => {
+      const assignments = Array.from({ length: 5 }, (_, i) => ({
+        id: `d${i}`,
+        date: new Date(Date.UTC(2026, 0, 5 + i)),
+        shiftProfileId: "early",
+        employeeId: "e1",
+      }));
+      const ctx = minimalCtx({
+        periodStart: new Date(Date.UTC(2026, 0, 5)),
+        periodEnd: new Date(Date.UTC(2026, 0, 20)),
+        assignments,
+        profilesById: earlyProfile,
+        snapshot: daysOnlySnapshot(4, 1),
+      });
+      const { errors } = runAllRules(ctx);
+      expect(errors.some((e) => e.code === "MAX_CONSECUTIVE_DAYS")).toBe(true);
     });
   });
 });

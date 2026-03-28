@@ -12,6 +12,7 @@
     { "id": "wishFulfillment", "enabled": false },
     { "id": "fairnessCounters", "enabled": false },
     { "id": "targetHoursBalance", "enabled": false },
-    { "id": "maxConsecutiveNights", "enabled": true, "params": { "maxCount": 3 } }
+    { "id": "maxConsecutiveNights", "enabled": true, "params": { "maxCount": 3 } },
+    { "id": "maxConsecutiveDays", "enabled": true, "params": { "maxDays": 7, "requiredRestDays": 2 } }
   ]
 }
