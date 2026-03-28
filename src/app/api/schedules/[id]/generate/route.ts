@@ -106,6 +106,18 @@ export async function POST(_request: Request, context: RouteCtx) {
     );
   }
 
+  const allWarnings = [
+    ...report.warnings,
+    ...(report.unmetStaffing.length > 0
+      ? [`${report.unmetStaffing.length} Bedarfsslots nur teilweise oder gar nicht besetzt.`]
+      : []),
+  ];
+
+  await prisma.schedule.update({
+    where: { id: scheduleId },
+    data: { warningsJson: JSON.stringify(allWarnings) },
+  });
+
   const rows = await prisma.assignment.findMany({
     where: { scheduleId },
     orderBy: [{ date: "asc" }, { id: "asc" }],

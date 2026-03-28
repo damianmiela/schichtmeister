@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import {
   ContractType,
   ShiftType,
@@ -6,9 +6,12 @@ import {
   WishPriority,
   WishStatus,
 } from "@prisma/client";
-import type { AssignmentInput } from "@/lib/planning/types";
+import type { ShiftProfile } from "@prisma/client";
+import type { AssignmentInput, PlanningRulesSnapshot } from "@/lib/planning/types";
+import { registerBuiltInPlanningRules, resetRuleRegistry } from "@/lib/planning";
 import {
   type GenEmployee,
+  type MergedStaffingEntry,
   SHIFT_TYPE_ORDER,
   buildDefaultProfileByShiftType,
   eachUtcDateInPeriod,
@@ -16,6 +19,7 @@ import {
   isUnavailableOnDate,
   mergeStaffingRequirements,
   preferencePenalty,
+  rebalanceAssignments,
   sumPaidHoursForEmployeeInProposed,
   schedulingTargetHoursBonus,
   wishBonusForSlot,
@@ -182,5 +186,178 @@ describe("phase 07 — generate draft schedule (pure helpers)", () => {
         "warnings": [],
       }
     `);
+  });
+});
+
+describe("rebalanceAssignments", () => {
+  beforeEach(() => {
+    resetRuleRegistry();
+    registerBuiltInPlanningRules();
+  });
+
+  const earlyProfile = {
+    id: "early1",
+    facilityId: "f",
+    name: "F1",
+    shiftType: ShiftType.EARLY,
+    stationNumber: 1,
+    startTime: "06:00",
+    endTime: "14:00",
+    breakMinutes: 0,
+    isActive: true,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  } as ShiftProfile;
+
+  const profilesById = new Map<string, ShiftProfile>([["early1", earlyProfile]]);
+
+  const mergedStaffing = new Map<string, MergedStaffingEntry>([
+    ["EARLY:1", { minTotalCount: 2, qualificationRequirements: [] }],
+  ]);
+
+  const baseSnapshot: PlanningRulesSnapshot = {
+    schemaVersion: 1,
+    minRestHours: 11,
+    miniJobMaxMonthlyHours: 520,
+    maxConsecutiveNightsEnabled: false,
+    ruleStates: {
+      noOverlap: { enabled: true, params: {} },
+      minRestBetweenShifts: { enabled: true, params: {} },
+      miniJobMonthlyHours: { enabled: true, params: {} },
+      maxConsecutiveNights: { enabled: true, params: { maxCount: 3 } },
+      maxConsecutiveDays: { enabled: true, params: { maxDays: 7, requiredRestDays: 2 } },
+    },
+  };
+
+  const period = {
+    periodStart: new Date(Date.UTC(2026, 0, 5)),
+    periodEnd: new Date(Date.UTC(2026, 0, 11)),
+  };
+
+  function makeEmp(id: string, targetHours: number | null, tags: string[] = []): GenEmployee {
+    return {
+      id,
+      qualificationTags: tags,
+      preferredShiftTypes: [],
+      targetHours,
+      targetHoursPeriod: TargetHoursPeriod.MONTHLY,
+      contractType: ContractType.FULL_TIME,
+      miniJobMaxMonthlyHours: null,
+      unavailableDateSet: new Set(),
+    };
+  }
+
+  it("swaps shifts from over-utilized to under-utilized employees", () => {
+    const empOver = makeEmp("over", 40);
+    const empUnder = makeEmp("under", 40);
+    const employees = [empOver, empUnder];
+
+    const proposed: AssignmentInput[] = [];
+    for (let d = 5; d <= 11; d++) {
+      proposed.push({
+        id: `a${d}`,
+        date: new Date(Date.UTC(2026, 0, d)),
+        shiftProfileId: "early1",
+        employeeId: "over",
+      });
+    }
+
+    const result = rebalanceAssignments(
+      proposed, employees, profilesById, mergedStaffing, baseSnapshot, period,
+    );
+
+    expect(result.swapsMade).toBeGreaterThan(0);
+    const underAssignments = proposed.filter((a) => a.employeeId === "under");
+    expect(underAssignments.length).toBeGreaterThan(0);
+  });
+
+  it("does nothing when hours are already balanced", () => {
+    const emp1 = makeEmp("e1", 40);
+    const emp2 = makeEmp("e2", 40);
+    const employees = [emp1, emp2];
+
+    const proposed: AssignmentInput[] = [
+      { id: "a1", date: new Date(Date.UTC(2026, 0, 5)), shiftProfileId: "early1", employeeId: "e1" },
+      { id: "a2", date: new Date(Date.UTC(2026, 0, 6)), shiftProfileId: "early1", employeeId: "e2" },
+      { id: "a3", date: new Date(Date.UTC(2026, 0, 7)), shiftProfileId: "early1", employeeId: "e1" },
+      { id: "a4", date: new Date(Date.UTC(2026, 0, 8)), shiftProfileId: "early1", employeeId: "e2" },
+    ];
+
+    const result = rebalanceAssignments(
+      proposed, employees, profilesById, mergedStaffing, baseSnapshot, period,
+    );
+
+    expect(result.swapsMade).toBe(0);
+  });
+
+  it("respects qualification requirements during swaps", () => {
+    const staffingWithQual = new Map<string, MergedStaffingEntry>([
+      [
+        "EARLY:1",
+        {
+          minTotalCount: 1,
+          qualificationRequirements: [{ qualificationTag: "Fachkraft", minCount: 1 }],
+        },
+      ],
+    ]);
+
+    const empQualified = makeEmp("fk", 40, ["Fachkraft"]);
+    const empUnqualified = makeEmp("hk", 40);
+    const employees = [empQualified, empUnqualified];
+
+    const proposed: AssignmentInput[] = [];
+    for (let d = 5; d <= 11; d++) {
+      proposed.push({
+        id: `a${d}`,
+        date: new Date(Date.UTC(2026, 0, d)),
+        shiftProfileId: "early1",
+        employeeId: "fk",
+      });
+    }
+
+    const result = rebalanceAssignments(
+      proposed, employees, profilesById, staffingWithQual, baseSnapshot, period,
+    );
+
+    const fkAssignments = proposed.filter((a) => a.employeeId === "fk");
+    expect(fkAssignments.length).toBe(7);
+    expect(result.swapsMade).toBe(0);
+  });
+
+  it("includes employees without targetHours in rebalancing", () => {
+    const empWithTarget = makeEmp("wt", 40);
+    const empNoTarget = makeEmp("nt", null);
+    const employees = [empWithTarget, empNoTarget];
+
+    const proposed: AssignmentInput[] = [];
+    for (let d = 5; d <= 11; d++) {
+      proposed.push({
+        id: `a${d}`,
+        date: new Date(Date.UTC(2026, 0, d)),
+        shiftProfileId: "early1",
+        employeeId: "wt",
+      });
+    }
+
+    const result = rebalanceAssignments(
+      proposed, employees, profilesById, mergedStaffing, baseSnapshot, period,
+    );
+
+    expect(result.swapsMade).toBeGreaterThan(0);
+    const ntAssignments = proposed.filter((a) => a.employeeId === "nt");
+    expect(ntAssignments.length).toBeGreaterThan(0);
+  });
+
+  it("does not swap when only one employee exists", () => {
+    const emp = makeEmp("solo", 40);
+    const proposed: AssignmentInput[] = [
+      { id: "a1", date: new Date(Date.UTC(2026, 0, 5)), shiftProfileId: "early1", employeeId: "solo" },
+    ];
+
+    const result = rebalanceAssignments(
+      proposed, [emp], profilesById, mergedStaffing, baseSnapshot, period,
+    );
+
+    expect(result.swapsMade).toBe(0);
   });
 });

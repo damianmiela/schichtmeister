@@ -4,6 +4,7 @@ export type ScheduleJson = {
   periodEnd: string;
   status: string;
   publishedAt: string | null;
+  warnings?: string[];
 };
 
 export type AssignmentJson = {

@@ -4,12 +4,23 @@ import { plannerJsonErrors } from "@/lib/api/validation";
 import { requirePlanner } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 
+function parseWarnings(json: string | null): string[] {
+  if (!json) return [];
+  try {
+    const parsed = JSON.parse(json);
+    return Array.isArray(parsed) ? parsed.filter((w: unknown) => typeof w === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
 function serializeSchedule(s: {
   id: string;
   periodStart: Date;
   periodEnd: Date;
   status: string;
   publishedAt: Date | null;
+  warningsJson: string | null;
   createdAt: Date;
   updatedAt: Date;
 }) {
@@ -19,6 +30,7 @@ function serializeSchedule(s: {
     periodEnd: toIsoDateOnly(s.periodEnd),
     status: s.status,
     publishedAt: s.publishedAt?.toISOString() ?? null,
+    warnings: parseWarnings(s.warningsJson),
     createdAt: s.createdAt.toISOString(),
     updatedAt: s.updatedAt.toISOString(),
   };

@@ -9,8 +9,17 @@ import {
 import type { Prisma } from "@prisma/client";
 import { toIsoDateOnly } from "@/lib/api/dateOnly";
 import { validateScheduleAssignments } from "@/lib/api/planningScheduleValidation";
-import type { AssignmentInput, QualificationRequirementInput } from "@/lib/planning/types";
+import type {
+  AssignmentInput,
+  EmployeeInput,
+  PlanningRulesSnapshot,
+  QualificationRequirementInput,
+  RuleContext,
+  ShiftProfileInput,
+  StaffingRequirementInput,
+} from "@/lib/planning/types";
 import { assignmentPaidHours } from "@/lib/planning/time";
+import { registerBuiltInPlanningRules, runScopedRules, mergePlanningRules, defaultPlanningRulesConfig } from "@/lib/planning";
 
 /** Deterministic shift order within a calendar day. */
 export const SHIFT_TYPE_ORDER: ShiftType[] = [
@@ -387,6 +396,204 @@ async function tryPlaceEmployee(
   return { id: tid, date, shiftProfileId: profileId, employeeId: emp.id };
 }
 
+const DEFAULT_BALANCE_TARGET = 160;
+const REBALANCE_MAX_ROUNDS = 5;
+
+/**
+ * Post-generation optimization: swap shifts from over-utilized employees to
+ * under-utilized ones, equalizing the Ist/Soll % across the workforce.
+ * Operates purely in-memory; validates every swap against employee-scoped rules.
+ */
+export function rebalanceAssignments(
+  proposed: AssignmentInput[],
+  employees: GenEmployee[],
+  profilesById: Map<string, ShiftProfile>,
+  mergedStaffing: Map<string, MergedStaffingEntry>,
+  snapshot: PlanningRulesSnapshot,
+  schedule: { periodStart: Date; periodEnd: Date },
+): { swapsMade: number; warnings: string[] } {
+  let totalSwaps = 0;
+  const warnings: string[] = [];
+
+  if (proposed.length === 0 || employees.length < 2) {
+    return { swapsMade: 0, warnings };
+  }
+
+  registerBuiltInPlanningRules();
+
+  const empById = new Map(employees.map((e) => [e.id, e]));
+  const employeeInputsById = new Map<string, EmployeeInput>(
+    employees.map((e) => [
+      e.id,
+      {
+        id: e.id,
+        contractType: e.contractType,
+        miniJobMaxMonthlyHours: e.miniJobMaxMonthlyHours,
+        qualificationTags: e.qualificationTags,
+      },
+    ]),
+  );
+  const profileInputsById = new Map<string, ShiftProfileInput>(
+    [...profilesById.entries()].map(([id, p]) => [
+      id,
+      {
+        id: p.id,
+        shiftType: p.shiftType,
+        stationNumber: p.stationNumber,
+        startTime: p.startTime,
+        endTime: p.endTime,
+        breakMinutes: p.breakMinutes,
+      },
+    ]),
+  );
+  const staffingReqs: StaffingRequirementInput[] = [...mergedStaffing.entries()].map(
+    ([key, entry]) => {
+      const parts = key.split(":");
+      return {
+        shiftType: parts[0] as ShiftType,
+        stationNumber: parseInt(parts[1]!, 10),
+        minTotalCount: entry.minTotalCount,
+        qualificationRequirements: entry.qualificationRequirements,
+      };
+    },
+  );
+
+  for (let round = 0; round < REBALANCE_MAX_ROUNDS; round++) {
+    let swapsThisRound = 0;
+
+    const utilMap = new Map<string, { hours: number; target: number; pct: number }>();
+    for (const emp of employees) {
+      const hours = sumPaidHoursForEmployeeInProposed(emp.id, proposed, profilesById);
+      const target =
+        emp.targetHours && emp.targetHours > 0
+          ? emp.targetHours
+          : DEFAULT_BALANCE_TARGET;
+      utilMap.set(emp.id, { hours, target, pct: target > 0 ? hours / target : 0 });
+    }
+
+    const sorted = [...utilMap.entries()].sort((a, b) => b[1].pct - a[1].pct);
+    const avgPct =
+      sorted.length > 0
+        ? sorted.reduce((s, [, u]) => s + u.pct, 0) / sorted.length
+        : 0;
+
+    const overList = sorted.filter(([, u]) => u.pct > avgPct + 0.05);
+    const underList = [...sorted].reverse().filter(([, u]) => u.pct < avgPct - 0.05);
+
+    if (overList.length === 0 || underList.length === 0) break;
+
+    for (const [overEmpId, overUtil] of overList) {
+      if (overUtil.pct <= avgPct + 0.05) continue;
+      const overEmp = empById.get(overEmpId);
+      if (!overEmp) continue;
+
+      const overAssignments = proposed
+        .map((a, idx) => ({ a, idx }))
+        .filter(({ a }) => a.employeeId === overEmpId);
+      overAssignments.sort((x, y) => y.a.date.getTime() - x.a.date.getTime());
+
+      let swappedThisEmployee = false;
+
+      for (const { a: assignment, idx } of overAssignments) {
+        if (swappedThisEmployee) break;
+        const profile = profilesById.get(assignment.shiftProfileId);
+        if (!profile) continue;
+        const dateIso = toIsoDateOnly(assignment.date);
+        const stKey = staffingKey(profile.shiftType, profile.stationNumber);
+        const staffReq = mergedStaffing.get(stKey);
+
+        for (const [underEmpId, underUtil] of underList) {
+          if (underEmpId === overEmpId) continue;
+          if (overUtil.pct - underUtil.pct < 0.10) continue;
+
+          const underEmp = empById.get(underEmpId);
+          if (!underEmp) continue;
+          if (underEmp.unavailableDateSet.has(dateIso)) continue;
+
+          const alreadyOnSameType = proposed.some(
+            (a2) =>
+              a2.employeeId === underEmpId &&
+              toIsoDateOnly(a2.date) === dateIso &&
+              profilesById.get(a2.shiftProfileId)?.shiftType === profile.shiftType,
+          );
+          if (alreadyOnSameType) continue;
+
+          if (staffReq) {
+            let qualOk = true;
+            for (const qr of staffReq.qualificationRequirements) {
+              if (!overEmp.qualificationTags.includes(qr.qualificationTag)) continue;
+              const othersWithTag = proposed.filter(
+                (a2) =>
+                  a2.employeeId !== overEmpId &&
+                  toIsoDateOnly(a2.date) === dateIso &&
+                  a2.shiftProfileId === assignment.shiftProfileId &&
+                  empById
+                    .get(a2.employeeId)
+                    ?.qualificationTags.includes(qr.qualificationTag),
+              ).length;
+              if (
+                othersWithTag < qr.minCount &&
+                !underEmp.qualificationTags.includes(qr.qualificationTag)
+              ) {
+                qualOk = false;
+                break;
+              }
+            }
+            if (!qualOk) continue;
+          }
+
+          const origEmployeeId = proposed[idx]!.employeeId;
+          proposed[idx] = { ...proposed[idx]!, employeeId: underEmpId };
+
+          const relevant = proposed.filter(
+            (a) => a.employeeId === overEmpId || a.employeeId === underEmpId,
+          );
+          const ruleCtx: RuleContext = {
+            periodStart: schedule.periodStart,
+            periodEnd: schedule.periodEnd,
+            assignments: relevant,
+            employeesById: employeeInputsById,
+            profilesById: profileInputsById,
+            staffingRequirements: staffingReqs,
+            wishes: [],
+            snapshot,
+          };
+          const { errors } = runScopedRules(ruleCtx, "employee");
+
+          if (errors.length === 0) {
+            const shiftHours = assignmentPaidHours(
+              assignment.date,
+              profile.startTime,
+              profile.endTime,
+              profile.breakMinutes,
+            );
+            overUtil.hours -= shiftHours;
+            overUtil.pct = overUtil.target > 0 ? overUtil.hours / overUtil.target : 0;
+            underUtil.hours += shiftHours;
+            underUtil.pct =
+              underUtil.target > 0 ? underUtil.hours / underUtil.target : 0;
+            swapsThisRound++;
+            swappedThisEmployee = true;
+            break;
+          } else {
+            proposed[idx] = { ...proposed[idx]!, employeeId: origEmployeeId };
+          }
+        }
+      }
+    }
+
+    totalSwaps += swapsThisRound;
+    if (swapsThisRound === 0) break;
+  }
+
+  if (totalSwaps > 0) {
+    warnings.push(
+      `Ausgleich: ${totalSwaps} Dienst(e) getauscht für gleichmäßigere Stundenverteilung.`,
+    );
+  }
+  return { swapsMade: totalSwaps, warnings };
+}
+
 /**
  * Two-pass greedy fill: ascending dates, EARLY->LATE->NIGHT.
  * Pass 1: fill qualification-required slots (tag-specific candidates only).
@@ -513,6 +720,21 @@ export async function runGreedyScheduleGeneration(
         }
       }
     }
+  }
+
+  // Rebalancing pass: equalize Ist/Soll across employees
+  if (proposed.length > 0) {
+    const facility = await tx.facility.findUniqueOrThrow({ where: { id: facilityId } });
+    const snapshot = mergePlanningRules(facility, defaultPlanningRulesConfig);
+    const rebalResult = rebalanceAssignments(
+      proposed,
+      ctx.employees,
+      profilesById,
+      ctx.mergedStaffing,
+      snapshot,
+      { periodStart: schedule.periodStart, periodEnd: schedule.periodEnd },
+    );
+    warnings.push(...rebalResult.warnings);
   }
 
   if (proposed.length > 0) {

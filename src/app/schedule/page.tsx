@@ -20,6 +20,14 @@ import {
   CircularProgress,
   Menu,
   MenuItem,
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  LinearProgress,
+  Drawer,
+  Badge,
+  Tooltip,
+  Divider,
 } from "@mui/material";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
@@ -31,6 +39,8 @@ import TodayIcon from "@mui/icons-material/Today";
 import TableChartIcon from "@mui/icons-material/TableChart";
 import GridViewIcon from "@mui/icons-material/GridView";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import WarningAmberIcon from "@mui/icons-material/WarningAmber";
+import CloseIcon from "@mui/icons-material/Close";
 import { ApiError, fetchJson } from "@/lib/api/fetchJson";
 import {
   monthRangeIso,
@@ -51,6 +61,14 @@ type GenerateScheduleResponse = {
   unmetStaffing: { date: string; shiftType: string; requested: number; assigned: number }[];
   warnings: string[];
 };
+
+const GENERATE_STAGES = [
+  { label: "Lade Mitarbeiterdaten...", pct: 5 },
+  { label: "Erstelle Schichtzuweisungen...", pct: 25 },
+  { label: "Optimiere Stundenverteilung...", pct: 60 },
+  { label: "Prüfe Ergebnisse...", pct: 80 },
+  { label: "Speichere Dienstplan...", pct: 92 },
+] as const;
 
 type ViewType = "month" | "week" | "day";
 type MonthViewMode = "table" | "overview";
@@ -104,6 +122,9 @@ export default function SchedulePage() {
   >("info");
   const [exportMenuEl, setExportMenuEl] = useState<null | HTMLElement>(null);
   const [exportBusy, setExportBusy] = useState(false);
+  const [genStageIdx, setGenStageIdx] = useState(0);
+  const [genModalOpen, setGenModalOpen] = useState(false);
+  const [warningsOpen, setWarningsOpen] = useState(false);
 
   const loadBundle = useCallback(async (opts?: { preserveActionMessage?: boolean }) => {
     setLoading(true);
@@ -409,14 +430,23 @@ export default function SchedulePage() {
   const onGenerate = async () => {
     if (!schedule) return;
     setGenerateBusy(true);
+    setGenStageIdx(0);
+    setGenModalOpen(true);
     setActionMsg(null);
     setActionDebugPayload(null);
     setActionAlertSeverity("info");
+
+    const stageTimers = [1200, 3000, 6000, 9000].map((ms, i) =>
+      setTimeout(() => setGenStageIdx(i + 1), ms),
+    );
+
     try {
       const res = await fetchJson<GenerateScheduleResponse>(
         `/api/schedules/${schedule.id}/generate`,
         { method: "POST" },
       );
+      stageTimers.forEach(clearTimeout);
+      setGenStageIdx(GENERATE_STAGES.length - 1);
       await loadBundle({ preserveActionMessage: true });
 
       const parts: string[] = [];
@@ -440,7 +470,9 @@ export default function SchedulePage() {
       setActionAlertSeverity(hasIssue ? "warning" : "success");
       setActionMsg(parts.join(" "));
       setActionDebugPayload(null);
+      if (hasIssue) setWarningsOpen(true);
     } catch (e) {
+      stageTimers.forEach(clearTimeout);
       setActionAlertSeverity("error");
       if (e instanceof ApiError) {
         const msg =
@@ -473,6 +505,7 @@ export default function SchedulePage() {
       }
     } finally {
       setGenerateBusy(false);
+      setTimeout(() => setGenModalOpen(false), 600);
     }
   };
 
@@ -625,6 +658,21 @@ export default function SchedulePage() {
           >
             {publishBusy ? <CircularProgress size={20} color="inherit" /> : "Veröffentlichen"}
           </Button>
+          {(schedule?.warnings?.length ?? 0) > 0 && (
+            <Tooltip title="Warnungen anzeigen">
+              <IconButton
+                color="warning"
+                onClick={() => setWarningsOpen((p) => !p)}
+              >
+                <Badge
+                  badgeContent={schedule?.warnings?.length ?? 0}
+                  color="warning"
+                >
+                  <WarningAmberIcon />
+                </Badge>
+              </IconButton>
+            </Tooltip>
+          )}
         </Box>
       </Box>
 
@@ -726,6 +774,74 @@ export default function SchedulePage() {
           )}
         </>
       ) : null}
+
+      {/* Generation progress modal */}
+      <Dialog open={genModalOpen} maxWidth="sm" fullWidth>
+        <DialogTitle>Dienstplan wird generiert</DialogTitle>
+        <DialogContent>
+          <Box sx={{ mb: 2 }}>
+            <LinearProgress
+              variant="determinate"
+              value={GENERATE_STAGES[genStageIdx]?.pct ?? 100}
+              sx={{ height: 8, borderRadius: 1, mb: 1.5 }}
+            />
+            <Typography variant="body2" color="text.secondary">
+              {GENERATE_STAGES[genStageIdx]?.label ?? "Fertig!"}
+            </Typography>
+          </Box>
+        </DialogContent>
+      </Dialog>
+
+      {/* Warnings sidebar */}
+      <Drawer
+        anchor="right"
+        open={warningsOpen}
+        onClose={() => setWarningsOpen(false)}
+        variant="temporary"
+        PaperProps={{
+          sx: { width: { xs: "100%", sm: 380 }, p: 0 },
+        }}
+      >
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            px: 2,
+            py: 1.5,
+            borderBottom: "1px solid",
+            borderColor: "divider",
+          }}
+        >
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <WarningAmberIcon color="warning" />
+            <Typography variant="h6" sx={{ fontSize: "1rem" }}>
+              Warnungen
+            </Typography>
+          </Box>
+          <IconButton size="small" onClick={() => setWarningsOpen(false)}>
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        </Box>
+        <Divider />
+        <Box sx={{ p: 2, overflow: "auto", flex: 1 }}>
+          {(schedule?.warnings?.length ?? 0) === 0 ? (
+            <Typography variant="body2" color="text.secondary">
+              Keine Warnungen für diesen Monat.
+            </Typography>
+          ) : (
+            schedule?.warnings?.map((w, i) => (
+              <Alert
+                key={i}
+                severity="warning"
+                sx={{ mb: 1, fontSize: "0.8rem", "& .MuiAlert-message": { py: 0.5 } }}
+              >
+                {w}
+              </Alert>
+            ))
+          )}
+        </Box>
+      </Drawer>
     </MainLayout>
   );
 }
