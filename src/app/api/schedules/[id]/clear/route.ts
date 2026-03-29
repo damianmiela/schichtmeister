@@ -29,6 +29,7 @@ export async function POST(_request: Request, context: RouteCtx) {
         status: "DRAFT",
         publishedAt: null,
         warningsJson: null,
+        preGenWishesJson: null,
       },
     });
 
