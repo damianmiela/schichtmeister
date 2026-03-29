@@ -668,11 +668,9 @@ export async function runGreedyScheduleGeneration(
 
         const placedOnSlot = new Set<string>(placedForTypeToday);
         let filled = 0;
-        const qualGaps: { tag: string; required: number; got: number }[] = [];
 
         // Pass 1: fill qualification-required slots
         for (const qr of req.qualificationRequirements) {
-          let qFilled = 0;
           for (let slot = 0; slot < qr.minCount; slot++) {
             const candidates = sortCandidatesDeterministic(
               ctx.employees, date, shiftType, profile.id,
@@ -688,15 +686,11 @@ export async function runGreedyScheduleGeneration(
                 placedOnSlot.add(emp.id);
                 placedForTypeToday.add(emp.id);
                 filled++;
-                qFilled++;
                 placed = true;
                 break;
               }
             }
             if (!placed) break;
-          }
-          if (qFilled < qr.minCount) {
-            qualGaps.push({ tag: qr.qualificationTag, required: qr.minCount, got: qFilled });
           }
         }
 
@@ -727,21 +721,6 @@ export async function runGreedyScheduleGeneration(
         if (filled < req.minTotalCount) {
           unmet.push({ date: toIsoDateOnly(date), shiftType, requested: req.minTotalCount, assigned: filled });
         }
-
-        // Emit qualification gap warnings with full context after both passes
-        if (qualGaps.length > 0) {
-          const dateDE = formatDateDE(date);
-          const shift = SHIFT_LABEL_DE[shiftType] ?? shiftType;
-          const totalInfo =
-            filled >= req.minTotalCount
-              ? "Schicht voll besetzt"
-              : `Schicht unterbesetzt: ${filled}/${req.minTotalCount}`;
-          for (const gap of qualGaps) {
-            warnings.push(
-              `${shift} Station ${station} am ${dateDE}: ${gap.got}/${gap.required} ${gap.tag} – ${totalInfo}.`,
-            );
-          }
-        }
       }
     }
   }
@@ -759,6 +738,44 @@ export async function runGreedyScheduleGeneration(
       { periodStart: schedule.periodStart, periodEnd: schedule.periodEnd },
     );
     warnings.push(...rebalResult.warnings);
+  }
+
+  // Check qualification coverage on FINAL assignments (after rebalancing)
+  const empTagsById = new Map(ctx.employees.map((e) => [e.id, e.qualificationTags]));
+  for (const date of dates) {
+    for (const shiftType of SHIFT_TYPE_ORDER) {
+      for (const station of STATION_NUMBERS) {
+        const key = staffingKey(shiftType, station);
+        const req = ctx.mergedStaffing.get(key);
+        if (!req || req.qualificationRequirements.length === 0) continue;
+
+        const profile = profileByTS.get(key);
+        if (!profile) continue;
+
+        const dateIso = toIsoDateOnly(date);
+        const slotAssignments = proposed.filter(
+          (a) => toIsoDateOnly(a.date) === dateIso && a.shiftProfileId === profile.id,
+        );
+
+        for (const qr of req.qualificationRequirements) {
+          const withTag = slotAssignments.filter((a) =>
+            empTagsById.get(a.employeeId)?.includes(qr.qualificationTag),
+          ).length;
+          if (withTag < qr.minCount) {
+            const shift = SHIFT_LABEL_DE[shiftType] ?? shiftType;
+            const dateDE = formatDateDE(date);
+            const totalFilled = slotAssignments.length;
+            const suffix =
+              totalFilled >= req.minTotalCount
+                ? `Schicht ist mit ${totalFilled} MA besetzt, aber ohne die geforderte Qualifikation`
+                : `Schicht unterbesetzt: ${totalFilled}/${req.minTotalCount}`;
+            warnings.push(
+              `${shift} Station ${station} am ${dateDE}: ${withTag}/${qr.minCount} ${qr.qualificationTag} vorhanden – ${suffix}.`,
+            );
+          }
+        }
+      }
+    }
   }
 
   if (proposed.length > 0) {
