@@ -115,8 +115,17 @@ export default function EmployeeView({
     return { totalHours: hours, workingDays: wDays };
   }, [assignmentsByDate, profilesById]);
 
-  const target = employee.targetHours ?? null;
+  const rawTarget = employee.targetHours ?? null;
+  const target = useMemo(() => {
+    if (rawTarget == null) return null;
+    if (employee.targetHoursPeriod === "WEEKLY") {
+      const calDays = new Date(year, monthIndex + 1, 0).getDate();
+      return rawTarget * (calDays / 7);
+    }
+    return rawTarget;
+  }, [rawTarget, employee.targetHoursPeriod, year, monthIndex]);
   const tags = employee.qualificationTags ?? [];
+  const pct = target != null && target > 0 ? Math.round((totalHours / target) * 100) : null;
 
   let hoursColor: string;
   if (target == null) {
@@ -192,9 +201,9 @@ export default function EmployeeView({
                 }}
                 variant="outlined"
               />
-              {target != null && (
+              {pct != null && (
                 <Chip
-                  label={`${Math.round((totalHours / target) * 100)}%`}
+                  label={`${pct}%`}
                   size="small"
                   sx={{
                     fontWeight: 700,

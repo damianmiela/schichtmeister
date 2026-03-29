@@ -42,6 +42,20 @@ function formatHours(h: number): string {
   return h % 1 === 0 ? String(h) : h.toFixed(1);
 }
 
+function monthlyTarget(
+  targetHours: number | null | undefined,
+  targetHoursPeriod: string | null | undefined,
+  year: number,
+  monthIndex: number,
+): number | null {
+  if (targetHours == null) return null;
+  if (targetHoursPeriod === "WEEKLY") {
+    const calendarDays = new Date(year, monthIndex + 1, 0).getDate();
+    return targetHours * (calendarDays / 7);
+  }
+  return targetHours;
+}
+
 export default function MonthTableView({
   year,
   monthIndex,
@@ -120,8 +134,9 @@ export default function MonthTableView({
         <TableBody>
           {sortedEmps.map((e) => {
             const planned = empPlannedHours.get(e.id) ?? 0;
-            const target = e.targetHours ?? null;
+            const target = monthlyTarget(e.targetHours, e.targetHoursPeriod, year, monthIndex);
             const tags = e.qualificationTags ?? [];
+            const pct = target != null && target > 0 ? Math.round((planned / target) * 100) : null;
 
             let hoursColor: string;
             if (target == null) {
@@ -172,18 +187,29 @@ export default function MonthTableView({
                   <Tooltip
                     title={
                       target != null
-                        ? `Geplant: ${formatHours(planned)} h / Soll: ${formatHours(target)} h (${e.targetHoursPeriod === "WEEKLY" ? "wöchentlich" : "monatlich"})`
+                        ? `Geplant: ${formatHours(planned)} h / Soll: ${formatHours(target)} h${e.targetHoursPeriod === "WEEKLY" ? ` (${formatHours(e.targetHours!)} h/Woche × ${days / 7 < 5 ? formatHours(days / 7) : (days / 7).toFixed(2)} Wochen)` : ""}`
                         : `Geplant: ${formatHours(planned)} h (kein Soll hinterlegt)`
                     }
                     arrow
                   >
-                    <Typography
-                      component="span"
-                      variant="caption"
-                      sx={{ color: hoursColor, fontWeight: 600 }}
-                    >
-                      {formatHours(planned)}{target != null ? `/${formatHours(target)}` : ""}
-                    </Typography>
+                    <Box sx={{ lineHeight: 1.2 }}>
+                      <Typography
+                        component="span"
+                        variant="caption"
+                        sx={{ color: hoursColor, fontWeight: 600 }}
+                      >
+                        {formatHours(planned)}{target != null ? `/${formatHours(target)}` : ""}
+                      </Typography>
+                      {pct != null && (
+                        <Typography
+                          display="block"
+                          variant="caption"
+                          sx={{ color: hoursColor, fontSize: 9, fontWeight: 500, lineHeight: 1 }}
+                        >
+                          ({pct}%)
+                        </Typography>
+                      )}
+                    </Box>
                   </Tooltip>
                 </TableCell>
                 {dayCols.map((iso) => {
