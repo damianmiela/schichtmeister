@@ -109,6 +109,7 @@ model Employee {
   miniJobMaxMonthlyHours   Decimal?            @db.Decimal(8, 2)
   targetHoursPercent       Decimal?            @db.Decimal(6, 2)
   workProfileId            String?
+  assignedStationNumber    Int?
   qualificationTags        String[]            @default([])
   preferredShiftTypes      ShiftType[]         @default([])
   createdAt                DateTime            @default(now())

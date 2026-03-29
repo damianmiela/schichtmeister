@@ -193,6 +193,7 @@ export type GenEmployee = {
   targetHoursPeriod: TargetHoursPeriod | null;
   contractType: ContractType;
   miniJobMaxMonthlyHours: number | null;
+  assignedStationNumber: number | null;
   unavailableDateSet: Set<string>;
 };
 
@@ -263,11 +264,15 @@ function sortCandidates(
   proposed: AssignmentInput[],
   profilesById: Map<string, Pick<ShiftProfile, "startTime" | "endTime" | "breakMinutes">>,
   alreadyPlacedIds: Set<string>,
+  stationNumber: number,
   rng?: () => number,
 ): GenEmployee[] {
   const dateIso = toIsoDateOnly(date);
   const available = employees.filter(
-    (e) => !e.unavailableDateSet.has(dateIso) && !alreadyPlacedIds.has(e.id),
+    (e) =>
+      !e.unavailableDateSet.has(dateIso) &&
+      !alreadyPlacedIds.has(e.id) &&
+      (e.assignedStationNumber == null || e.assignedStationNumber === stationNumber),
   );
 
   const pool = requiredTag
@@ -369,6 +374,7 @@ export async function loadGenerateContext(
     contractType: e.contractType,
     miniJobMaxMonthlyHours:
       e.miniJobMaxMonthlyHours != null ? Number(e.miniJobMaxMonthlyHours) : null,
+    assignedStationNumber: e.assignedStationNumber ?? null,
     unavailableDateSet: unavailByEmp.get(e.id) ?? new Set(),
   }));
 
@@ -539,6 +545,7 @@ export function rebalanceAssignments(
           const underEmp = empById.get(underEmpId);
           if (!underEmp) continue;
           if (underEmp.unavailableDateSet.has(dateIso)) continue;
+          if (underEmp.assignedStationNumber != null && underEmp.assignedStationNumber !== profile.stationNumber) continue;
 
           const alreadyOnSameType = proposed.some(
             (a2) =>
@@ -694,7 +701,7 @@ export async function runGreedyScheduleGeneration(
           for (let slot = 0; slot < qr.minCount; slot++) {
             const candidates = sortCandidates(
               ctx.employees, date, shiftType, profile.id,
-              qr.qualificationTag, ctx.wishes, proposed, profilesById, placedOnSlot, rng,
+              qr.qualificationTag, ctx.wishes, proposed, profilesById, placedOnSlot, station, rng,
             );
             let placed = false;
             for (const emp of candidates) {
@@ -719,7 +726,7 @@ export async function runGreedyScheduleGeneration(
         for (let slot = 0; slot < remaining; slot++) {
           const candidates = sortCandidates(
             ctx.employees, date, shiftType, profile.id,
-            null, ctx.wishes, proposed, profilesById, placedOnSlot, rng,
+            null, ctx.wishes, proposed, profilesById, placedOnSlot, station, rng,
           );
           let placed = false;
           for (const emp of candidates) {

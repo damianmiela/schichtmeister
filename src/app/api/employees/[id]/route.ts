@@ -57,6 +57,9 @@ export async function PATCH(request: NextRequest, context: RouteCtx) {
   if (data.preferredShiftTypes !== undefined) {
     updateData.preferredShiftTypes = data.preferredShiftTypes;
   }
+  if (data.assignedStationNumber !== undefined) {
+    updateData.assignedStationNumber = data.assignedStationNumber;
+  }
 
   const contractRes = await resolveContractForPatch(
     facilityId,

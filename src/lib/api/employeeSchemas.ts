@@ -19,6 +19,7 @@ export const employeeCreateSchema = z.object({
   contractType: contractTypeZ.optional(),
   targetHoursPercent: targetHoursPercentZ,
   miniJobMaxMonthlyHours: z.number().positive().optional().nullable(),
+  assignedStationNumber: z.number().int().min(1).max(3).optional().nullable(),
   qualificationTags: z.array(z.string()).optional(),
   preferredShiftTypes: z.array(shiftTypeZ).optional(),
 });
@@ -31,6 +32,7 @@ export const employeePatchSchema = z
     contractType: contractTypeZ.optional(),
     targetHoursPercent: targetHoursPercentZ,
     miniJobMaxMonthlyHours: z.number().positive().optional().nullable(),
+    assignedStationNumber: z.number().int().min(1).max(3).optional().nullable(),
     qualificationTags: z.array(z.string()).optional(),
     preferredShiftTypes: z.array(shiftTypeZ).optional(),
   })

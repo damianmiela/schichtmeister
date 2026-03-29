@@ -14,6 +14,7 @@ export type EmployeeRowPayload = {
   targetHoursPeriod: TargetHoursPeriod | null;
   miniJobMaxMonthlyHours: number | null;
   targetHoursPercent: number | null;
+  assignedStationNumber: number | null;
   workProfile: EmployeeWorkProfilePayload | null;
   qualificationTags: string[];
   preferredShiftTypes: ShiftType[];
@@ -35,6 +36,7 @@ export function serializeEmployee(
     targetHoursPeriod: TargetHoursPeriod | null;
     miniJobMaxMonthlyHours: { toString(): string } | null;
     targetHoursPercent: { toString(): string } | null | number | undefined;
+    assignedStationNumber?: number | null;
     qualificationTags: string[];
     preferredShiftTypes: ShiftType[];
     createdAt: Date;
@@ -54,6 +56,7 @@ export function serializeEmployee(
       e.targetHoursPercent != null && e.targetHoursPercent !== undefined
         ? Number(e.targetHoursPercent)
         : null,
+    assignedStationNumber: e.assignedStationNumber ?? null,
     workProfile:
       e.workProfile != null
         ? { id: e.workProfile.id, name: e.workProfile.name }

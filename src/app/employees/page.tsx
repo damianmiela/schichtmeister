@@ -47,6 +47,7 @@ interface EmployeeRow {
   targetHoursPeriod: string | null;
   miniJobMaxMonthlyHours: number | null;
   targetHoursPercent: number | null;
+  assignedStationNumber: number | null;
   workProfile: { id: string; name: string } | null;
   qualificationTags: string[];
 }
@@ -131,6 +132,7 @@ export default function EmployeesPage() {
   const [percentStr, setPercentStr] = useState("");
   const [miniStr, setMiniStr] = useState("");
   const [qualificationTags, setQualificationTags] = useState<string[]>([]);
+  const [assignedStation, setAssignedStation] = useState<number | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<EmployeeRow | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [sortKey, setSortKey] = useState<"name" | "contract">("name");
@@ -231,6 +233,7 @@ export default function EmployeesPage() {
     setPercentStr("");
     setMiniStr("");
     setQualificationTags([]);
+    setAssignedStation(null);
     setEditingId(null);
   };
 
@@ -256,6 +259,7 @@ export default function EmployeesPage() {
         : "",
     );
     setQualificationTags([...e.qualificationTags]);
+    setAssignedStation(e.assignedStationNumber ?? null);
     setDialogOpen(true);
   };
 
@@ -290,6 +294,7 @@ export default function EmployeesPage() {
       contractType,
       targetHoursPercent: pct,
       miniJobMaxMonthlyHours: contractType === "MINI_JOB" ? mini : null,
+      assignedStationNumber: assignedStation,
     };
 
     return { ok: true, body };
@@ -431,6 +436,7 @@ export default function EmployeesPage() {
                         Arbeitszeit
                       </TableSortLabel>
                     </TableCell>
+                    <TableCell>Station</TableCell>
                     <TableCell>Qualifikationen</TableCell>
                     <TableCell align="right">Aktionen</TableCell>
                   </TableRow>
@@ -438,7 +444,7 @@ export default function EmployeesPage() {
                 <TableBody>
                   {sortedRows.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={4}>
+                      <TableCell colSpan={5}>
                         <Typography color="text.secondary" sx={{ py: 2 }}>
                           Keine Mitarbeiter.
                         </Typography>
@@ -473,6 +479,21 @@ export default function EmployeesPage() {
                               {hoursLine}
                             </Typography>
                           ) : null}
+                        </TableCell>
+                        <TableCell>
+                          {employee.assignedStationNumber != null ? (
+                            <Chip
+                              label={`St. ${employee.assignedStationNumber}`}
+                              size="small"
+                              variant="outlined"
+                              color="primary"
+                              sx={{ fontWeight: 600, fontSize: 11 }}
+                            />
+                          ) : (
+                            <Typography variant="caption" color="text.secondary">
+                              Alle
+                            </Typography>
+                          )}
                         </TableCell>
                         <TableCell>
                           <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
@@ -613,6 +634,24 @@ export default function EmployeesPage() {
             )}
             disabled={saving}
           />
+
+          <TextField
+            select
+            label="Feste Station"
+            value={assignedStation ?? ""}
+            onChange={(e) => {
+              const v = e.target.value;
+              setAssignedStation(v === "" ? null : Number(v));
+            }}
+            fullWidth
+            disabled={saving}
+            helperText="Wenn gesetzt, wird der Mitarbeiter nur auf dieser Station eingeplant."
+          >
+            <MenuItem value="">Keine (alle Stationen)</MenuItem>
+            <MenuItem value={1}>Station 1</MenuItem>
+            <MenuItem value={2}>Station 2</MenuItem>
+            <MenuItem value={3}>Station 3</MenuItem>
+          </TextField>
         </DialogContent>
         <DialogActions>
           <Button

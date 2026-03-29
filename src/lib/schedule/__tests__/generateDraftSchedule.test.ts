@@ -77,6 +77,7 @@ describe("phase 07 — generate draft schedule (pure helpers)", () => {
       targetHoursPeriod: null,
       contractType: ContractType.FULL_TIME,
       miniJobMaxMonthlyHours: null,
+      assignedStationNumber: null,
       unavailableDateSet: new Set(["2026-02-01"]),
     };
     expect(isUnavailableOnDate(emp, "2026-02-01")).toBe(true);
@@ -278,7 +279,7 @@ describe("rebalanceAssignments", () => {
     periodEnd: new Date(Date.UTC(2026, 0, 11)),
   };
 
-  function makeEmp(id: string, targetHours: number | null, tags: string[] = []): GenEmployee {
+  function makeEmp(id: string, targetHours: number | null, tags: string[] = [], assignedStation: number | null = null): GenEmployee {
     return {
       id,
       qualificationTags: tags,
@@ -287,6 +288,7 @@ describe("rebalanceAssignments", () => {
       targetHoursPeriod: TargetHoursPeriod.MONTHLY,
       contractType: ContractType.FULL_TIME,
       miniJobMaxMonthlyHours: null,
+      assignedStationNumber: assignedStation,
       unavailableDateSet: new Set(),
     };
   }
@@ -403,5 +405,53 @@ describe("rebalanceAssignments", () => {
     );
 
     expect(result.swapsMade).toBe(0);
+  });
+
+  it("blocks swap when under-utilized employee is assigned to a different station", () => {
+    const empOver = makeEmp("over", 40);
+    const empUnderSt2 = makeEmp("under_st2", 40, [], 2);
+    const employees = [empOver, empUnderSt2];
+
+    const proposed: AssignmentInput[] = [];
+    for (let d = 5; d <= 11; d++) {
+      proposed.push({
+        id: `a${d}`,
+        date: new Date(Date.UTC(2026, 0, d)),
+        shiftProfileId: "early1",
+        employeeId: "over",
+      });
+    }
+
+    const result = rebalanceAssignments(
+      proposed, employees, profilesById, mergedStaffing, baseSnapshot, period,
+    );
+
+    expect(result.swapsMade).toBe(0);
+    const st2Assignments = proposed.filter((a) => a.employeeId === "under_st2");
+    expect(st2Assignments.length).toBe(0);
+  });
+
+  it("allows swap when under-utilized employee is assigned to the same station", () => {
+    const empOver = makeEmp("over", 40);
+    const empUnderSt1 = makeEmp("under_st1", 40, [], 1);
+    const employees = [empOver, empUnderSt1];
+
+    const proposed: AssignmentInput[] = [];
+    for (let d = 5; d <= 11; d++) {
+      proposed.push({
+        id: `a${d}`,
+        date: new Date(Date.UTC(2026, 0, d)),
+        shiftProfileId: "early1",
+        employeeId: "over",
+      });
+    }
+
+    const result = rebalanceAssignments(
+      proposed, employees, profilesById, mergedStaffing, baseSnapshot, period,
+    );
+
+    expect(result.swapsMade).toBeGreaterThan(0);
+    const st1Assignments = proposed.filter((a) => a.employeeId === "under_st1");
+    expect(st1Assignments.length).toBeGreaterThan(0);
   });
 });
