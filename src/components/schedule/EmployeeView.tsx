@@ -115,19 +115,23 @@ export default function EmployeeView({
     return { totalHours: hours, workingDays: wDays };
   }, [assignmentsByDate, profilesById]);
 
-  const FULL_TIME_WEEKLY = 40;
+  const FULL_TIME_DAILY = 8;
   const target = useMemo(() => {
     if (employee.targetHours == null) return null;
-    const calDays = new Date(year, monthIndex + 1, 0).getDate();
-    const weeksInMonth = calDays / 7;
+    const totalDays = new Date(year, monthIndex + 1, 0).getDate();
+    let wd = 0;
+    for (let d = 1; d <= totalDays; d++) {
+      const dow = new Date(year, monthIndex, d).getDay();
+      if (dow !== 0 && dow !== 6) wd++;
+    }
     if (employee.targetHoursPercent != null && employee.targetHoursPercent > 0) {
-      return (employee.targetHoursPercent / 100) * FULL_TIME_WEEKLY * weeksInMonth;
+      return (employee.targetHoursPercent / 100) * FULL_TIME_DAILY * wd;
     }
     if (employee.targetHoursPeriod === "WEEKLY") {
-      return employee.targetHours * weeksInMonth;
+      return (employee.targetHours / 5) * wd;
     }
-    const avgDaysPerMonth = 365.25 / 12;
-    return employee.targetHours * (calDays / avgDaysPerMonth);
+    const AVG_WD = 21.75;
+    return employee.targetHours * (wd / AVG_WD);
   }, [employee.targetHours, employee.targetHoursPercent, employee.targetHoursPeriod, year, monthIndex]);
   const tags = employee.qualificationTags ?? [];
   const pct = target != null && target > 0 ? Math.round((totalHours / target) * 100) : null;

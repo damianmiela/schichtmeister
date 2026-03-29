@@ -42,7 +42,17 @@ function formatHours(h: number): string {
   return h % 1 === 0 ? String(h) : h.toFixed(1);
 }
 
-const FULL_TIME_WEEKLY_HOURS = 40;
+const FULL_TIME_DAILY_HOURS = 8;
+
+function workingDaysInMonth(year: number, monthIndex: number): number {
+  const totalDays = new Date(year, monthIndex + 1, 0).getDate();
+  let count = 0;
+  for (let d = 1; d <= totalDays; d++) {
+    const dow = new Date(year, monthIndex, d).getDay();
+    if (dow !== 0 && dow !== 6) count++;
+  }
+  return count;
+}
 
 function monthlyTargetForMonth(
   employee: EmployeeJson,
@@ -50,17 +60,15 @@ function monthlyTargetForMonth(
   monthIndex: number,
 ): number | null {
   if (employee.targetHours == null) return null;
-  const calendarDays = new Date(year, monthIndex + 1, 0).getDate();
-  const weeksInMonth = calendarDays / 7;
+  const wd = workingDaysInMonth(year, monthIndex);
   if (employee.targetHoursPercent != null && employee.targetHoursPercent > 0) {
-    return (employee.targetHoursPercent / 100) * FULL_TIME_WEEKLY_HOURS * weeksInMonth;
+    return (employee.targetHoursPercent / 100) * FULL_TIME_DAILY_HOURS * wd;
   }
   if (employee.targetHoursPeriod === "WEEKLY") {
-    return employee.targetHours * weeksInMonth;
+    return (employee.targetHours / 5) * wd;
   }
-  // MONTHLY stored value is a yearly average — scale to actual month
-  const avgDaysPerMonth = 365.25 / 12;
-  return employee.targetHours * (calendarDays / avgDaysPerMonth);
+  const AVG_WORKING_DAYS_PER_MONTH = 21.75;
+  return employee.targetHours * (wd / AVG_WORKING_DAYS_PER_MONTH);
 }
 
 export default function MonthTableView({
@@ -73,6 +81,7 @@ export default function MonthTableView({
   onEmployeeClick,
 }: MonthTableViewProps) {
   const days = daysInMonth(year, monthIndex);
+  const workDays = workingDaysInMonth(year, monthIndex);
   const dayCols = Array.from({ length: days }, (_, i) =>
     localIsoFromParts(year, monthIndex, i + 1),
   );
@@ -194,7 +203,7 @@ export default function MonthTableView({
                   <Tooltip
                     title={
                       target != null
-                        ? `Geplant: ${formatHours(planned)} h / Soll: ${formatHours(target)} h (${e.targetHoursPercent ?? 100}% × ${FULL_TIME_WEEKLY_HOURS} h/W × ${(days / 7).toFixed(2)} Wochen)`
+                        ? `Geplant: ${formatHours(planned)} h / Soll: ${formatHours(target)} h (${e.targetHoursPercent ?? 100}% × ${workDays} Arbeitstage × ${FULL_TIME_DAILY_HOURS} h)`
                         : `Geplant: ${formatHours(planned)} h (kein Soll hinterlegt)`
                     }
                     arrow
