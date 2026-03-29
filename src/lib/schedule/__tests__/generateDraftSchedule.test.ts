@@ -454,4 +454,172 @@ describe("rebalanceAssignments", () => {
     const st1Assignments = proposed.filter((a) => a.employeeId === "under_st1");
     expect(st1Assignments.length).toBeGreaterThan(0);
   });
+
+  it("does not swap locked assignments (manual placements)", () => {
+    const empOver = makeEmp("over", 40);
+    const empUnder = makeEmp("under", 40);
+    const employees = [empOver, empUnder];
+
+    const proposed: AssignmentInput[] = [];
+    for (let d = 5; d <= 11; d++) {
+      proposed.push({
+        id: `a${d}`,
+        date: new Date(Date.UTC(2026, 0, d)),
+        shiftProfileId: "early1",
+        employeeId: "over",
+      });
+    }
+
+    const lockedIds = new Set(proposed.map((a) => a.id));
+
+    const result = rebalanceAssignments(
+      proposed, employees, profilesById, mergedStaffing, baseSnapshot, period, lockedIds,
+    );
+
+    expect(result.swapsMade).toBe(0);
+    const underAssignments = proposed.filter((a) => a.employeeId === "under");
+    expect(underAssignments.length).toBe(0);
+  });
+
+  it("swaps only unlocked assignments when some are locked", () => {
+    const empOver = makeEmp("over", 40);
+    const empUnder = makeEmp("under", 40);
+    const employees = [empOver, empUnder];
+
+    const proposed: AssignmentInput[] = [];
+    for (let d = 5; d <= 11; d++) {
+      proposed.push({
+        id: `a${d}`,
+        date: new Date(Date.UTC(2026, 0, d)),
+        shiftProfileId: "early1",
+        employeeId: "over",
+      });
+    }
+
+    const lockedIds = new Set(["a5", "a6", "a7"]);
+
+    const result = rebalanceAssignments(
+      proposed, employees, profilesById, mergedStaffing, baseSnapshot, period, lockedIds,
+    );
+
+    expect(result.swapsMade).toBeGreaterThan(0);
+    for (const lid of lockedIds) {
+      const locked = proposed.find((a) => a.id === lid);
+      expect(locked?.employeeId).toBe("over");
+    }
+    const underAssignments = proposed.filter((a) => a.employeeId === "under");
+    expect(underAssignments.length).toBeGreaterThan(0);
+  });
+});
+
+describe("blocked dates (Frei-Wünsche)", () => {
+  it("isUnavailableOnDate returns true after injecting blocked dates into unavailableDateSet", () => {
+    const emp: GenEmployee = {
+      id: "e1",
+      qualificationTags: [],
+      preferredShiftTypes: [],
+      targetHours: null,
+      targetHoursPeriod: null,
+      contractType: ContractType.FULL_TIME,
+      miniJobMaxMonthlyHours: null,
+      assignedStationNumber: null,
+      unavailableDateSet: new Set(),
+    };
+
+    expect(isUnavailableOnDate(emp, "2026-03-10")).toBe(false);
+    expect(isUnavailableOnDate(emp, "2026-03-11")).toBe(false);
+    expect(isUnavailableOnDate(emp, "2026-03-12")).toBe(false);
+
+    const blockedDates = [
+      { employeeId: "e1", date: "2026-03-10" },
+      { employeeId: "e1", date: "2026-03-11" },
+      { employeeId: "e1", date: "2026-03-12" },
+    ];
+
+    const empById = new Map([["e1", emp]]);
+    for (const bd of blockedDates) {
+      empById.get(bd.employeeId)?.unavailableDateSet.add(bd.date);
+    }
+
+    expect(isUnavailableOnDate(emp, "2026-03-10")).toBe(true);
+    expect(isUnavailableOnDate(emp, "2026-03-11")).toBe(true);
+    expect(isUnavailableOnDate(emp, "2026-03-12")).toBe(true);
+    expect(isUnavailableOnDate(emp, "2026-03-13")).toBe(false);
+  });
+
+  it("blocked dates only affect the targeted employee", () => {
+    const emp1: GenEmployee = {
+      id: "e1",
+      qualificationTags: [],
+      preferredShiftTypes: [],
+      targetHours: null,
+      targetHoursPeriod: null,
+      contractType: ContractType.FULL_TIME,
+      miniJobMaxMonthlyHours: null,
+      assignedStationNumber: null,
+      unavailableDateSet: new Set(),
+    };
+    const emp2: GenEmployee = {
+      id: "e2",
+      qualificationTags: [],
+      preferredShiftTypes: [],
+      targetHours: null,
+      targetHoursPeriod: null,
+      contractType: ContractType.FULL_TIME,
+      miniJobMaxMonthlyHours: null,
+      assignedStationNumber: null,
+      unavailableDateSet: new Set(),
+    };
+
+    const blockedDates = [{ employeeId: "e1", date: "2026-03-15" }];
+    const empById = new Map([["e1", emp1], ["e2", emp2]]);
+    for (const bd of blockedDates) {
+      empById.get(bd.employeeId)?.unavailableDateSet.add(bd.date);
+    }
+
+    expect(isUnavailableOnDate(emp1, "2026-03-15")).toBe(true);
+    expect(isUnavailableOnDate(emp2, "2026-03-15")).toBe(false);
+  });
+
+  it("blocked dates merge with pre-existing unavailable dates", () => {
+    const emp: GenEmployee = {
+      id: "e1",
+      qualificationTags: [],
+      preferredShiftTypes: [],
+      targetHours: null,
+      targetHoursPeriod: null,
+      contractType: ContractType.FULL_TIME,
+      miniJobMaxMonthlyHours: null,
+      assignedStationNumber: null,
+      unavailableDateSet: new Set(["2026-03-01"]),
+    };
+
+    emp.unavailableDateSet.add("2026-03-02");
+
+    expect(isUnavailableOnDate(emp, "2026-03-01")).toBe(true);
+    expect(isUnavailableOnDate(emp, "2026-03-02")).toBe(true);
+    expect(isUnavailableOnDate(emp, "2026-03-03")).toBe(false);
+  });
+
+  it("ignores blocked dates for unknown employee IDs without error", () => {
+    const emp: GenEmployee = {
+      id: "e1",
+      qualificationTags: [],
+      preferredShiftTypes: [],
+      targetHours: null,
+      targetHoursPeriod: null,
+      contractType: ContractType.FULL_TIME,
+      miniJobMaxMonthlyHours: null,
+      assignedStationNumber: null,
+      unavailableDateSet: new Set(),
+    };
+
+    const blockedDates = [{ employeeId: "nonexistent", date: "2026-03-10" }];
+    const empById = new Map([["e1", emp]]);
+    for (const bd of blockedDates) {
+      empById.get(bd.employeeId)?.unavailableDateSet.add(bd.date);
+    }
+
+    expect(isUnavailableOnDate(emp, "2026-03-10")).toBe(false);
+  });
 });

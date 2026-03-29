@@ -639,6 +639,8 @@ export function rebalanceAssignments(
  * Pass 1: fill qualification-required slots (tag-specific candidates only).
  * Pass 2: fill remaining general slots with anyone.
  */
+export type BlockedDateInput = { employeeId: string; date: string };
+
 export async function runGreedyScheduleGeneration(
   tx: Prisma.TransactionClient,
   facilityId: string,
@@ -646,6 +648,7 @@ export async function runGreedyScheduleGeneration(
   userId: string,
   ctx: Awaited<ReturnType<typeof loadGenerateContext>>,
   manualPlacements?: ManualPlacementInput[],
+  blockedDates?: BlockedDateInput[],
 ): Promise<GenerateReport> {
   const warnings: string[] = [];
   const unmet: UnmetStaffingEntry[] = [];
@@ -700,6 +703,13 @@ export async function runGreedyScheduleGeneration(
       proposed.push({ id: tid, date: dateObj, shiftProfileId: profile.id, employeeId: mp.employeeId });
       lockedIds.add(tid);
       manualPlaced++;
+    }
+  }
+
+  if (blockedDates && blockedDates.length > 0) {
+    const empById = new Map(ctx.employees.map((e) => [e.id, e]));
+    for (const bd of blockedDates) {
+      empById.get(bd.employeeId)?.unavailableDateSet.add(bd.date);
     }
   }
 

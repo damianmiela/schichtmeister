@@ -78,6 +78,16 @@ type ManualPlacement = {
   shiftType: string;
 };
 
+type PreGenEntry = {
+  employeeId: string;
+  type: "shift" | "frei";
+  date: string;
+  stationNumber: number;
+  shiftType: string;
+  dateFrom: string;
+  dateTo: string;
+};
+
 const SHIFT_TYPES_OPTIONS = [
   { value: "EARLY", label: "Früh" },
   { value: "LATE", label: "Spät" },
@@ -151,7 +161,7 @@ export default function SchedulePage() {
   const [clearBusy, setClearBusy] = useState(false);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [preGenOpen, setPreGenOpen] = useState(false);
-  const [manualPlacements, setManualPlacements] = useState<ManualPlacement[]>([]);
+  const [preGenEntries, setPreGenEntries] = useState<PreGenEntry[]>([]);
 
   const daysInMonth = useMemo(() => {
     const { year, month } = viewState;
@@ -173,29 +183,47 @@ export default function SchedulePage() {
     [employees],
   );
 
-  const addManualPlacement = () => {
+  const addPreGenEntry = (type: "shift" | "frei") => {
     const first = sortedEmployees[0];
     if (!first || daysInMonth.length === 0) return;
-    setManualPlacements((prev) => [
+    const firstDay = daysInMonth[0]!.iso;
+    setPreGenEntries((prev) => [
       ...prev,
       {
         employeeId: first.id,
-        date: daysInMonth[0]!.iso,
+        type,
+        date: firstDay,
         stationNumber: 1,
         shiftType: "EARLY",
+        dateFrom: firstDay,
+        dateTo: firstDay,
       },
     ]);
   };
 
-  const updatePlacement = (idx: number, patch: Partial<ManualPlacement>) => {
-    setManualPlacements((prev) =>
+  const updateEntry = (idx: number, patch: Partial<PreGenEntry>) => {
+    setPreGenEntries((prev) =>
       prev.map((p, i) => (i === idx ? { ...p, ...patch } : p)),
     );
   };
 
-  const removePlacement = (idx: number) => {
-    setManualPlacements((prev) => prev.filter((_, i) => i !== idx));
+  const removeEntry = (idx: number) => {
+    setPreGenEntries((prev) => prev.filter((_, i) => i !== idx));
   };
+
+  function expandDateRange(employeeId: string, from: string, to: string): { employeeId: string; date: string }[] {
+    const out: { employeeId: string; date: string }[] = [];
+    const [fy, fm, fd] = from.split("-").map(Number);
+    const [ty, tm, td] = to.split("-").map(Number);
+    let cur = new Date(fy!, fm! - 1, fd!);
+    const end = new Date(ty!, tm! - 1, td!);
+    while (cur <= end) {
+      const iso = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-${String(cur.getDate()).padStart(2, "0")}`;
+      out.push({ employeeId, date: iso });
+      cur.setDate(cur.getDate() + 1);
+    }
+    return out;
+  }
 
   const loadBundle = useCallback(async (opts?: { preserveActionMessage?: boolean }) => {
     setLoading(true);
@@ -535,8 +563,23 @@ export default function SchedulePage() {
       setTimeout(() => setGenStageIdx(i + 1), ms),
     );
 
-    const payload: { manualPlacements?: ManualPlacement[] } =
-      manualPlacements.length > 0 ? { manualPlacements } : {};
+    const manualPlacements: ManualPlacement[] = preGenEntries
+      .filter((e) => e.type === "shift")
+      .map(({ employeeId, date, stationNumber, shiftType }) => ({
+        employeeId,
+        date,
+        stationNumber,
+        shiftType,
+      }));
+    const blockedDates = preGenEntries
+      .filter((e) => e.type === "frei")
+      .flatMap((e) => expandDateRange(e.employeeId, e.dateFrom, e.dateTo));
+    const payload: {
+      manualPlacements?: ManualPlacement[];
+      blockedDates?: { employeeId: string; date: string }[];
+    } = {};
+    if (manualPlacements.length > 0) payload.manualPlacements = manualPlacements;
+    if (blockedDates.length > 0) payload.blockedDates = blockedDates;
 
     try {
       const res = await fetchJson<GenerateScheduleResponse>(
@@ -559,6 +602,10 @@ export default function SchedulePage() {
         parts.push(`${res.createdAssignments} Dienste eingetragen.`);
       } else {
         parts.push("Es wurden keine Dienste eingetragen.");
+      }
+      if (blockedDates.length > 0) {
+        const uniqueEmps = new Set(blockedDates.map((b) => b.employeeId)).size;
+        parts.push(`${blockedDates.length} Frei-Tag(e) für ${uniqueEmps} MA berücksichtigt.`);
       }
       for (const w of res.warnings ?? []) {
         if (w.trim()) parts.push(w.trim());
@@ -812,7 +859,7 @@ export default function SchedulePage() {
             startIcon={<AutoAwesomeIcon />}
             disabled={loading || !schedule || generateBusy}
             onClick={() => {
-              setManualPlacements([]);
+              setPreGenEntries([]);
               setPreGenOpen(true);
             }}
           >
@@ -987,7 +1034,7 @@ export default function SchedulePage() {
         </DialogActions>
       </Dialog>
 
-      {/* Pre-generation modal with manual placements */}
+      {/* Pre-generation modal with manual placements & frei wishes */}
       <Dialog
         open={preGenOpen}
         onClose={() => !generateBusy && setPreGenOpen(false)}
@@ -997,15 +1044,15 @@ export default function SchedulePage() {
         <DialogTitle>Dienstplan generieren</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Fügen Sie optional manuelle Zuweisungen hinzu. Diese werden als
-            feste Vorgaben behandelt — der Generator plant den Rest um diese
-            Zuweisungen herum.
+            Fügen Sie optional Dienstwünsche oder Frei-Wünsche hinzu. Diese
+            werden als feste Vorgaben behandelt — der Generator plant den Rest
+            um diese Vorgaben herum.
           </Typography>
           <Divider sx={{ mb: 2 }} />
 
-          {manualPlacements.length > 0 && (
+          {preGenEntries.length > 0 && (
             <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5, mb: 2 }}>
-              {manualPlacements.map((mp, idx) => (
+              {preGenEntries.map((entry, idx) => (
                 <Box
                   key={idx}
                   sx={{
@@ -1013,14 +1060,19 @@ export default function SchedulePage() {
                     gap: 1,
                     alignItems: "center",
                     flexWrap: "wrap",
+                    p: 1.5,
+                    borderRadius: 1,
+                    bgcolor: entry.type === "frei" ? "action.hover" : "transparent",
+                    border: "1px solid",
+                    borderColor: "divider",
                   }}
                 >
                   <Autocomplete
                     size="small"
                     options={sortedEmployees}
-                    value={sortedEmployees.find((e) => e.id === mp.employeeId) ?? undefined}
+                    value={sortedEmployees.find((e) => e.id === entry.employeeId) ?? undefined}
                     onChange={(_, val) => {
-                      if (val) updatePlacement(idx, { employeeId: val.id });
+                      if (val) updateEntry(idx, { employeeId: val.id });
                     }}
                     getOptionLabel={(e) => `${e.lastName}, ${e.firstName}`}
                     isOptionEqualToValue={(o, v) => o.id === v.id}
@@ -1033,52 +1085,116 @@ export default function SchedulePage() {
                   <TextField
                     select
                     size="small"
-                    label="Tag"
-                    value={mp.date}
-                    onChange={(e) => updatePlacement(idx, { date: e.target.value })}
-                    sx={{ minWidth: 110 }}
+                    label="Typ"
+                    value={entry.type}
+                    onChange={(e) => {
+                      const newType = e.target.value as "shift" | "frei";
+                      updateEntry(idx, { type: newType });
+                    }}
+                    sx={{ minWidth: 130 }}
                     SelectProps={{ native: true }}
                   >
-                    {daysInMonth.map((d) => (
-                      <option key={d.iso} value={d.iso}>
-                        {d.label}
-                      </option>
-                    ))}
+                    <option value="shift">Dienstwunsch</option>
+                    <option value="frei">Frei-Wunsch</option>
                   </TextField>
-                  <TextField
-                    select
-                    size="small"
-                    label="Station"
-                    value={mp.stationNumber}
-                    onChange={(e) =>
-                      updatePlacement(idx, { stationNumber: Number(e.target.value) })
-                    }
-                    sx={{ minWidth: 90 }}
-                    SelectProps={{ native: true }}
-                  >
-                    <option value={1}>St. 1</option>
-                    <option value={2}>St. 2</option>
-                    <option value={3}>St. 3</option>
-                  </TextField>
-                  <TextField
-                    select
-                    size="small"
-                    label="Schicht"
-                    value={mp.shiftType}
-                    onChange={(e) => updatePlacement(idx, { shiftType: e.target.value })}
-                    sx={{ minWidth: 100 }}
-                    SelectProps={{ native: true }}
-                  >
-                    {SHIFT_TYPES_OPTIONS.map((st) => (
-                      <option key={st.value} value={st.value}>
-                        {st.label}
-                      </option>
-                    ))}
-                  </TextField>
+
+                  {entry.type === "shift" ? (
+                    <>
+                      <TextField
+                        select
+                        size="small"
+                        label="Tag"
+                        value={entry.date}
+                        onChange={(e) => updateEntry(idx, { date: e.target.value })}
+                        sx={{ minWidth: 110 }}
+                        SelectProps={{ native: true }}
+                      >
+                        {daysInMonth.map((d) => (
+                          <option key={d.iso} value={d.iso}>
+                            {d.label}
+                          </option>
+                        ))}
+                      </TextField>
+                      <TextField
+                        select
+                        size="small"
+                        label="Station"
+                        value={entry.stationNumber}
+                        onChange={(e) =>
+                          updateEntry(idx, { stationNumber: Number(e.target.value) })
+                        }
+                        sx={{ minWidth: 90 }}
+                        SelectProps={{ native: true }}
+                      >
+                        <option value={1}>St. 1</option>
+                        <option value={2}>St. 2</option>
+                        <option value={3}>St. 3</option>
+                      </TextField>
+                      <TextField
+                        select
+                        size="small"
+                        label="Schicht"
+                        value={entry.shiftType}
+                        onChange={(e) => updateEntry(idx, { shiftType: e.target.value })}
+                        sx={{ minWidth: 100 }}
+                        SelectProps={{ native: true }}
+                      >
+                        {SHIFT_TYPES_OPTIONS.map((st) => (
+                          <option key={st.value} value={st.value}>
+                            {st.label}
+                          </option>
+                        ))}
+                      </TextField>
+                    </>
+                  ) : (
+                    <>
+                      <TextField
+                        select
+                        size="small"
+                        label="Von"
+                        value={entry.dateFrom}
+                        onChange={(e) => {
+                          const from = e.target.value;
+                          const patch: Partial<PreGenEntry> = { dateFrom: from };
+                          if (from > entry.dateTo) patch.dateTo = from;
+                          updateEntry(idx, patch);
+                        }}
+                        sx={{ minWidth: 110 }}
+                        SelectProps={{ native: true }}
+                      >
+                        {daysInMonth.map((d) => (
+                          <option key={d.iso} value={d.iso}>
+                            {d.label}
+                          </option>
+                        ))}
+                      </TextField>
+                      <TextField
+                        select
+                        size="small"
+                        label="Bis"
+                        value={entry.dateTo}
+                        onChange={(e) => {
+                          const to = e.target.value;
+                          const patch: Partial<PreGenEntry> = { dateTo: to };
+                          if (to < entry.dateFrom) patch.dateFrom = to;
+                          updateEntry(idx, patch);
+                        }}
+                        sx={{ minWidth: 110 }}
+                        SelectProps={{ native: true }}
+                      >
+                        {daysInMonth.map((d) => (
+                          <option key={d.iso} value={d.iso}>
+                            {d.label}
+                          </option>
+                        ))}
+                      </TextField>
+                    </>
+                  )}
+
                   <IconButton
                     size="small"
                     color="error"
-                    onClick={() => removePlacement(idx)}
+                    onClick={() => removeEntry(idx)}
                   >
                     <CloseIcon fontSize="small" />
                   </IconButton>
@@ -1087,15 +1203,27 @@ export default function SchedulePage() {
             </Box>
           )}
 
-          <Button
-            size="small"
-            variant="outlined"
-            startIcon={<AddIcon />}
-            onClick={addManualPlacement}
-            disabled={sortedEmployees.length === 0}
-          >
-            Zuweisung hinzufügen
-          </Button>
+          <Box sx={{ display: "flex", gap: 1 }}>
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<AddIcon />}
+              onClick={() => addPreGenEntry("shift")}
+              disabled={sortedEmployees.length === 0}
+            >
+              Dienstwunsch
+            </Button>
+            <Button
+              size="small"
+              variant="outlined"
+              color="secondary"
+              startIcon={<AddIcon />}
+              onClick={() => addPreGenEntry("frei")}
+              disabled={sortedEmployees.length === 0}
+            >
+              Frei-Wunsch
+            </Button>
+          </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setPreGenOpen(false)}>Abbrechen</Button>

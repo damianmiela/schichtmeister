@@ -73,6 +73,25 @@ function parseManualPlacements(raw: unknown): ManualPlacementInput[] {
   return out;
 }
 
+type BlockedDateInput = { employeeId: string; date: string };
+
+function parseBlockedDates(raw: unknown): BlockedDateInput[] {
+  if (!Array.isArray(raw)) return [];
+  const out: BlockedDateInput[] = [];
+  for (const item of raw) {
+    if (
+      item &&
+      typeof item === "object" &&
+      typeof item.employeeId === "string" &&
+      typeof item.date === "string" &&
+      /^\d{4}-\d{2}-\d{2}$/.test(item.date)
+    ) {
+      out.push({ employeeId: item.employeeId, date: item.date });
+    }
+  }
+  return out;
+}
+
 export async function POST(request: Request, context: RouteCtx) {
   const { session, error } = await requirePlanner();
   if (error === "UNAUTHORIZED") return plannerJsonErrors.unauthorized();
@@ -84,6 +103,7 @@ export async function POST(request: Request, context: RouteCtx) {
 
   const body = await request.json().catch(() => ({}));
   const manualPlacements = parseManualPlacements(body?.manualPlacements);
+  const blockedDates = parseBlockedDates(body?.blockedDates);
 
   const schedule = await prisma.schedule.findFirst({
     where: { id: scheduleId, facilityId },
@@ -118,6 +138,7 @@ export async function POST(request: Request, context: RouteCtx) {
           userId,
           genCtx,
           manualPlacements,
+          blockedDates,
         );
       },
       { maxWait: TX_MAX_WAIT_MS, timeout: TX_TIMEOUT_MS },
