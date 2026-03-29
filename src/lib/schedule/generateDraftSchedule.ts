@@ -28,6 +28,19 @@ export const SHIFT_TYPE_ORDER: ShiftType[] = [
   ShiftType.NIGHT,
 ];
 
+const SHIFT_LABEL_DE: Record<string, string> = {
+  EARLY: "Früh",
+  LATE: "Spät",
+  NIGHT: "Nacht",
+};
+
+function formatDateDE(d: Date): string {
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  const month = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const year = d.getUTCFullYear();
+  return `${day}.${month}.${year}`;
+}
+
 export type MergedStaffingEntry = {
   minTotalCount: number;
   qualificationRequirements: QualificationRequirementInput[];
@@ -586,11 +599,6 @@ export function rebalanceAssignments(
     if (swapsThisRound === 0) break;
   }
 
-  if (totalSwaps > 0) {
-    warnings.push(
-      `Ausgleich: ${totalSwaps} Dienst(e) getauscht für gleichmäßigere Stundenverteilung.`,
-    );
-  }
   return { swapsMade: totalSwaps, warnings };
 }
 
@@ -634,8 +642,10 @@ export async function runGreedyScheduleGeneration(
 
   for (const [key] of profileByTS) {
     if (!ctx.mergedStaffing.has(key)) {
+      const [st, sn] = key.split(":");
+      const label = SHIFT_LABEL_DE[st!] ?? st;
       warnings.push(
-        `Aktives Schichtprofil für ${key} vorhanden, aber kein Personalbedarf konfiguriert — Station wird übersprungen. Bitte in Einstellungen > Mindestbesetzung anlegen.`,
+        `${label} Station ${sn}: Schichtprofil aktiv, aber kein Personalbedarf konfiguriert — wird übersprungen. Bitte unter Einstellungen > Mindestbesetzung anlegen.`,
       );
     }
   }
@@ -651,13 +661,14 @@ export async function runGreedyScheduleGeneration(
 
         const profile = profileByTS.get(key) ?? null;
         if (!profile) {
-          warnings.push(`Kein aktives Schichtprofil für ${shiftType} Station ${station} am ${toIsoDateOnly(date)}.`);
+          warnings.push(`Kein aktives Schichtprofil für ${SHIFT_LABEL_DE[shiftType] ?? shiftType} Station ${station} am ${formatDateDE(date)}.`);
           unmet.push({ date: toIsoDateOnly(date), shiftType, requested: req.minTotalCount, assigned: 0 });
           continue;
         }
 
         const placedOnSlot = new Set<string>(placedForTypeToday);
         let filled = 0;
+        const qualGaps: { tag: string; required: number; got: number }[] = [];
 
         // Pass 1: fill qualification-required slots
         for (const qr of req.qualificationRequirements) {
@@ -685,9 +696,7 @@ export async function runGreedyScheduleGeneration(
             if (!placed) break;
           }
           if (qFilled < qr.minCount) {
-            warnings.push(
-              `Nur ${qFilled}/${qr.minCount} "${qr.qualificationTag}" für ${shiftType} St.${station} am ${toIsoDateOnly(date)} besetzt.`,
-            );
+            qualGaps.push({ tag: qr.qualificationTag, required: qr.minCount, got: qFilled });
           }
         }
 
@@ -717,6 +726,21 @@ export async function runGreedyScheduleGeneration(
 
         if (filled < req.minTotalCount) {
           unmet.push({ date: toIsoDateOnly(date), shiftType, requested: req.minTotalCount, assigned: filled });
+        }
+
+        // Emit qualification gap warnings with full context after both passes
+        if (qualGaps.length > 0) {
+          const dateDE = formatDateDE(date);
+          const shift = SHIFT_LABEL_DE[shiftType] ?? shiftType;
+          const totalInfo =
+            filled >= req.minTotalCount
+              ? "Schicht voll besetzt"
+              : `Schicht unterbesetzt: ${filled}/${req.minTotalCount}`;
+          for (const gap of qualGaps) {
+            warnings.push(
+              `${shift} Station ${station} am ${dateDE}: ${gap.got}/${gap.required} ${gap.tag} – ${totalInfo}.`,
+            );
+          }
         }
       }
     }
