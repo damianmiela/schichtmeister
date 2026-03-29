@@ -22,6 +22,7 @@ export type EmployeeJson = {
   qualificationTags?: string[];
   targetHours?: number | null;
   targetHoursPeriod?: string | null;
+  targetHoursPercent?: number | null;
   contractType?: string;
 };
 

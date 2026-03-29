@@ -42,18 +42,25 @@ function formatHours(h: number): string {
   return h % 1 === 0 ? String(h) : h.toFixed(1);
 }
 
-function monthlyTarget(
-  targetHours: number | null | undefined,
-  targetHoursPeriod: string | null | undefined,
+const FULL_TIME_WEEKLY_HOURS = 40;
+
+function monthlyTargetForMonth(
+  employee: EmployeeJson,
   year: number,
   monthIndex: number,
 ): number | null {
-  if (targetHours == null) return null;
-  if (targetHoursPeriod === "WEEKLY") {
-    const calendarDays = new Date(year, monthIndex + 1, 0).getDate();
-    return targetHours * (calendarDays / 7);
+  if (employee.targetHours == null) return null;
+  const calendarDays = new Date(year, monthIndex + 1, 0).getDate();
+  const weeksInMonth = calendarDays / 7;
+  if (employee.targetHoursPercent != null && employee.targetHoursPercent > 0) {
+    return (employee.targetHoursPercent / 100) * FULL_TIME_WEEKLY_HOURS * weeksInMonth;
   }
-  return targetHours;
+  if (employee.targetHoursPeriod === "WEEKLY") {
+    return employee.targetHours * weeksInMonth;
+  }
+  // MONTHLY stored value is a yearly average — scale to actual month
+  const avgDaysPerMonth = 365.25 / 12;
+  return employee.targetHours * (calendarDays / avgDaysPerMonth);
 }
 
 export default function MonthTableView({
@@ -134,7 +141,7 @@ export default function MonthTableView({
         <TableBody>
           {sortedEmps.map((e) => {
             const planned = empPlannedHours.get(e.id) ?? 0;
-            const target = monthlyTarget(e.targetHours, e.targetHoursPeriod, year, monthIndex);
+            const target = monthlyTargetForMonth(e, year, monthIndex);
             const tags = e.qualificationTags ?? [];
             const pct = target != null && target > 0 ? Math.round((planned / target) * 100) : null;
 
@@ -187,7 +194,7 @@ export default function MonthTableView({
                   <Tooltip
                     title={
                       target != null
-                        ? `Geplant: ${formatHours(planned)} h / Soll: ${formatHours(target)} h${e.targetHoursPeriod === "WEEKLY" ? ` (${formatHours(e.targetHours!)} h/Woche × ${days / 7 < 5 ? formatHours(days / 7) : (days / 7).toFixed(2)} Wochen)` : ""}`
+                        ? `Geplant: ${formatHours(planned)} h / Soll: ${formatHours(target)} h (${e.targetHoursPercent ?? 100}% × ${FULL_TIME_WEEKLY_HOURS} h/W × ${(days / 7).toFixed(2)} Wochen)`
                         : `Geplant: ${formatHours(planned)} h (kein Soll hinterlegt)`
                     }
                     arrow
