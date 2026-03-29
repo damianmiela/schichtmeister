@@ -41,6 +41,26 @@ function formatDateDE(d: Date): string {
   return `${day}.${month}.${year}`;
 }
 
+/** Mulberry32 — fast 32-bit seeded PRNG. Returns a function that yields [0, 1) on each call. */
+export function mulberry32(seed: number): () => number {
+  let s = seed | 0;
+  return () => {
+    s = (s + 0x6d2b79f5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Simple string → 32-bit integer hash (djb2). */
+export function hashString(str: string): number {
+  let hash = 5381;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash + str.charCodeAt(i)) | 0;
+  }
+  return hash;
+}
+
 export type MergedStaffingEntry = {
   minTotalCount: number;
   qualificationRequirements: QualificationRequirementInput[];
@@ -227,11 +247,13 @@ export function buildProfileByTypeStation(
   return out;
 }
 
+const JITTER_MAX = 3;
+
 /**
- * Sort candidates by score. When requiredTag is provided, only employees with that tag are returned.
- * When requiredTag is null, all employees are returned sorted by score (qualified first for tiebreaking).
+ * Sort candidates by score with optional random jitter for fair tiebreaking.
+ * When requiredTag is provided, only employees with that tag are returned.
  */
-function sortCandidatesDeterministic(
+function sortCandidates(
   employees: GenEmployee[],
   date: Date,
   shiftType: ShiftType,
@@ -241,34 +263,29 @@ function sortCandidatesDeterministic(
   proposed: AssignmentInput[],
   profilesById: Map<string, Pick<ShiftProfile, "startTime" | "endTime" | "breakMinutes">>,
   alreadyPlacedIds: Set<string>,
+  rng?: () => number,
 ): GenEmployee[] {
   const dateIso = toIsoDateOnly(date);
   const available = employees.filter(
     (e) => !e.unavailableDateSet.has(dateIso) && !alreadyPlacedIds.has(e.id),
   );
 
-  if (requiredTag) {
-    const withTag = available.filter((e) => e.qualificationTags.includes(requiredTag));
-    const scored = withTag.map((e) => {
-      const hours = sumPaidHoursForEmployeeInProposed(e.id, proposed, profilesById);
-      const score =
-        wishBonusForSlot(wishes, e.id, dateIso, shiftType, profileId) +
-        schedulingTargetHoursBonus(e.targetHours, e.targetHoursPeriod, hours) -
-        preferencePenalty(e.preferredShiftTypes, shiftType);
-      return { e, score };
-    });
-    return [...scored].sort((a, b) => b.score - a.score || a.e.id.localeCompare(b.e.id)).map((x) => x.e);
-  }
+  const pool = requiredTag
+    ? available.filter((e) => e.qualificationTags.includes(requiredTag))
+    : available;
 
-  const scored = available.map((e) => {
+  const scored = pool.map((e) => {
     const hours = sumPaidHoursForEmployeeInProposed(e.id, proposed, profilesById);
+    const jitter = rng ? rng() * JITTER_MAX : 0;
     const score =
       wishBonusForSlot(wishes, e.id, dateIso, shiftType, profileId) +
       schedulingTargetHoursBonus(e.targetHours, e.targetHoursPeriod, hours) -
-      preferencePenalty(e.preferredShiftTypes, shiftType);
+      preferencePenalty(e.preferredShiftTypes, shiftType) +
+      jitter;
     return { e, score };
   });
-  return [...scored].sort((a, b) => b.score - a.score || a.e.id.localeCompare(b.e.id)).map((x) => x.e);
+
+  return scored.sort((a, b) => b.score - a.score).map((x) => x.e);
 }
 
 export type UnmetStaffingEntry = {
@@ -619,6 +636,9 @@ export async function runGreedyScheduleGeneration(
   const proposed: AssignmentInput[] = [];
   const idSeq = { value: 0 };
 
+  const seed = hashString(schedule.id) ^ Date.now();
+  const rng = mulberry32(seed);
+
   const profileByTS = buildProfileByTypeStation(ctx.profiles);
   const profilesById = new Map(ctx.profiles.map((p) => [p.id, p]));
 
@@ -672,9 +692,9 @@ export async function runGreedyScheduleGeneration(
         // Pass 1: fill qualification-required slots
         for (const qr of req.qualificationRequirements) {
           for (let slot = 0; slot < qr.minCount; slot++) {
-            const candidates = sortCandidatesDeterministic(
+            const candidates = sortCandidates(
               ctx.employees, date, shiftType, profile.id,
-              qr.qualificationTag, ctx.wishes, proposed, profilesById, placedOnSlot,
+              qr.qualificationTag, ctx.wishes, proposed, profilesById, placedOnSlot, rng,
             );
             let placed = false;
             for (const emp of candidates) {
@@ -697,9 +717,9 @@ export async function runGreedyScheduleGeneration(
         // Pass 2: fill remaining general slots
         const remaining = req.minTotalCount - filled;
         for (let slot = 0; slot < remaining; slot++) {
-          const candidates = sortCandidatesDeterministic(
+          const candidates = sortCandidates(
             ctx.employees, date, shiftType, profile.id,
-            null, ctx.wishes, proposed, profilesById, placedOnSlot,
+            null, ctx.wishes, proposed, profilesById, placedOnSlot, rng,
           );
           let placed = false;
           for (const emp of candidates) {

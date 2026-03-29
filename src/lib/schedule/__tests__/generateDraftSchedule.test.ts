@@ -16,8 +16,10 @@ import {
   buildDefaultProfileByShiftType,
   eachUtcDateInPeriod,
   employeeHasAllTags,
+  hashString,
   isUnavailableOnDate,
   mergeStaffingRequirements,
+  mulberry32,
   preferencePenalty,
   rebalanceAssignments,
   sumPaidHoursForEmployeeInProposed,
@@ -186,6 +188,48 @@ describe("phase 07 — generate draft schedule (pure helpers)", () => {
         "warnings": [],
       }
     `);
+  });
+});
+
+describe("mulberry32 PRNG", () => {
+  it("produces values in [0, 1)", () => {
+    const rng = mulberry32(42);
+    for (let i = 0; i < 100; i++) {
+      const v = rng();
+      expect(v).toBeGreaterThanOrEqual(0);
+      expect(v).toBeLessThan(1);
+    }
+  });
+
+  it("same seed produces same sequence", () => {
+    const a = mulberry32(12345);
+    const b = mulberry32(12345);
+    for (let i = 0; i < 20; i++) {
+      expect(a()).toBe(b());
+    }
+  });
+
+  it("different seeds produce different sequences", () => {
+    const a = mulberry32(1);
+    const b = mulberry32(2);
+    const seqA = Array.from({ length: 10 }, () => a());
+    const seqB = Array.from({ length: 10 }, () => b());
+    expect(seqA).not.toEqual(seqB);
+  });
+});
+
+describe("hashString", () => {
+  it("returns a number for any string", () => {
+    expect(typeof hashString("hello")).toBe("number");
+    expect(typeof hashString("")).toBe("number");
+  });
+
+  it("same string produces same hash", () => {
+    expect(hashString("test-id")).toBe(hashString("test-id"));
+  });
+
+  it("different strings produce different hashes", () => {
+    expect(hashString("abc")).not.toBe(hashString("xyz"));
   });
 });
 
