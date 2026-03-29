@@ -22,7 +22,9 @@ import {
   Menu,
   MenuItem,
   Dialog,
+  DialogActions,
   DialogContent,
+  DialogContentText,
   DialogTitle,
   LinearProgress,
   Drawer,
@@ -41,6 +43,7 @@ import PersonIcon from "@mui/icons-material/Person";
 import TableChartIcon from "@mui/icons-material/TableChart";
 import GridViewIcon from "@mui/icons-material/GridView";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import DeleteSweepIcon from "@mui/icons-material/DeleteSweep";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import CloseIcon from "@mui/icons-material/Close";
 import { ApiError, fetchJson } from "@/lib/api/fetchJson";
@@ -128,6 +131,8 @@ export default function SchedulePage() {
   const [genStageIdx, setGenStageIdx] = useState(0);
   const [genModalOpen, setGenModalOpen] = useState(false);
   const [warningsOpen, setWarningsOpen] = useState(false);
+  const [clearBusy, setClearBusy] = useState(false);
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
 
   const loadBundle = useCallback(async (opts?: { preserveActionMessage?: boolean }) => {
     setLoading(true);
@@ -535,6 +540,46 @@ export default function SchedulePage() {
     }
   };
 
+  const onClearSchedule = async () => {
+    if (!schedule) return;
+    setClearConfirmOpen(false);
+    setClearBusy(true);
+    setActionMsg(null);
+    setActionDebugPayload(null);
+    setActionAlertSeverity("info");
+    try {
+      const res = await fetchJson<{ deletedAssignments: number }>(
+        `/api/schedules/${schedule.id}/clear`,
+        { method: "POST" },
+      );
+      await loadBundle({ preserveActionMessage: true });
+      setActionAlertSeverity("success");
+      setActionMsg(
+        res.deletedAssignments > 0
+          ? `${res.deletedAssignments} Zuweisungen gelöscht. Dienstplan zurückgesetzt.`
+          : "Keine Zuweisungen vorhanden.",
+      );
+      setWarningsOpen(false);
+    } catch (e) {
+      setActionAlertSeverity("error");
+      if (e instanceof ApiError) {
+        const msg =
+          e.body &&
+          typeof e.body === "object" &&
+          e.body !== null &&
+          "error" in e.body &&
+          typeof (e.body as { error: unknown }).error === "string"
+            ? (e.body as { error: string }).error
+            : "Leeren fehlgeschlagen.";
+        setActionMsg(msg);
+      } else {
+        setActionMsg("Leeren fehlgeschlagen (Netzwerk).");
+      }
+    } finally {
+      setClearBusy(false);
+    }
+  };
+
   const statusChip =
     schedule?.status === "PUBLISHED" ? (
       <Chip label="VERÖFFENTLICHT" color="success" size="small" />
@@ -697,6 +742,15 @@ export default function SchedulePage() {
             {generateBusy ? <CircularProgress size={20} /> : "Entwurf füllen"}
           </Button>
           <Button
+            variant="outlined"
+            color="error"
+            startIcon={<DeleteSweepIcon />}
+            disabled={loading || !schedule || clearBusy || assignments.length === 0}
+            onClick={() => setClearConfirmOpen(true)}
+          >
+            {clearBusy ? <CircularProgress size={20} /> : "Leeren"}
+          </Button>
+          <Button
             variant="contained"
             startIcon={<PublishIcon />}
             disabled={loading || !schedule || schedule.status !== "DRAFT" || publishBusy}
@@ -834,6 +888,27 @@ export default function SchedulePage() {
           )}
         </>
       ) : null}
+
+      {/* Clear schedule confirmation */}
+      <Dialog open={clearConfirmOpen} onClose={() => setClearConfirmOpen(false)}>
+        <DialogTitle>Dienstplan leeren?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Alle Zuweisungen für {MONTH_NAMES[viewState.month]} {viewState.year} werden
+            unwiderruflich gelöscht. Der Plan wird auf Entwurf zurückgesetzt.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setClearConfirmOpen(false)}>Abbrechen</Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={() => void onClearSchedule()}
+          >
+            Leeren
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Generation progress modal */}
       <Dialog open={genModalOpen} maxWidth="sm" fullWidth>
