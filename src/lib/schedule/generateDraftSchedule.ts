@@ -306,9 +306,16 @@ export type UnfulfilledWishEntry = {
   date: string;
 };
 
+export type ManualPlacementInput = {
+  employeeId: string;
+  date: string;
+  stationNumber: number;
+  shiftType: string;
+};
+
 export type GenerateReport = {
-  /** Number of rows written (after replace). */
   createdAssignments: number;
+  manualPlacementsApplied: number;
   unmetStaffing: UnmetStaffingEntry[];
   unfulfilledWishes: UnfulfilledWishEntry[];
   warnings: string[];
@@ -447,6 +454,7 @@ export function rebalanceAssignments(
   mergedStaffing: Map<string, MergedStaffingEntry>,
   snapshot: PlanningRulesSnapshot,
   schedule: { periodStart: Date; periodEnd: Date },
+  lockedIds?: Set<string>,
 ): { swapsMade: number; warnings: string[] } {
   let totalSwaps = 0;
   const warnings: string[] = [];
@@ -525,7 +533,7 @@ export function rebalanceAssignments(
 
       const overAssignments = proposed
         .map((a, idx) => ({ a, idx }))
-        .filter(({ a }) => a.employeeId === overEmpId);
+        .filter(({ a }) => a.employeeId === overEmpId && !(lockedIds?.has(a.id)));
       overAssignments.sort((x, y) => y.a.date.getTime() - x.a.date.getTime());
 
       let swappedThisEmployee = false;
@@ -637,10 +645,12 @@ export async function runGreedyScheduleGeneration(
   schedule: { id: string; periodStart: Date; periodEnd: Date },
   userId: string,
   ctx: Awaited<ReturnType<typeof loadGenerateContext>>,
+  manualPlacements?: ManualPlacementInput[],
 ): Promise<GenerateReport> {
   const warnings: string[] = [];
   const unmet: UnmetStaffingEntry[] = [];
   const proposed: AssignmentInput[] = [];
+  const lockedIds = new Set<string>();
   const idSeq = { value: 0 };
 
   const seed = hashString(schedule.id) ^ Date.now();
@@ -661,10 +671,36 @@ export async function runGreedyScheduleGeneration(
     }
     return {
       createdAssignments: 0,
+      manualPlacementsApplied: 0,
       unmetStaffing: [],
       unfulfilledWishes: unfulfilledOpenWishes(ctx.wishes),
       warnings,
     };
+  }
+
+  // Pre-place manual assignments (hardest constraint — bypasses all rules)
+  let manualPlaced = 0;
+  if (manualPlacements && manualPlacements.length > 0) {
+    const empIds = new Set(ctx.employees.map((e) => e.id));
+    for (const mp of manualPlacements) {
+      if (!empIds.has(mp.employeeId)) {
+        warnings.push(`Manuelle Zuweisung: Mitarbeiter ${mp.employeeId} nicht gefunden — übersprungen.`);
+        continue;
+      }
+      const key = staffingKey(mp.shiftType as ShiftType, mp.stationNumber);
+      const profile = profileByTS.get(key);
+      if (!profile) {
+        const label = SHIFT_LABEL_DE[mp.shiftType] ?? mp.shiftType;
+        warnings.push(`Manuelle Zuweisung: Kein Profil für ${label} Station ${mp.stationNumber} — übersprungen.`);
+        continue;
+      }
+      const [y, m, d] = mp.date.split("-").map(Number);
+      const dateObj = new Date(Date.UTC(y!, m! - 1, d));
+      const tid = `gen:${idSeq.value++}`;
+      proposed.push({ id: tid, date: dateObj, shiftProfileId: profile.id, employeeId: mp.employeeId });
+      lockedIds.add(tid);
+      manualPlaced++;
+    }
   }
 
   for (const [key] of profileByTS) {
@@ -678,8 +714,20 @@ export async function runGreedyScheduleGeneration(
   }
 
   for (const date of dates) {
+    const dateIso = toIsoDateOnly(date);
+
     for (const shiftType of SHIFT_TYPE_ORDER) {
       const placedForTypeToday = new Set<string>();
+
+      // Seed placed sets with manually pre-placed employees for this date+shiftType
+      for (const a of proposed) {
+        if (!lockedIds.has(a.id)) continue;
+        if (toIsoDateOnly(a.date) !== dateIso) continue;
+        const p = profilesById.get(a.shiftProfileId);
+        if (p && p.shiftType === shiftType) {
+          placedForTypeToday.add(a.employeeId);
+        }
+      }
 
       for (const station of STATION_NUMBERS) {
         const key = staffingKey(shiftType, station);
@@ -694,7 +742,15 @@ export async function runGreedyScheduleGeneration(
         }
 
         const placedOnSlot = new Set<string>(placedForTypeToday);
+
+        // Count pre-placed assignments for this exact profile+date
         let filled = 0;
+        for (const a of proposed) {
+          if (lockedIds.has(a.id) && a.shiftProfileId === profile.id && toIsoDateOnly(a.date) === dateIso) {
+            placedOnSlot.add(a.employeeId);
+            filled++;
+          }
+        }
 
         // Pass 1: fill qualification-required slots
         for (const qr of req.qualificationRequirements) {
@@ -763,6 +819,7 @@ export async function runGreedyScheduleGeneration(
       ctx.mergedStaffing,
       snapshot,
       { periodStart: schedule.periodStart, periodEnd: schedule.periodEnd },
+      lockedIds,
     );
     warnings.push(...rebalResult.warnings);
   }
@@ -836,6 +893,7 @@ export async function runGreedyScheduleGeneration(
 
   return {
     createdAssignments: proposed.length,
+    manualPlacementsApplied: manualPlaced,
     unmetStaffing: unmet,
     unfulfilledWishes: unfulfilled,
     warnings,

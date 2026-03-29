@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import MainLayout from "@/components/layout/MainLayout";
 import MonthView from "@/components/schedule/MonthView";
 import MonthTableView from "@/components/schedule/MonthTableView";
@@ -31,7 +31,10 @@ import {
   Badge,
   Tooltip,
   Divider,
+  Autocomplete,
+  TextField,
 } from "@mui/material";
+import AddIcon from "@mui/icons-material/Add";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import PublishIcon from "@mui/icons-material/Publish";
@@ -59,13 +62,27 @@ import type {
   ShiftProfileJson,
   StaffingJson,
 } from "@/lib/schedule/scheduleTypes";
-import { getWeekNumber } from "@/lib/schedule/viewUtils";
+import { getWeekNumber, shiftTypeLabel } from "@/lib/schedule/viewUtils";
 
 type GenerateScheduleResponse = {
   createdAssignments: number;
+  manualPlacementsApplied?: number;
   unmetStaffing: { date: string; shiftType: string; requested: number; assigned: number }[];
   warnings: string[];
 };
+
+type ManualPlacement = {
+  employeeId: string;
+  date: string;
+  stationNumber: number;
+  shiftType: string;
+};
+
+const SHIFT_TYPES_OPTIONS = [
+  { value: "EARLY", label: "Früh" },
+  { value: "LATE", label: "Spät" },
+  { value: "NIGHT", label: "Nacht" },
+] as const;
 
 const GENERATE_STAGES = [
   { label: "Lade Mitarbeiterdaten...", pct: 5 },
@@ -133,6 +150,52 @@ export default function SchedulePage() {
   const [warningsOpen, setWarningsOpen] = useState(false);
   const [clearBusy, setClearBusy] = useState(false);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+  const [preGenOpen, setPreGenOpen] = useState(false);
+  const [manualPlacements, setManualPlacements] = useState<ManualPlacement[]>([]);
+
+  const daysInMonth = useMemo(() => {
+    const { year, month } = viewState;
+    const count = new Date(year, month + 1, 0).getDate();
+    return Array.from({ length: count }, (_, i) => {
+      const d = i + 1;
+      const iso = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      const dow = new Date(year, month, d).getDay();
+      const dayName = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"][dow];
+      return { day: d, iso, label: `${dayName} ${d}.` };
+    });
+  }, [viewState]);
+
+  const sortedEmployees = useMemo(
+    () =>
+      [...employees].sort((a, b) =>
+        `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`, "de"),
+      ),
+    [employees],
+  );
+
+  const addManualPlacement = () => {
+    const first = sortedEmployees[0];
+    if (!first || daysInMonth.length === 0) return;
+    setManualPlacements((prev) => [
+      ...prev,
+      {
+        employeeId: first.id,
+        date: daysInMonth[0]!.iso,
+        stationNumber: 1,
+        shiftType: "EARLY",
+      },
+    ]);
+  };
+
+  const updatePlacement = (idx: number, patch: Partial<ManualPlacement>) => {
+    setManualPlacements((prev) =>
+      prev.map((p, i) => (i === idx ? { ...p, ...patch } : p)),
+    );
+  };
+
+  const removePlacement = (idx: number) => {
+    setManualPlacements((prev) => prev.filter((_, i) => i !== idx));
+  };
 
   const loadBundle = useCallback(async (opts?: { preserveActionMessage?: boolean }) => {
     setLoading(true);
@@ -460,6 +523,7 @@ export default function SchedulePage() {
 
   const onGenerate = async () => {
     if (!schedule) return;
+    setPreGenOpen(false);
     setGenerateBusy(true);
     setGenStageIdx(0);
     setGenModalOpen(true);
@@ -471,17 +535,27 @@ export default function SchedulePage() {
       setTimeout(() => setGenStageIdx(i + 1), ms),
     );
 
+    const payload: { manualPlacements?: ManualPlacement[] } =
+      manualPlacements.length > 0 ? { manualPlacements } : {};
+
     try {
       const res = await fetchJson<GenerateScheduleResponse>(
         `/api/schedules/${schedule.id}/generate`,
-        { method: "POST" },
+        {
+          method: "POST",
+          body: JSON.stringify(payload),
+        },
       );
       stageTimers.forEach(clearTimeout);
       setGenStageIdx(GENERATE_STAGES.length - 1);
       await loadBundle({ preserveActionMessage: true });
 
       const parts: string[] = [];
-      if (res.createdAssignments > 0) {
+      const manual = res.manualPlacementsApplied ?? 0;
+      const auto = res.createdAssignments - manual;
+      if (manual > 0) {
+        parts.push(`${manual} manuelle + ${auto} automatische Zuweisungen.`);
+      } else if (res.createdAssignments > 0) {
         parts.push(`${res.createdAssignments} Dienste eingetragen.`);
       } else {
         parts.push("Es wurden keine Dienste eingetragen.");
@@ -737,7 +811,10 @@ export default function SchedulePage() {
             variant="outlined"
             startIcon={<AutoAwesomeIcon />}
             disabled={loading || !schedule || generateBusy}
-            onClick={() => void onGenerate()}
+            onClick={() => {
+              setManualPlacements([]);
+              setPreGenOpen(true);
+            }}
           >
             {generateBusy ? <CircularProgress size={20} /> : "Entwurf füllen"}
           </Button>
@@ -906,6 +983,129 @@ export default function SchedulePage() {
             onClick={() => void onClearSchedule()}
           >
             Leeren
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Pre-generation modal with manual placements */}
+      <Dialog
+        open={preGenOpen}
+        onClose={() => !generateBusy && setPreGenOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>Dienstplan generieren</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Fügen Sie optional manuelle Zuweisungen hinzu. Diese werden als
+            feste Vorgaben behandelt — der Generator plant den Rest um diese
+            Zuweisungen herum.
+          </Typography>
+          <Divider sx={{ mb: 2 }} />
+
+          {manualPlacements.length > 0 && (
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5, mb: 2 }}>
+              {manualPlacements.map((mp, idx) => (
+                <Box
+                  key={idx}
+                  sx={{
+                    display: "flex",
+                    gap: 1,
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <Autocomplete
+                    size="small"
+                    options={sortedEmployees}
+                    value={sortedEmployees.find((e) => e.id === mp.employeeId) ?? undefined}
+                    onChange={(_, val) => {
+                      if (val) updatePlacement(idx, { employeeId: val.id });
+                    }}
+                    getOptionLabel={(e) => `${e.lastName}, ${e.firstName}`}
+                    isOptionEqualToValue={(o, v) => o.id === v.id}
+                    renderInput={(params) => (
+                      <TextField {...params} label="Mitarbeiter" />
+                    )}
+                    sx={{ minWidth: 200, flex: 1 }}
+                    disableClearable
+                  />
+                  <TextField
+                    select
+                    size="small"
+                    label="Tag"
+                    value={mp.date}
+                    onChange={(e) => updatePlacement(idx, { date: e.target.value })}
+                    sx={{ minWidth: 110 }}
+                    SelectProps={{ native: true }}
+                  >
+                    {daysInMonth.map((d) => (
+                      <option key={d.iso} value={d.iso}>
+                        {d.label}
+                      </option>
+                    ))}
+                  </TextField>
+                  <TextField
+                    select
+                    size="small"
+                    label="Station"
+                    value={mp.stationNumber}
+                    onChange={(e) =>
+                      updatePlacement(idx, { stationNumber: Number(e.target.value) })
+                    }
+                    sx={{ minWidth: 90 }}
+                    SelectProps={{ native: true }}
+                  >
+                    <option value={1}>St. 1</option>
+                    <option value={2}>St. 2</option>
+                    <option value={3}>St. 3</option>
+                  </TextField>
+                  <TextField
+                    select
+                    size="small"
+                    label="Schicht"
+                    value={mp.shiftType}
+                    onChange={(e) => updatePlacement(idx, { shiftType: e.target.value })}
+                    sx={{ minWidth: 100 }}
+                    SelectProps={{ native: true }}
+                  >
+                    {SHIFT_TYPES_OPTIONS.map((st) => (
+                      <option key={st.value} value={st.value}>
+                        {st.label}
+                      </option>
+                    ))}
+                  </TextField>
+                  <IconButton
+                    size="small"
+                    color="error"
+                    onClick={() => removePlacement(idx)}
+                  >
+                    <CloseIcon fontSize="small" />
+                  </IconButton>
+                </Box>
+              ))}
+            </Box>
+          )}
+
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<AddIcon />}
+            onClick={addManualPlacement}
+            disabled={sortedEmployees.length === 0}
+          >
+            Zuweisung hinzufügen
+          </Button>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPreGenOpen(false)}>Abbrechen</Button>
+          <Button
+            variant="contained"
+            startIcon={<AutoAwesomeIcon />}
+            onClick={() => void onGenerate()}
+            disabled={generateBusy}
+          >
+            Generieren
           </Button>
         </DialogActions>
       </Dialog>

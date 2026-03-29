@@ -4,7 +4,7 @@ import { toIsoDateOnly } from "@/lib/api/dateOnly";
 import { plannerJsonErrors } from "@/lib/api/validation";
 import { requirePlanner } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
-import type { GenerateReport } from "@/lib/schedule/generateDraftSchedule";
+import type { GenerateReport, ManualPlacementInput } from "@/lib/schedule/generateDraftSchedule";
 import {
   loadGenerateContext,
   runGreedyScheduleGeneration,
@@ -44,7 +44,36 @@ function serializeGenerateError(e: unknown): Record<string, unknown> {
   return { kind: "unknown", message: String(e) };
 }
 
-export async function POST(_request: Request, context: RouteCtx) {
+const VALID_SHIFT_TYPES = new Set(["EARLY", "LATE", "NIGHT"]);
+
+function parseManualPlacements(raw: unknown): ManualPlacementInput[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ManualPlacementInput[] = [];
+  for (const item of raw) {
+    if (
+      item &&
+      typeof item === "object" &&
+      typeof item.employeeId === "string" &&
+      typeof item.date === "string" &&
+      typeof item.stationNumber === "number" &&
+      item.stationNumber >= 1 &&
+      item.stationNumber <= 3 &&
+      typeof item.shiftType === "string" &&
+      VALID_SHIFT_TYPES.has(item.shiftType) &&
+      /^\d{4}-\d{2}-\d{2}$/.test(item.date)
+    ) {
+      out.push({
+        employeeId: item.employeeId,
+        date: item.date,
+        stationNumber: item.stationNumber,
+        shiftType: item.shiftType,
+      });
+    }
+  }
+  return out;
+}
+
+export async function POST(request: Request, context: RouteCtx) {
   const { session, error } = await requirePlanner();
   if (error === "UNAUTHORIZED") return plannerJsonErrors.unauthorized();
   if (error === "FORBIDDEN") return plannerJsonErrors.forbidden();
@@ -52,6 +81,9 @@ export async function POST(_request: Request, context: RouteCtx) {
   const { id: scheduleId } = await context.params;
   const facilityId = session!.user.facilityId;
   const userId = session!.user.id;
+
+  const body = await request.json().catch(() => ({}));
+  const manualPlacements = parseManualPlacements(body?.manualPlacements);
 
   const schedule = await prisma.schedule.findFirst({
     where: { id: scheduleId, facilityId },
@@ -67,7 +99,6 @@ export async function POST(_request: Request, context: RouteCtx) {
     schedule.periodEnd,
   );
 
-  /** Greedy fill runs many validation passes; Prisma's default interactive tx timeout (5s) is too low. */
   const TX_MAX_WAIT_MS = 20_000;
   const TX_TIMEOUT_MS = 300_000;
 
@@ -86,6 +117,7 @@ export async function POST(_request: Request, context: RouteCtx) {
           },
           userId,
           genCtx,
+          manualPlacements,
         );
       },
       { maxWait: TX_MAX_WAIT_MS, timeout: TX_TIMEOUT_MS },
@@ -125,6 +157,7 @@ export async function POST(_request: Request, context: RouteCtx) {
 
   return NextResponse.json({
     createdAssignments: report.createdAssignments,
+    manualPlacementsApplied: report.manualPlacementsApplied,
     unmetStaffing: report.unmetStaffing,
     unfulfilledWishes: report.unfulfilledWishes,
     warnings: report.warnings,
