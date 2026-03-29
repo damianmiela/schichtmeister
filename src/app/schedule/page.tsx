@@ -46,6 +46,8 @@ import PersonIcon from "@mui/icons-material/Person";
 import TableChartIcon from "@mui/icons-material/TableChart";
 import GridViewIcon from "@mui/icons-material/GridView";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import EditIcon from "@mui/icons-material/Edit";
+import SaveIcon from "@mui/icons-material/Save";
 import DeleteSweepIcon from "@mui/icons-material/DeleteSweep";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import CloseIcon from "@mui/icons-material/Close";
@@ -162,6 +164,11 @@ export default function SchedulePage() {
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [preGenOpen, setPreGenOpen] = useState(false);
   const [preGenEntries, setPreGenEntries] = useState<PreGenEntry[]>([]);
+  const [editMode, setEditMode] = useState(false);
+  const [editedAssignments, setEditedAssignments] = useState<Map<string, string | null>>(new Map());
+  const [editedShiftWishSet, setEditedShiftWishSet] = useState<Set<string>>(new Set());
+  const [editedFreiWishSet, setEditedFreiWishSet] = useState<Set<string>>(new Set());
+  const [editSaving, setEditSaving] = useState(false);
 
   const daysInMonth = useMemo(() => {
     const { year, month } = viewState;
@@ -721,6 +728,147 @@ export default function SchedulePage() {
     }
   };
 
+  const enterEditMode = () => {
+    setEditedAssignments(new Map());
+    setEditedShiftWishSet(new Set(shiftWishSet));
+    setEditedFreiWishSet(new Set(freiWishSet));
+    setEditMode(true);
+  };
+
+  const cancelEditMode = () => {
+    setEditMode(false);
+    setEditedAssignments(new Map());
+  };
+
+  const handleCellChange = (employeeId: string, date: string, shiftProfileId: string | null) => {
+    setEditedAssignments((prev) => {
+      const next = new Map(prev);
+      const key = `${employeeId}|${date}`;
+      const original = assignments.find(
+        (a) => a.employeeId === employeeId && a.date === date,
+      );
+      const originalPid = original?.shiftProfileId ?? null;
+      if (shiftProfileId === originalPid) {
+        next.delete(key);
+      } else {
+        next.set(key, shiftProfileId);
+      }
+      return next;
+    });
+  };
+
+  const handleToggleWish = (employeeId: string, date: string, type: "shift" | "frei") => {
+    const key = `${employeeId}|${date}`;
+    if (type === "shift") {
+      setEditedShiftWishSet((prev) => {
+        const next = new Set(prev);
+        if (next.has(key)) next.delete(key); else next.add(key);
+        return next;
+      });
+      setEditedFreiWishSet((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+    } else {
+      setEditedFreiWishSet((prev) => {
+        const next = new Set(prev);
+        if (next.has(key)) next.delete(key); else next.add(key);
+        return next;
+      });
+      setEditedShiftWishSet((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+    }
+  };
+
+  const onSaveEdits = async () => {
+    if (!schedule) return;
+    setEditSaving(true);
+    setActionMsg(null);
+    setActionDebugPayload(null);
+    setActionAlertSeverity("info");
+
+    const merged: { employeeId: string; date: string; shiftProfileId: string }[] = [];
+    const seen = new Set<string>();
+
+    for (const [key, pid] of editedAssignments) {
+      seen.add(key);
+      if (pid) {
+        const [eid, date] = key.split("|");
+        merged.push({ employeeId: eid!, date: date!, shiftProfileId: pid });
+      }
+    }
+    for (const a of assignments) {
+      const key = `${a.employeeId}|${a.date}`;
+      if (!seen.has(key)) {
+        merged.push({ employeeId: a.employeeId, date: a.date, shiftProfileId: a.shiftProfileId });
+      }
+    }
+
+    const preGenWishes = {
+      shiftWishes: [...editedShiftWishSet].map((k) => {
+        const [eid, date] = k.split("|");
+        return { employeeId: eid!, date: date! };
+      }),
+      freiDates: [...editedFreiWishSet].map((k) => {
+        const [eid, date] = k.split("|");
+        return { employeeId: eid!, date: date! };
+      }),
+    };
+
+    try {
+      const res = await fetchJson<{ savedAssignments: number; warnings: string[] }>(
+        `/api/schedules/${schedule.id}/edit`,
+        {
+          method: "POST",
+          body: JSON.stringify({ assignments: merged, preGenWishes }),
+        },
+      );
+      await loadBundle({ preserveActionMessage: true });
+      setEditMode(false);
+      setEditedAssignments(new Map());
+      const warnCount = res.warnings?.length ?? 0;
+      if (warnCount > 0) {
+        setActionAlertSeverity("warning");
+        setActionMsg(`${res.savedAssignments} Zuweisungen gespeichert. ${warnCount} Regelverstoß(e) gefunden.`);
+        setWarningsOpen(true);
+      } else {
+        setActionAlertSeverity("success");
+        setActionMsg(`${res.savedAssignments} Zuweisungen gespeichert. Keine Regelverstöße.`);
+      }
+    } catch (e) {
+      setActionAlertSeverity("error");
+      if (e instanceof ApiError) {
+        const msg =
+          e.body && typeof e.body === "object" && e.body !== null && "error" in e.body
+            ? (e.body as { error: string }).error
+            : "Speichern fehlgeschlagen.";
+        setActionMsg(msg);
+      } else {
+        setActionMsg("Speichern fehlgeschlagen (Netzwerk).");
+      }
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const allProfiles = useMemo(
+    () =>
+      Object.values(profilesById)
+        .filter((p) => p.isActive)
+        .sort((a, b) => {
+          const typeOrder = ["EARLY", "LATE", "NIGHT"];
+          const ta = typeOrder.indexOf(a.shiftType);
+          const tb = typeOrder.indexOf(b.shiftType);
+          if (ta !== tb) return ta - tb;
+          return a.stationNumber - b.stationNumber;
+        }),
+    [profilesById],
+  );
+
   const statusChip =
     schedule?.status === "PUBLISHED" ? (
       <Chip label="VERÖFFENTLICHT" color="success" size="small" />
@@ -850,7 +998,7 @@ export default function SchedulePage() {
             <Button
               variant="outlined"
               startIcon={<DownloadIcon />}
-              disabled={loading || !schedule || exportBusy}
+              disabled={loading || !schedule || exportBusy || editMode}
               onClick={(e) => setExportMenuEl(e.currentTarget)}
             >
               {exportBusy ? <CircularProgress size={20} /> : "Export"}
@@ -877,7 +1025,7 @@ export default function SchedulePage() {
           <Button
             variant="outlined"
             startIcon={<AutoAwesomeIcon />}
-            disabled={loading || !schedule || generateBusy}
+            disabled={loading || !schedule || generateBusy || editMode}
             onClick={() => {
               setPreGenEntries([]);
               setPreGenOpen(true);
@@ -889,15 +1037,47 @@ export default function SchedulePage() {
             variant="outlined"
             color="error"
             startIcon={<DeleteSweepIcon />}
-            disabled={loading || !schedule || clearBusy || assignments.length === 0}
+            disabled={loading || !schedule || clearBusy || assignments.length === 0 || editMode}
             onClick={() => setClearConfirmOpen(true)}
           >
             {clearBusy ? <CircularProgress size={20} /> : "Leeren"}
           </Button>
+          {!editMode ? (
+            <Button
+              variant="outlined"
+              startIcon={<EditIcon />}
+              disabled={
+                loading || !schedule || assignments.length === 0 ||
+                viewState.type !== "month" || monthViewMode !== "table"
+              }
+              onClick={enterEditMode}
+            >
+              Bearbeiten
+            </Button>
+          ) : (
+            <>
+              <Button
+                variant="outlined"
+                onClick={cancelEditMode}
+                disabled={editSaving}
+              >
+                Abbrechen
+              </Button>
+              <Button
+                variant="contained"
+                color="primary"
+                startIcon={editSaving ? <CircularProgress size={18} color="inherit" /> : <SaveIcon />}
+                disabled={editSaving}
+                onClick={() => void onSaveEdits()}
+              >
+                Speichern
+              </Button>
+            </>
+          )}
           <Button
             variant="contained"
             startIcon={<PublishIcon />}
-            disabled={loading || !schedule || schedule.status !== "DRAFT" || publishBusy}
+            disabled={loading || !schedule || schedule.status !== "DRAFT" || publishBusy || editMode}
             onClick={() => void onPublish()}
           >
             {publishBusy ? <CircularProgress size={20} color="inherit" /> : "Veröffentlichen"}
@@ -984,8 +1164,13 @@ export default function SchedulePage() {
               profilesById={profilesById}
               onDayClick={handleDayClick}
               onEmployeeClick={handleEmployeeClick}
-              shiftWishSet={shiftWishSet}
-              freiWishSet={freiWishSet}
+              shiftWishSet={editMode ? editedShiftWishSet : shiftWishSet}
+              freiWishSet={editMode ? editedFreiWishSet : freiWishSet}
+              editMode={editMode}
+              editedAssignments={editedAssignments}
+              onCellChange={handleCellChange}
+              shiftProfiles={allProfiles}
+              onToggleWish={handleToggleWish}
             />
           )}
 

@@ -1,7 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import {
   Box,
+  Menu,
+  MenuItem,
+  ListItemIcon,
+  ListItemText,
   Table,
   TableBody,
   TableCell,
@@ -10,7 +15,9 @@ import {
   TableRow,
   Tooltip,
   Typography,
+  Divider,
 } from "@mui/material";
+import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
 import { localIsoFromParts } from "@/lib/schedule/monthSchedule";
 import type { AssignmentJson, EmployeeJson, ShiftProfileJson } from "@/lib/schedule/scheduleTypes";
 import QualificationPills from "@/components/schedule/QualificationPills";
@@ -25,6 +32,11 @@ interface MonthTableViewProps {
   onEmployeeClick?: (employeeId: string) => void;
   shiftWishSet?: Set<string>;
   freiWishSet?: Set<string>;
+  editMode?: boolean;
+  editedAssignments?: Map<string, string | null>;
+  onCellChange?: (employeeId: string, date: string, shiftProfileId: string | null) => void;
+  shiftProfiles?: ShiftProfileJson[];
+  onToggleWish?: (employeeId: string, date: string, type: "shift" | "frei") => void;
 }
 
 function daysInMonth(year: number, monthIndex: number): number {
@@ -75,6 +87,7 @@ function monthlyTargetForMonth(
 
 const WISH_SHIFT_BG = "#e8f5e9";
 const WISH_FREI_BG = "#e3f2fd";
+const EDIT_CHANGED_BORDER = "2px dashed #ff9800";
 
 export default function MonthTableView({
   year,
@@ -86,7 +99,16 @@ export default function MonthTableView({
   onEmployeeClick,
   shiftWishSet,
   freiWishSet,
+  editMode,
+  editedAssignments,
+  onCellChange,
+  shiftProfiles,
+  onToggleWish,
 }: MonthTableViewProps) {
+  const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
+  const [menuCell, setMenuCell] = useState<{ empId: string; iso: string } | null>(null);
+  const [ctxAnchor, setCtxAnchor] = useState<{ el: HTMLElement; empId: string; iso: string } | null>(null);
+
   const days = daysInMonth(year, monthIndex);
   const workDays = workingDaysInMonth(year, monthIndex);
   const dayCols = Array.from({ length: days }, (_, i) =>
@@ -104,12 +126,43 @@ export default function MonthTableView({
     return a.firstName.localeCompare(b.firstName, "de");
   });
 
+  const effectivePid = (empId: string, iso: string): string | null => {
+    const key = `${empId}|${iso}`;
+    if (editMode && editedAssignments?.has(key)) {
+      return editedAssignments.get(key) ?? null;
+    }
+    return byEmpDay.get(key) ?? null;
+  };
+
   const empPlannedHours = new Map<string, number>();
-  for (const a of assignments) {
-    const profile = profilesById[a.shiftProfileId];
-    if (!profile) continue;
-    const h = paidHoursForShift(profile);
-    empPlannedHours.set(a.employeeId, (empPlannedHours.get(a.employeeId) ?? 0) + h);
+  if (editMode && editedAssignments) {
+    const seen = new Set<string>();
+    for (const [key, pid] of editedAssignments) {
+      seen.add(key);
+      if (pid) {
+        const p = profilesById[pid];
+        if (p) {
+          const eid = key.split("|")[0]!;
+          empPlannedHours.set(eid, (empPlannedHours.get(eid) ?? 0) + paidHoursForShift(p));
+        }
+      }
+    }
+    for (const a of assignments) {
+      const key = `${a.employeeId}|${a.date}`;
+      if (!seen.has(key)) {
+        const p = profilesById[a.shiftProfileId];
+        if (p) {
+          empPlannedHours.set(a.employeeId, (empPlannedHours.get(a.employeeId) ?? 0) + paidHoursForShift(p));
+        }
+      }
+    }
+  } else {
+    for (const a of assignments) {
+      const profile = profilesById[a.shiftProfileId];
+      if (!profile) continue;
+      const h = paidHoursForShift(profile);
+      empPlannedHours.set(a.employeeId, (empPlannedHours.get(a.employeeId) ?? 0) + h);
+    }
   }
 
   return (
@@ -237,10 +290,11 @@ export default function MonthTableView({
                 </TableCell>
                 {dayCols.map((iso) => {
                   const key = `${e.id}|${iso}`;
-                  const pid = byEmpDay.get(key);
+                  const pid = effectivePid(e.id, iso);
                   const label = pid ? profilesById[pid]?.name ?? "?" : "";
                   const isShiftWish = shiftWishSet?.has(key) && !!pid;
                   const isFreiWish = freiWishSet?.has(key);
+                  const isChanged = editMode && editedAssignments?.has(key);
                   return (
                     <Tooltip
                       key={iso}
@@ -256,9 +310,20 @@ export default function MonthTableView({
                     >
                       <TableCell
                         align="center"
-                        onClick={() => {
-                          const [y, m, d] = iso.split("-").map(Number);
-                          onDayClick(new Date(y, m - 1, d));
+                        onClick={(ev) => {
+                          if (editMode) {
+                            setMenuCell({ empId: e.id, iso });
+                            setMenuAnchor(ev.currentTarget);
+                          } else {
+                            const [y, m, d] = iso.split("-").map(Number);
+                            onDayClick(new Date(y, m - 1, d));
+                          }
+                        }}
+                        onContextMenu={(ev) => {
+                          if (editMode && onToggleWish) {
+                            ev.preventDefault();
+                            setCtxAnchor({ el: ev.currentTarget, empId: e.id, iso });
+                          }
                         }}
                         sx={{
                           cursor: "pointer",
@@ -273,6 +338,9 @@ export default function MonthTableView({
                             bgcolor: WISH_FREI_BG,
                             fontStyle: "italic",
                           }),
+                          ...(isChanged && {
+                            border: EDIT_CHANGED_BORDER,
+                          }),
                         }}
                       >
                         {isFreiWish && !pid ? "Frei" : label || "\u2014"}
@@ -285,6 +353,71 @@ export default function MonthTableView({
           })}
         </TableBody>
       </Table>
+
+      {/* Shift selection menu (left-click in edit mode) */}
+      <Menu
+        anchorEl={menuAnchor}
+        open={Boolean(menuAnchor) && Boolean(menuCell)}
+        onClose={() => { setMenuAnchor(null); setMenuCell(null); }}
+        slotProps={{ paper: { sx: { maxHeight: 320 } } }}
+      >
+        {shiftProfiles?.map((p) => (
+          <MenuItem
+            key={p.id}
+            dense
+            selected={menuCell ? effectivePid(menuCell.empId, menuCell.iso) === p.id : false}
+            onClick={() => {
+              if (menuCell && onCellChange) onCellChange(menuCell.empId, menuCell.iso, p.id);
+              setMenuAnchor(null);
+              setMenuCell(null);
+            }}
+          >
+            {p.name}
+          </MenuItem>
+        ))}
+        <Divider />
+        <MenuItem
+          dense
+          onClick={() => {
+            if (menuCell && onCellChange) onCellChange(menuCell.empId, menuCell.iso, null);
+            setMenuAnchor(null);
+            setMenuCell(null);
+          }}
+        >
+          <ListItemIcon><RemoveCircleOutlineIcon fontSize="small" color="error" /></ListItemIcon>
+          <ListItemText>Entfernen</ListItemText>
+        </MenuItem>
+      </Menu>
+
+      {/* Context menu for wish marking (right-click in edit mode) */}
+      <Menu
+        anchorEl={ctxAnchor?.el ?? null}
+        open={Boolean(ctxAnchor)}
+        onClose={() => setCtxAnchor(null)}
+      >
+        <MenuItem
+          dense
+          onClick={() => {
+            if (ctxAnchor && onToggleWish) onToggleWish(ctxAnchor.empId, ctxAnchor.iso, "shift");
+            setCtxAnchor(null);
+          }}
+        >
+          {ctxAnchor && shiftWishSet?.has(`${ctxAnchor.empId}|${ctxAnchor.iso}`)
+            ? "Dienstwunsch entfernen"
+            : "Als Dienstwunsch markieren"}
+        </MenuItem>
+        <MenuItem
+          dense
+          onClick={() => {
+            if (ctxAnchor && onToggleWish) onToggleWish(ctxAnchor.empId, ctxAnchor.iso, "frei");
+            setCtxAnchor(null);
+          }}
+        >
+          {ctxAnchor && freiWishSet?.has(`${ctxAnchor.empId}|${ctxAnchor.iso}`)
+            ? "Frei-Wunsch entfernen"
+            : "Als Frei-Wunsch markieren"}
+        </MenuItem>
+      </Menu>
     </TableContainer>
   );
 }
