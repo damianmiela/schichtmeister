@@ -1,3 +1,8 @@
+export type PreGenWishesJson = {
+  shiftWishes: { employeeId: string; date: string }[];
+  freiDates: { employeeId: string; date: string }[];
+};
+
 export type ScheduleJson = {
   id: string;
   periodStart: string;
@@ -5,6 +10,7 @@ export type ScheduleJson = {
   status: string;
   publishedAt: string | null;
   warnings?: string[];
+  preGenWishes?: PreGenWishesJson | null;
 };
 
 export type AssignmentJson = {

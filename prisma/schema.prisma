@@ -201,15 +201,16 @@ model QualificationRequirement {
 }
 
 model Schedule {
-  id           String           @id @default(cuid())
-  facilityId   String
-  periodStart  DateTime         @db.Date
-  periodEnd    DateTime         @db.Date
-  status       ScheduleStatus   @default(DRAFT)
-  publishedAt  DateTime?
-  warningsJson String?
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
+  id               String           @id @default(cuid())
+  facilityId       String
+  periodStart      DateTime         @db.Date
+  periodEnd        DateTime         @db.Date
+  status           ScheduleStatus   @default(DRAFT)
+  publishedAt      DateTime?
+  warningsJson     String?
+  preGenWishesJson String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
 
   facility    Facility     @relation(fields: [facilityId], references: [id], onDelete: Cascade)
   assignments Assignment[]

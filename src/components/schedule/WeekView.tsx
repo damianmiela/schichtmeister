@@ -22,7 +22,12 @@ interface WeekViewProps {
   profilesById: Record<string, ShiftProfileJson>;
   onDayClick: (date: Date) => void;
   onEmployeeClick?: (employeeId: string) => void;
+  shiftWishSet?: Set<string>;
+  freiWishSet?: Set<string>;
 }
+
+const WISH_SHIFT_BG = "#e8f5e9";
+const WISH_FREI_BG = "#e3f2fd";
 
 export default function WeekView({
   weekStartDate,
@@ -31,6 +36,8 @@ export default function WeekView({
   profilesById,
   onDayClick,
   onEmployeeClick,
+  shiftWishSet,
+  freiWishSet,
 }: WeekViewProps) {
   const dayIsos = weekLocalIsoDays(weekStartDate);
   const byEmpDay = new Map<string, string>();
@@ -95,12 +102,15 @@ export default function WeekView({
                 </Box>
               </TableCell>
               {dayIsos.map((iso) => {
-                const pid = byEmpDay.get(`${e.id}|${iso}`);
+                const key = `${e.id}|${iso}`;
+                const pid = byEmpDay.get(key);
                 const p = pid ? profilesById[pid] : undefined;
                 const label = p
                   ? `${p.name} \u00B7 ${shiftTypeLabel(p.shiftType)}`
                   : "\u2014";
                 const [y, m, d] = iso.split("-").map(Number);
+                const isShiftWish = shiftWishSet?.has(key) && !!pid;
+                const isFreiWish = freiWishSet?.has(key);
                 return (
                   <TableCell
                     key={iso}
@@ -111,9 +121,18 @@ export default function WeekView({
                       fontSize: 12,
                       maxWidth: 140,
                       "&:hover": { bgcolor: "action.hover" },
+                      ...(isShiftWish && {
+                        bgcolor: WISH_SHIFT_BG,
+                        fontWeight: 700,
+                      }),
+                      ...(isFreiWish && {
+                        bgcolor: WISH_FREI_BG,
+                        fontStyle: "italic",
+                      }),
                     }}
+                    title={isShiftWish ? "Dienstwunsch" : isFreiWish ? "Frei-Wunsch" : undefined}
                   >
-                    {label}
+                    {isFreiWish && !pid ? "Frei" : label}
                   </TableCell>
                 );
               })}

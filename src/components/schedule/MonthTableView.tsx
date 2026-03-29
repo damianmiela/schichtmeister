@@ -23,6 +23,8 @@ interface MonthTableViewProps {
   profilesById: Record<string, ShiftProfileJson>;
   onDayClick: (date: Date) => void;
   onEmployeeClick?: (employeeId: string) => void;
+  shiftWishSet?: Set<string>;
+  freiWishSet?: Set<string>;
 }
 
 function daysInMonth(year: number, monthIndex: number): number {
@@ -71,6 +73,9 @@ function monthlyTargetForMonth(
   return employee.targetHours * (wd / AVG_WORKING_DAYS_PER_MONTH);
 }
 
+const WISH_SHIFT_BG = "#e8f5e9";
+const WISH_FREI_BG = "#e3f2fd";
+
 export default function MonthTableView({
   year,
   monthIndex,
@@ -79,6 +84,8 @@ export default function MonthTableView({
   profilesById,
   onDayClick,
   onEmployeeClick,
+  shiftWishSet,
+  freiWishSet,
 }: MonthTableViewProps) {
   const days = daysInMonth(year, monthIndex);
   const workDays = workingDaysInMonth(year, monthIndex);
@@ -229,25 +236,48 @@ export default function MonthTableView({
                   </Tooltip>
                 </TableCell>
                 {dayCols.map((iso) => {
-                  const pid = byEmpDay.get(`${e.id}|${iso}`);
+                  const key = `${e.id}|${iso}`;
+                  const pid = byEmpDay.get(key);
                   const label = pid ? profilesById[pid]?.name ?? "?" : "";
+                  const isShiftWish = shiftWishSet?.has(key) && !!pid;
+                  const isFreiWish = freiWishSet?.has(key);
                   return (
-                    <TableCell
+                    <Tooltip
                       key={iso}
-                      align="center"
-                      onClick={() => {
-                        const [y, m, d] = iso.split("-").map(Number);
-                        onDayClick(new Date(y, m - 1, d));
-                      }}
-                      sx={{
-                        cursor: "pointer",
-                        fontSize: 11,
-                        color: label ? "text.primary" : "text.disabled",
-                        "&:hover": { bgcolor: "action.hover" },
-                      }}
+                      title={
+                        isShiftWish
+                          ? "Dienstwunsch"
+                          : isFreiWish
+                            ? "Frei-Wunsch"
+                            : ""
+                      }
+                      arrow
+                      disableHoverListener={!isShiftWish && !isFreiWish}
                     >
-                      {label || "\u2014"}
-                    </TableCell>
+                      <TableCell
+                        align="center"
+                        onClick={() => {
+                          const [y, m, d] = iso.split("-").map(Number);
+                          onDayClick(new Date(y, m - 1, d));
+                        }}
+                        sx={{
+                          cursor: "pointer",
+                          fontSize: 11,
+                          color: label ? "text.primary" : "text.disabled",
+                          "&:hover": { bgcolor: "action.hover" },
+                          ...(isShiftWish && {
+                            bgcolor: WISH_SHIFT_BG,
+                            fontWeight: 700,
+                          }),
+                          ...(isFreiWish && {
+                            bgcolor: WISH_FREI_BG,
+                            fontStyle: "italic",
+                          }),
+                        }}
+                      >
+                        {isFreiWish && !pid ? "Frei" : label || "\u2014"}
+                      </TableCell>
+                    </Tooltip>
                   );
                 })}
               </TableRow>

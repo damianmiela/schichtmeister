@@ -26,6 +26,8 @@ interface DayViewProps {
   employeesById: Record<string, EmployeeJson>;
   profilesById: Record<string, ShiftProfileJson>;
   onEmployeeClick?: (employeeId: string) => void;
+  shiftWishSet?: Set<string>;
+  freiWishSet?: Set<string>;
 }
 
 const STATIONS = [1, 2, 3] as const;
@@ -55,12 +57,15 @@ type GroupedSlot = {
   employees: { assignment: AssignmentJson; employee: EmployeeJson | undefined }[];
 };
 
+const WISH_SHIFT_BG = "#e8f5e9";
+
 export default function DayView({
   date,
   assignments,
   employeesById,
   profilesById,
   onEmployeeClick,
+  shiftWishSet,
 }: DayViewProps) {
   const theme = useTheme();
   const iso = localIsoDate(date);
@@ -244,6 +249,9 @@ export default function DayView({
                             ? `${employee.firstName} ${employee.lastName}`
                             : assignment.employeeId;
                           const tags = employee?.qualificationTags ?? [];
+                          const isShiftWish = shiftWishSet?.has(
+                            `${assignment.employeeId}|${iso}`,
+                          );
                           return (
                             <Box
                               key={assignment.id}
@@ -257,7 +265,12 @@ export default function DayView({
                                 "&:hover": {
                                   bgcolor: alpha(theme.palette.action.hover, 0.5),
                                 },
+                                ...(isShiftWish && {
+                                  bgcolor: WISH_SHIFT_BG,
+                                  borderLeft: "3px solid #4caf50",
+                                }),
                               }}
+                              title={isShiftWish ? "Dienstwunsch" : undefined}
                             >
                               <Avatar
                                 sx={{

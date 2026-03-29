@@ -166,9 +166,26 @@ export async function POST(request: Request, context: RouteCtx) {
       : []),
   ];
 
+  const preGenWishes = {
+    shiftWishes: manualPlacements.map((mp) => ({
+      employeeId: mp.employeeId,
+      date: mp.date,
+    })),
+    freiDates: blockedDates.map((bd) => ({
+      employeeId: bd.employeeId,
+      date: bd.date,
+    })),
+  };
+
   await prisma.schedule.update({
     where: { id: scheduleId },
-    data: { warningsJson: JSON.stringify(allWarnings) },
+    data: {
+      warningsJson: JSON.stringify(allWarnings),
+      preGenWishesJson:
+        preGenWishes.shiftWishes.length > 0 || preGenWishes.freiDates.length > 0
+          ? JSON.stringify(preGenWishes)
+          : null,
+    },
   });
 
   const rows = await prisma.assignment.findMany({

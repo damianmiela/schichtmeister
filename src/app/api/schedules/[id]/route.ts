@@ -14,6 +14,27 @@ function parseWarnings(json: string | null): string[] {
   }
 }
 
+type PreGenWishesPayload = {
+  shiftWishes: { employeeId: string; date: string }[];
+  freiDates: { employeeId: string; date: string }[];
+};
+
+function parsePreGenWishes(json: string | null): PreGenWishesPayload | null {
+  if (!json) return null;
+  try {
+    const parsed = JSON.parse(json);
+    if (parsed && typeof parsed === "object") {
+      return {
+        shiftWishes: Array.isArray(parsed.shiftWishes) ? parsed.shiftWishes : [],
+        freiDates: Array.isArray(parsed.freiDates) ? parsed.freiDates : [],
+      };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 function serializeSchedule(s: {
   id: string;
   periodStart: Date;
@@ -21,6 +42,7 @@ function serializeSchedule(s: {
   status: string;
   publishedAt: Date | null;
   warningsJson: string | null;
+  preGenWishesJson?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }) {
@@ -31,6 +53,7 @@ function serializeSchedule(s: {
     status: s.status,
     publishedAt: s.publishedAt?.toISOString() ?? null,
     warnings: parseWarnings(s.warningsJson),
+    preGenWishes: parsePreGenWishes(s.preGenWishesJson ?? null),
     createdAt: s.createdAt.toISOString(),
     updatedAt: s.updatedAt.toISOString(),
   };

@@ -468,6 +468,26 @@ export default function SchedulePage() {
 
   const employeesById = Object.fromEntries(employees.map((e) => [e.id, e]));
 
+  const shiftWishSet = useMemo(() => {
+    const s = new Set<string>();
+    if (schedule?.preGenWishes?.shiftWishes) {
+      for (const w of schedule.preGenWishes.shiftWishes) {
+        s.add(`${w.employeeId}|${w.date}`);
+      }
+    }
+    return s;
+  }, [schedule]);
+
+  const freiWishSet = useMemo(() => {
+    const s = new Set<string>();
+    if (schedule?.preGenWishes?.freiDates) {
+      for (const w of schedule.preGenWishes.freiDates) {
+        s.add(`${w.employeeId}|${w.date}`);
+      }
+    }
+    return s;
+  }, [schedule]);
+
   const onPublish = async () => {
     if (!schedule) return;
     setPublishBusy(true);
@@ -964,6 +984,8 @@ export default function SchedulePage() {
               profilesById={profilesById}
               onDayClick={handleDayClick}
               onEmployeeClick={handleEmployeeClick}
+              shiftWishSet={shiftWishSet}
+              freiWishSet={freiWishSet}
             />
           )}
 
@@ -987,6 +1009,8 @@ export default function SchedulePage() {
               profilesById={profilesById}
               onDayClick={handleDayClick}
               onEmployeeClick={handleEmployeeClick}
+              shiftWishSet={shiftWishSet}
+              freiWishSet={freiWishSet}
             />
           )}
 
@@ -997,6 +1021,8 @@ export default function SchedulePage() {
               employeesById={employeesById}
               profilesById={profilesById}
               onEmployeeClick={handleEmployeeClick}
+              shiftWishSet={shiftWishSet}
+              freiWishSet={freiWishSet}
             />
           )}
 
@@ -1007,6 +1033,8 @@ export default function SchedulePage() {
               employee={employeesById[viewState.employeeId]}
               assignments={assignments}
               profilesById={profilesById}
+              shiftWishSet={shiftWishSet}
+              freiWishSet={freiWishSet}
               onDayClick={handleDayClick}
             />
           )}

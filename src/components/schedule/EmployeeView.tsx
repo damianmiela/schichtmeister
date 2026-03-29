@@ -32,6 +32,8 @@ interface EmployeeViewProps {
   assignments: AssignmentJson[];
   profilesById: Record<string, ShiftProfileJson>;
   onDayClick?: (date: Date) => void;
+  shiftWishSet?: Set<string>;
+  freiWishSet?: Set<string>;
 }
 
 const SHIFT_ACCENT: Record<string, string> = {
@@ -68,6 +70,9 @@ function fmtHours(h: number): string {
 
 const WEEKDAYS_DE = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
 
+const WISH_SHIFT_BG = "#e8f5e9";
+const WISH_FREI_BG = "#e3f2fd";
+
 export default function EmployeeView({
   year,
   monthIndex,
@@ -75,6 +80,8 @@ export default function EmployeeView({
   assignments,
   profilesById,
   onDayClick,
+  shiftWishSet,
+  freiWishSet,
 }: EmployeeViewProps) {
   const theme = useTheme();
 
@@ -296,6 +303,9 @@ export default function EmployeeView({
               const dayAssignments = assignmentsByDate.get(iso) ?? [];
               const isWeekend = dow === 0 || dow === 6;
               const isFree = dayAssignments.length === 0;
+              const wishKey = `${employee.id}|${iso}`;
+              const isShiftWish = shiftWishSet?.has(wishKey) && !isFree;
+              const isFreiWish = freiWishSet?.has(wishKey);
               const isToday = (() => {
                 const t = new Date();
                 return (
@@ -313,9 +323,11 @@ export default function EmployeeView({
                     onClick={() => onDayClick?.(dateObj)}
                     sx={{
                       cursor: onDayClick ? "pointer" : "default",
-                      bgcolor: isWeekend
-                        ? alpha(theme.palette.action.hover, 0.3)
-                        : undefined,
+                      bgcolor: isFreiWish
+                        ? WISH_FREI_BG
+                        : isWeekend
+                          ? alpha(theme.palette.action.hover, 0.3)
+                          : undefined,
                       ...(isToday && {
                         borderLeft: `3px solid ${theme.palette.primary.main}`,
                       }),
@@ -341,12 +353,13 @@ export default function EmployeeView({
                       <Typography
                         variant="body2"
                         sx={{
-                          color: "text.disabled",
+                          color: isFreiWish ? "#1565c0" : "text.disabled",
                           fontStyle: "italic",
                           fontSize: "0.8rem",
+                          fontWeight: isFreiWish ? 600 : 400,
                         }}
                       >
-                        Frei
+                        {isFreiWish ? "Frei (Wunsch)" : "Frei"}
                       </Typography>
                     </TableCell>
                     <TableCell align="right">
@@ -372,9 +385,11 @@ export default function EmployeeView({
                     onClick={() => onDayClick?.(dateObj)}
                     sx={{
                       cursor: onDayClick ? "pointer" : "default",
-                      bgcolor: isWeekend
-                        ? alpha(theme.palette.action.hover, 0.3)
-                        : undefined,
+                      bgcolor: isShiftWish
+                        ? WISH_SHIFT_BG
+                        : isWeekend
+                          ? alpha(theme.palette.action.hover, 0.3)
+                          : undefined,
                       ...(isToday && {
                         borderLeft: `3px solid ${theme.palette.primary.main}`,
                       }),
@@ -382,6 +397,7 @@ export default function EmployeeView({
                         "& td": { borderTop: "none", pt: 0 },
                       }),
                     }}
+                    title={isShiftWish ? "Dienstwunsch" : undefined}
                   >
                     {aIdx === 0 ? (
                       <>
