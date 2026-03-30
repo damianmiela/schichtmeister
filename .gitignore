@@ -60,5 +60,5 @@ deploy/*
 # Local documentation (not deployed)
 _LOCAL_DOCS/
 
-# Generator debug logs
-generate-logs/
+# Generator debug logs (root-level only, not src/app/api/generate-logs)
+/generate-logs/
