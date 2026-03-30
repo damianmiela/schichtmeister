@@ -21,7 +21,6 @@ import type {
 } from "@/lib/planning/types";
 import { assignmentPaidHours } from "@/lib/planning/time";
 import { registerBuiltInPlanningRules, runScopedRules, mergePlanningRules, defaultPlanningRulesConfig } from "@/lib/planning";
-import { writeGenerateLog } from "@/lib/schedule/generateLogPath";
 
 /** Deterministic shift order within a calendar day. */
 export const SHIFT_TYPE_ORDER: ShiftType[] = [
@@ -371,6 +370,7 @@ export type GenerateReport = {
   unmetStaffing: UnmetStaffingEntry[];
   unfulfilledWishes: UnfulfilledWishEntry[];
   warnings: string[];
+  debugLog: string;
 };
 
 type LoaderDb = Pick<
@@ -820,6 +820,7 @@ export async function runGreedyScheduleGeneration(
       unmetStaffing: [],
       unfulfilledWishes: unfulfilledOpenWishes(ctx.wishes),
       warnings,
+      debugLog: debugLog.join("\n"),
     };
   }
 
@@ -1240,14 +1241,12 @@ export async function runGreedyScheduleGeneration(
 
   log(`=== Generation Complete: ${proposed.length} assignments, ${warnings.length} warnings, ${unmet.length} unmet ===`);
 
-  const logMonth = `${schedule.periodStart.getUTCFullYear()}-${String(schedule.periodStart.getUTCMonth() + 1).padStart(2, "0")}`;
-  writeGenerateLog(logMonth, debugLog.join("\n"));
-
   return {
     createdAssignments: proposed.length,
     manualPlacementsApplied: manualPlaced,
     unmetStaffing: unmet,
     unfulfilledWishes: unfulfilled,
     warnings,
+    debugLog: debugLog.join("\n"),
   };
 }

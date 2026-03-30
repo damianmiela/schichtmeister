@@ -30,6 +30,7 @@ export async function POST(_request: Request, context: RouteCtx) {
         publishedAt: null,
         warningsJson: null,
         preGenWishesJson: null,
+        generationLog: null,
       },
     });
 

@@ -221,6 +221,7 @@ export async function POST(request: Request, context: RouteCtx) {
     where: { id: scheduleId },
     data: {
       warningsJson: allWarnings.length > 0 ? JSON.stringify(allWarnings) : null,
+      generationLog: report.debugLog || null,
       preGenWishesJson:
         preGenWishes.shiftWishes.length > 0 || preGenWishes.freiDates.length > 0
           ? JSON.stringify(preGenWishes)

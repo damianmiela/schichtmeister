@@ -697,9 +697,6 @@ export default function SchedulePage() {
         `/api/schedules/${schedule.id}/clear`,
         { method: "POST" },
       );
-      try {
-        await fetch(`/api/generate-logs?month=${currentMonthKey}`, { method: "DELETE" });
-      } catch { /* ignore log deletion errors */ }
       await loadBundle({ preserveActionMessage: true });
       setActionAlertSeverity("success");
       setActionMsg(
