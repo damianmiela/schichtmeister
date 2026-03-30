@@ -2,7 +2,18 @@ import PDFDocument from "pdfkit";
 import type { Schedule } from "@prisma/client";
 import { toIsoDateOnly } from "@/lib/api/dateOnly";
 import type { AssignmentWithRelations } from "@/lib/export/scheduleExportContext";
-import { shiftTypeLabel } from "@/lib/schedule/viewUtils";
+import { eachIsoDateInPeriod } from "@/lib/export/exportDateRange";
+import {
+  buildAssignmentByEmpDay,
+  buildExportSections,
+  employeeExportName,
+  exportMatrixCellText,
+  formatHours,
+  plannedHoursByEmployee,
+  targetHoursForPeriod,
+  uniqueEmployeesFromAssignments,
+  workingDaysInIsoRange,
+} from "@/lib/export/scheduleExportMatrix";
 
 function collectPdfBuffer(doc: InstanceType<typeof PDFDocument>): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -14,46 +25,134 @@ function collectPdfBuffer(doc: InstanceType<typeof PDFDocument>): Promise<Buffer
   });
 }
 
+function truncate(s: string, max: number): string {
+  const t = s.trim();
+  if (t.length <= max) return t;
+  return `${t.slice(0, Math.max(0, max - 1))}…`;
+}
+
 export async function buildSchedulePdfBuffer(
   schedule: Schedule,
   assignments: AssignmentWithRelations[],
 ): Promise<Buffer> {
   const doc = new PDFDocument({
-    margin: 48,
+    margin: 40,
     size: "A4",
+    layout: "landscape",
     info: {
       Title: `Dienstplan ${toIsoDateOnly(schedule.periodStart)} – ${toIsoDateOnly(schedule.periodEnd)}`,
     },
   });
 
+  const dates = eachIsoDateInPeriod(schedule.periodStart, schedule.periodEnd);
+  const workDays = workingDaysInIsoRange(dates);
+  const byEmpDay = buildAssignmentByEmpDay(assignments);
+  const plannedMap = plannedHoursByEmployee(assignments);
+  const allEmployees = uniqueEmployeesFromAssignments(assignments);
+  const sections = buildExportSections(allEmployees, assignments);
+
+  const pageW = doc.page.width;
+  const margin = 40;
+  const contentW = pageW - margin * 2;
+  const nameW = Math.min(118, contentW * 0.22);
+  const stdW = 52;
+  const dayCount = Math.max(1, dates.length);
+  const dayW = Math.max(11, (contentW - nameW - stdW) / dayCount);
+  const rowH = 11;
+  const headerH = 12;
+  const pageBottom = doc.page.height - margin;
   const title = `Dienstplan ${toIsoDateOnly(schedule.periodStart)} – ${toIsoDateOnly(schedule.periodEnd)}`;
   const sub = `Status: ${schedule.status} · ${assignments.length} Zuweisungen`;
 
-  doc.fontSize(16).text(title, { underline: true });
-  doc.moveDown(0.5);
-  doc.fontSize(10).fillColor("#444").text(sub);
-  doc.moveDown(1);
+  let y = margin;
+  doc.fontSize(14).font("Helvetica-Bold").text(title, margin, y);
+  y += 18;
+  doc.fontSize(9).font("Helvetica").fillColor("#444").text(sub, margin, y);
+  y += 16;
   doc.fillColor("#000");
 
-  doc.fontSize(9);
-  const lineH = 13;
-  const pageBottom = 780;
-  let y = doc.y;
+  const tableWidth = nameW + stdW + dayW * dates.length;
 
-  const header = "Datum        Mitarbeiter                          Schicht        Zeit";
-  doc.font("Helvetica-Bold").text(header, 48, y);
-  y += lineH + 4;
-  doc.font("Helvetica");
-
-  for (const a of assignments) {
-    const name = `${a.employee.lastName}, ${a.employee.firstName}`.slice(0, 36);
-    const row = `${toIsoDateOnly(a.date)}   ${name.padEnd(36)} ${shiftTypeLabel(a.shiftProfile.shiftType).slice(0, 12).padEnd(12)} ${a.shiftProfile.startTime}–${a.shiftProfile.endTime}`;
-    if (y > pageBottom) {
-      doc.addPage();
-      y = 48;
+  const drawHeaderRow = (yy: number): number => {
+    let x = margin;
+    doc.fontSize(6.5).font("Helvetica-Bold");
+    doc.text("Mitarbeiter", x, yy, { width: nameW, lineBreak: false });
+    x += nameW;
+    doc.text("Ist/Soll", x, yy, { width: stdW, align: "center", lineBreak: false });
+    x += stdW;
+    doc.font("Helvetica");
+    for (let i = 0; i < dates.length; i++) {
+      const iso = dates[i]!;
+      const day = iso.slice(8);
+      doc.text(day, x, yy, { width: dayW, align: "center", lineBreak: false });
+      x += dayW;
     }
-    doc.text(row, 48, y, { lineBreak: false });
-    y += lineH;
+    return yy + headerH;
+  };
+
+  const dataRowHeight = (emp: (typeof allEmployees)[0]) => {
+    const planned = plannedMap.get(emp.id) ?? 0;
+    const target = targetHoursForPeriod(emp, workDays);
+    return target != null && target > 0 ? rowH + 7 : rowH;
+  };
+
+  const drawDataRow = (yy: number, emp: (typeof allEmployees)[0]): number => {
+    let x = margin;
+    doc.fontSize(6).font("Helvetica");
+    doc.text(truncate(employeeExportName(emp), 42), x, yy, { width: nameW, lineBreak: false });
+    x += nameW;
+    const planned = plannedMap.get(emp.id) ?? 0;
+    const target = targetHoursForPeriod(emp, workDays);
+    const stdLine1 =
+      target == null ? formatHours(planned) : `${formatHours(planned)}/${formatHours(target)}`;
+    const stdLine2 =
+      target != null && target > 0 ? `(${Math.round((planned / target) * 100)}%)` : "";
+    doc.text(stdLine1, x, yy, { width: stdW, align: "center", lineBreak: false });
+    if (stdLine2) {
+      doc.text(stdLine2, x, yy + 5, { width: stdW, align: "center", lineBreak: false });
+    }
+    x += stdW;
+    for (let i = 0; i < dates.length; i++) {
+      const iso = dates[i]!;
+      const a = byEmpDay.get(`${emp.id}|${iso}`);
+      const cell = truncate(exportMatrixCellText(emp, a), 14);
+      doc.text(cell, x, yy, { width: dayW, align: "center", lineBreak: false });
+      x += dayW;
+    }
+    return yy + dataRowHeight(emp);
+  };
+
+  for (const section of sections) {
+    if (y > pageBottom - 48) {
+      doc.addPage({ size: "A4", layout: "landscape", margin: 40 });
+      y = margin;
+    }
+    doc.fontSize(10).font("Helvetica-Bold").text(section.title, margin, y);
+    y += 14;
+    doc.font("Helvetica");
+    y = drawHeaderRow(y);
+    doc.moveTo(margin, y - 2).lineTo(margin + tableWidth, y - 2).strokeColor("#ccc").lineWidth(0.5).stroke();
+    doc.strokeColor("#000").lineWidth(1);
+
+    for (const emp of section.employees) {
+      const need = dataRowHeight(emp) + 2;
+      if (y + need > pageBottom) {
+        doc.addPage({ size: "A4", layout: "landscape", margin: 40 });
+        y = margin;
+        doc.fontSize(10).font("Helvetica-Bold").text(`${section.title} (Forts.)`, margin, y);
+        y += 14;
+        doc.font("Helvetica");
+        y = drawHeaderRow(y);
+        doc.moveTo(margin, y - 2).lineTo(margin + tableWidth, y - 2).strokeColor("#ccc").lineWidth(0.5).stroke();
+        doc.strokeColor("#000").lineWidth(1);
+      }
+      y = drawDataRow(y, emp);
+    }
+    y += 14;
+  }
+
+  if (sections.length === 0) {
+    doc.fontSize(10).text("Keine Mitarbeiter in Station 1–3 oder Nacht für diesen Plan.", margin, y);
   }
 
   return collectPdfBuffer(doc);

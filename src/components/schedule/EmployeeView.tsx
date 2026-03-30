@@ -8,6 +8,7 @@ import {
   Typography,
   Avatar,
   Chip,
+  LinearProgress,
   Table,
   TableBody,
   TableCell,
@@ -73,6 +74,19 @@ const WEEKDAYS_DE = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
 const WISH_SHIFT_BG = "#e8f5e9";
 const WISH_FREI_BG = "#e3f2fd";
 
+const EMP_STATUS_MAP: Record<string, string> = {
+  KRANK: "K", LANGZEITKRANK: "LZ", MUTTERSCHUTZ: "MS", URLAUB: "U", KUR: "KU",
+};
+
+const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
+  U: { bg: "#e3f2fd", color: "#1565c0" },
+  K: { bg: "#ffebee", color: "#c62828" },
+  LZ: { bg: "#fce4ec", color: "#ad1457" },
+  MS: { bg: "#f3e5f5", color: "#7b1fa2" },
+  KU: { bg: "#fff3e0", color: "#e65100" },
+  X: { bg: "#f5f5f5", color: "#9e9e9e" },
+};
+
 export default function EmployeeView({
   year,
   monthIndex,
@@ -108,6 +122,20 @@ export default function EmployeeView({
     }
     return map;
   }, [assignments, employee.id]);
+
+  const runningTotals = useMemo(() => {
+    const totals: number[] = [];
+    let cumulative = 0;
+    for (const { iso } of days) {
+      const dayAssignments = assignmentsByDate.get(iso) ?? [];
+      for (const a of dayAssignments) {
+        const p = profilesById[a.shiftProfileId];
+        if (p) cumulative += paidHours(p);
+      }
+      totals.push(cumulative);
+    }
+    return totals;
+  }, [days, assignmentsByDate, profilesById]);
 
   const { totalHours, workingDays } = useMemo(() => {
     let hours = 0;
@@ -146,9 +174,9 @@ export default function EmployeeView({
   let hoursColor: string;
   if (target == null) {
     hoursColor = theme.palette.text.secondary;
-  } else if (totalHours > target * 1.05) {
+  } else if (totalHours < target - 4 || totalHours > target + 16) {
     hoursColor = theme.palette.error.main;
-  } else if (totalHours < target * 0.95) {
+  } else if (totalHours > target + 8) {
     hoursColor = theme.palette.warning.main;
   } else {
     hoursColor = theme.palette.success.main;
@@ -180,15 +208,13 @@ export default function EmployeeView({
             <Box sx={{ flex: 1, minWidth: 180 }}>
               <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
                 <Typography variant="h6" fontWeight={700} sx={{ lineHeight: 1.3 }}>
-                  {employee.firstName} {employee.lastName}
+                  {employee.lastName}, {employee.firstName}
                 </Typography>
                 <QualificationPills qualifications={employee.qualifications} tags={tags} />
               </Box>
-              {employee.contractType && (
-                <Typography variant="caption" color="text.secondary">
-                  {employee.contractType}
-                </Typography>
-              )}
+              <Typography variant="body2" color="text.secondary">
+                {employee.targetHoursPercent ?? 100}% · Station {employee.assignedStationNumber ?? "?"} · Soll: {target != null ? `${fmtHours(target)}h` : "n/a"}
+              </Typography>
             </Box>
             <Box
               sx={{
@@ -230,6 +256,24 @@ export default function EmployeeView({
               )}
             </Box>
           </Box>
+          {target != null && target > 0 && (
+            <Box sx={{ mt: 1.5, display: "flex", alignItems: "center", gap: 1.5 }}>
+              <LinearProgress
+                variant="determinate"
+                value={Math.min(pct ?? 0, 100)}
+                sx={{
+                  flex: 1,
+                  height: 6,
+                  borderRadius: 3,
+                  bgcolor: alpha(hoursColor, 0.12),
+                  "& .MuiLinearProgress-bar": { bgcolor: hoursColor, borderRadius: 3 },
+                }}
+              />
+              <Typography variant="caption" sx={{ fontWeight: 700, color: hoursColor, minWidth: 40, textAlign: "right" }}>
+                {pct}%
+              </Typography>
+            </Box>
+          )}
         </CardContent>
       </Card>
 
@@ -296,10 +340,20 @@ export default function EmployeeView({
               >
                 Stunden
               </TableCell>
+              <TableCell
+                sx={{
+                  fontWeight: 700,
+                  width: 70,
+                  bgcolor: "background.paper",
+                }}
+                align="right"
+              >
+                Kum.
+              </TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {days.map(({ day, iso, dateObj, dow, weekday }) => {
+            {days.map(({ day, iso, dateObj, dow, weekday }, dayIdx) => {
               const dayAssignments = assignmentsByDate.get(iso) ?? [];
               const isWeekend = dow === 0 || dow === 6;
               const isFree = dayAssignments.length === 0;
@@ -314,6 +368,30 @@ export default function EmployeeView({
                   t.getDate() === day
                 );
               })();
+
+              const statusCode = EMP_STATUS_MAP[employee.status ?? ""] ?? null;
+              if (employee.status && employee.status !== "ACTIVE" && statusCode) {
+                const sc = STATUS_COLORS[statusCode] ?? STATUS_COLORS.X;
+                return (
+                  <TableRow key={iso} sx={{ bgcolor: sc.bg, ...(isToday && { borderLeft: `3px solid ${theme.palette.primary.main}` }) }}>
+                    <TableCell sx={{ fontWeight: isToday ? 700 : 500 }}>{day}.</TableCell>
+                    <TableCell>
+                      <Typography variant="caption" sx={{ color: isWeekend ? theme.palette.error.main : "text.secondary", fontWeight: isWeekend ? 600 : 400 }}>
+                        {weekday}
+                      </Typography>
+                    </TableCell>
+                    <TableCell colSpan={3}>
+                      <Typography variant="body2" sx={{ color: sc.color, fontWeight: 600 }}>{statusCode}</Typography>
+                    </TableCell>
+                    <TableCell align="right">
+                      <Typography variant="body2" color="text.disabled">—</Typography>
+                    </TableCell>
+                    <TableCell align="right">
+                      <Typography variant="body2" color="text.disabled">—</Typography>
+                    </TableCell>
+                  </TableRow>
+                );
+              }
 
               if (isFree) {
                 return (
@@ -353,18 +431,23 @@ export default function EmployeeView({
                       <Typography
                         variant="body2"
                         sx={{
-                          color: isFreiWish ? "#1565c0" : "text.disabled",
-                          fontStyle: "italic",
+                          color: isFreiWish ? "#1565c0" : STATUS_COLORS.X.color,
+                          fontStyle: isFreiWish ? "italic" : "normal",
                           fontSize: "0.8rem",
-                          fontWeight: isFreiWish ? 600 : 400,
+                          fontWeight: isFreiWish ? 600 : 500,
                         }}
                       >
-                        {isFreiWish ? "Frei (Wunsch)" : "Frei"}
+                        {isFreiWish ? "Frei (Wunsch)" : "X"}
                       </Typography>
                     </TableCell>
                     <TableCell align="right">
                       <Typography variant="body2" color="text.disabled">
                         —
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="right">
+                      <Typography variant="body2" color="text.disabled">
+                        {fmtHours(runningTotals[dayIdx])}h
                       </Typography>
                     </TableCell>
                   </TableRow>
@@ -451,6 +534,8 @@ export default function EmployeeView({
                         <Typography variant="caption" color="text.secondary">
                           {prof ? shiftTypeLabel(prof.shiftType) : ""}
                         </Typography>
+                        {a.markingRow2 && <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.65rem", ml: 1 }}>{a.markingRow2}</Typography>}
+                        {a.markingRow3 && <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.65rem", ml: 0.5 }}>{a.markingRow3}</Typography>}
                       </Box>
                     </TableCell>
                     <TableCell align="center">
@@ -477,6 +562,13 @@ export default function EmployeeView({
                         {fmtHours(hours)}h
                       </Typography>
                     </TableCell>
+                    {aIdx === 0 && (
+                      <TableCell align="right" rowSpan={dayAssignments.length}>
+                        <Typography variant="body2" color="text.secondary" fontWeight={500}>
+                          {fmtHours(runningTotals[dayIdx])}h
+                        </Typography>
+                      </TableCell>
+                    )}
                   </TableRow>
                 );
               });

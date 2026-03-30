@@ -7,11 +7,49 @@ import {
   assignedCountsForIsoDate,
   requiredCountsForIsoDate,
 } from "@/lib/schedule/staffingAggregate";
-import { getStaffingStatus, getWeekNumber, shiftTypeLabel } from "@/lib/schedule/viewUtils";
+import { getWeekNumber, shiftTypeLabel } from "@/lib/schedule/viewUtils";
 
 const WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
 
-const SHIFT_KEYS = ["EARLY", "LATE", "NIGHT"] as const;
+const SHIFT_KEYS = ["EARLY", "LATE", "NIGHT", "BL"] as const;
+
+type StaffRowAgg = {
+  shiftType: string;
+  minTotalCount: number;
+  maxTotalCount: number | null;
+  isFacilityWide: boolean;
+  stationNumber: number;
+};
+
+function minMaxForShiftType(rows: StaffRowAgg[], shiftType: string): { min: number; max: number | null } {
+  let min = 0;
+  let maxSum = 0;
+  let n = 0;
+  let everyHasMax = true;
+  for (const r of rows) {
+    if (r.shiftType !== shiftType) continue;
+    n += 1;
+    min += r.minTotalCount;
+    if (r.maxTotalCount != null) maxSum += r.maxTotalCount;
+    else everyHasMax = false;
+  }
+  return { min, max: n > 0 && everyHasMax ? maxSum : null };
+}
+
+function minMaxForFacilityWideShift(rows: StaffRowAgg[], shiftType: string): { min: number; max: number | null } {
+  let min = 0;
+  let maxSum = 0;
+  let n = 0;
+  let everyHasMax = true;
+  for (const r of rows) {
+    if (r.shiftType !== shiftType || !r.isFacilityWide) continue;
+    n += 1;
+    min += r.minTotalCount;
+    if (r.maxTotalCount != null) maxSum += r.maxTotalCount;
+    else everyHasMax = false;
+  }
+  return { min, max: n > 0 && everyHasMax ? maxSum : null };
+}
 
 interface MonthViewProps {
   year: number;
@@ -33,10 +71,21 @@ export default function MonthView({
   onDayClick,
 }: MonthViewProps) {
   const rows = monthCalendarRowsLocal(year, monthIndex);
-  const staffRows = staffing.map((s) => ({
+  const staffRows: StaffRowAgg[] = staffing.map((s) => ({
     shiftType: s.shiftType,
     minTotalCount: s.minTotalCount,
+    maxTotalCount: s.maxTotalCount ?? null,
+    isFacilityWide: s.isFacilityWide ?? false,
+    stationNumber: s.stationNumber,
   }));
+  const req = requiredCountsForIsoDate("", staffRows);
+  const hasFwNight = staffRows.some((r) => r.shiftType === "NIGHT" && r.isFacilityWide);
+  const nightMM = hasFwNight
+    ? minMaxForFacilityWideShift(staffRows, "NIGHT")
+    : minMaxForShiftType(staffRows, "NIGHT");
+  const earlyMM = minMaxForShiftType(staffRows, "EARLY");
+  const lateMM = minMaxForShiftType(staffRows, "LATE");
+  const blMM = minMaxForShiftType(staffRows, "BL");
 
   return (
     <Box sx={{ overflow: "auto" }}>
@@ -76,7 +125,6 @@ export default function MonthView({
             }
             const [y, m, d] = iso.split("-").map(Number);
             const dayDate = new Date(y, m - 1, d);
-            const req = requiredCountsForIsoDate(iso, staffRows);
             const ass = assignedCountsForIsoDate(iso, assignments, profilesById);
             return (
               <Paper
@@ -119,15 +167,37 @@ export default function MonthView({
                 <Box sx={{ display: "flex", flexDirection: "column", gap: 0.25, mt: 0.5 }}>
                   {SHIFT_KEYS.map((key) => {
                     const a = ass[key] ?? 0;
-                    const r = req[key] ?? 0;
-                    if (r === 0 && a === 0) return null;
-                    const st = getStaffingStatus(a, r || a);
+                    let min: number;
+                    let maxForType: number | null;
+                    if (key === "NIGHT") {
+                      min = nightMM.min;
+                      maxForType = nightMM.max;
+                    } else if (key === "EARLY") {
+                      min = req[key] ?? 0;
+                      maxForType = earlyMM.max;
+                    } else if (key === "LATE") {
+                      min = req[key] ?? 0;
+                      maxForType = lateMM.max;
+                    } else {
+                      min = req[key] ?? 0;
+                      maxForType = blMM.max;
+                    }
+                    if (min === 0 && a === 0) return null;
+                    const assigned = a;
+                    const max = maxForType;
+                    let chipColor: "success" | "warning" | "error";
+                    if (assigned < min) chipColor = "error";
+                    else if (max != null && assigned > max) chipColor = "warning";
+                    else chipColor = "success";
+                    const label = `${shiftTypeLabel(key).slice(0, 1)} ${a}/${
+                      max != null ? `${min}–${max}` : String(min)
+                    }`;
                     return (
                       <Chip
                         key={key}
                         size="small"
-                        label={`${shiftTypeLabel(key).slice(0, 1)} ${a}/${r || "—"}`}
-                        color={st === "success" ? "success" : st === "warning" ? "warning" : "error"}
+                        label={label}
+                        color={chipColor}
                         sx={{ height: 20, fontSize: 10, "& .MuiChip-label": { px: 0.5 } }}
                       />
                     );

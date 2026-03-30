@@ -84,17 +84,10 @@ type PreGenEntry = {
   employeeId: string;
   type: "shift" | "frei";
   date: string;
-  stationNumber: number;
-  shiftType: string;
+  shiftProfileId: string;
   dateFrom: string;
   dateTo: string;
 };
-
-const SHIFT_TYPES_OPTIONS = [
-  { value: "EARLY", label: "Früh" },
-  { value: "LATE", label: "Spät" },
-  { value: "NIGHT", label: "Nacht" },
-] as const;
 
 const GENERATE_STAGES = [
   { label: "Lade Mitarbeiterdaten...", pct: 5 },
@@ -189,24 +182,6 @@ export default function SchedulePage() {
       ),
     [employees],
   );
-
-  const addPreGenEntry = (type: "shift" | "frei") => {
-    const first = sortedEmployees[0];
-    if (!first || daysInMonth.length === 0) return;
-    const firstDay = daysInMonth[0]!.iso;
-    setPreGenEntries((prev) => [
-      ...prev,
-      {
-        employeeId: first.id,
-        type,
-        date: firstDay,
-        stationNumber: 1,
-        shiftType: "EARLY",
-        dateFrom: firstDay,
-        dateTo: firstDay,
-      },
-    ]);
-  };
 
   const updateEntry = (idx: number, patch: Partial<PreGenEntry>) => {
     setPreGenEntries((prev) =>
@@ -592,12 +567,16 @@ export default function SchedulePage() {
 
     const manualPlacements: ManualPlacement[] = preGenEntries
       .filter((e) => e.type === "shift")
-      .map(({ employeeId, date, stationNumber, shiftType }) => ({
-        employeeId,
-        date,
-        stationNumber,
-        shiftType,
-      }));
+      .map((e) => {
+        const prof = profilesById[e.shiftProfileId];
+        const emp = employeesById[e.employeeId];
+        return {
+          employeeId: e.employeeId,
+          date: e.date,
+          stationNumber: emp?.assignedStationNumber ?? 1,
+          shiftType: prof?.shiftType ?? "EARLY",
+        };
+      });
     const blockedDates = preGenEntries
       .filter((e) => e.type === "frei")
       .flatMap((e) => expandDateRange(e.employeeId, e.dateFrom, e.dateTo));
@@ -877,6 +856,23 @@ export default function SchedulePage() {
         }),
     [profilesById],
   );
+
+  const addPreGenEntry = (type: "shift" | "frei") => {
+    const first = sortedEmployees[0];
+    if (!first || daysInMonth.length === 0) return;
+    const firstDay = daysInMonth[0]!.iso;
+    setPreGenEntries((prev) => [
+      ...prev,
+      {
+        employeeId: first.id,
+        type,
+        date: firstDay,
+        shiftProfileId: allProfiles[0]?.id ?? "",
+        dateFrom: firstDay,
+        dateTo: firstDay,
+      },
+    ]);
+  };
 
   const statusChip =
     schedule?.status === "PUBLISHED" ? (
@@ -1340,30 +1336,15 @@ export default function SchedulePage() {
                       <TextField
                         select
                         size="small"
-                        label="Station"
-                        value={entry.stationNumber}
-                        onChange={(e) =>
-                          updateEntry(idx, { stationNumber: Number(e.target.value) })
-                        }
-                        sx={{ minWidth: 90 }}
+                        label="Schichtprofil"
+                        value={entry.shiftProfileId}
+                        onChange={(e) => updateEntry(idx, { shiftProfileId: e.target.value })}
+                        sx={{ minWidth: 130 }}
                         SelectProps={{ native: true }}
                       >
-                        <option value={1}>St. 1</option>
-                        <option value={2}>St. 2</option>
-                        <option value={3}>St. 3</option>
-                      </TextField>
-                      <TextField
-                        select
-                        size="small"
-                        label="Schicht"
-                        value={entry.shiftType}
-                        onChange={(e) => updateEntry(idx, { shiftType: e.target.value })}
-                        sx={{ minWidth: 100 }}
-                        SelectProps={{ native: true }}
-                      >
-                        {SHIFT_TYPES_OPTIONS.map((st) => (
-                          <option key={st.value} value={st.value}>
-                            {st.label}
+                        {allProfiles.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}
                           </option>
                         ))}
                       </TextField>
