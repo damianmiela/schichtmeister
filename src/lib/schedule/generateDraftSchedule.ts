@@ -1,5 +1,3 @@
-import * as fs from "fs";
-import * as path from "path";
 import type { PrismaClient, ShiftProfile, Wish } from "@prisma/client";
 import {
   ContractType,
@@ -23,6 +21,7 @@ import type {
 } from "@/lib/planning/types";
 import { assignmentPaidHours } from "@/lib/planning/time";
 import { registerBuiltInPlanningRules, runScopedRules, mergePlanningRules, defaultPlanningRulesConfig } from "@/lib/planning";
+import { writeGenerateLog } from "@/lib/schedule/generateLogPath";
 
 /** Deterministic shift order within a calendar day. */
 export const SHIFT_TYPE_ORDER: ShiftType[] = [
@@ -1242,18 +1241,7 @@ export async function runGreedyScheduleGeneration(
   log(`=== Generation Complete: ${proposed.length} assignments, ${warnings.length} warnings, ${unmet.length} unmet ===`);
 
   const logMonth = `${schedule.periodStart.getUTCFullYear()}-${String(schedule.periodStart.getUTCMonth() + 1).padStart(2, "0")}`;
-  try {
-    const logDir = path.join(process.cwd(), "generate-logs");
-    if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
-    const logPath = path.join(logDir, `generate-${logMonth}.log`);
-    fs.writeFileSync(logPath, debugLog.join("\n"), "utf-8");
-  } catch {
-    try {
-      const tmpDir = path.join("/tmp", "schichtmeister-logs");
-      if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
-      fs.writeFileSync(path.join(tmpDir, `generate-${logMonth}.log`), debugLog.join("\n"), "utf-8");
-    } catch { /* ignore if file write fails entirely */ }
-  }
+  writeGenerateLog(logMonth, debugLog.join("\n"));
 
   return {
     createdAssignments: proposed.length,
