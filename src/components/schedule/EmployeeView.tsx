@@ -182,7 +182,7 @@ export default function EmployeeView({
                 <Typography variant="h6" fontWeight={700} sx={{ lineHeight: 1.3 }}>
                   {employee.firstName} {employee.lastName}
                 </Typography>
-                <QualificationPills tags={tags} />
+                <QualificationPills qualifications={employee.qualifications} tags={tags} />
               </Box>
               {employee.contractType && (
                 <Typography variant="caption" color="text.secondary">

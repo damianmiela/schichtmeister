@@ -28,6 +28,8 @@ import {
   Alert,
   CircularProgress,
   Autocomplete,
+  Checkbox,
+  Divider,
 } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
 import AddIcon from "@mui/icons-material/Add";
@@ -37,12 +39,34 @@ import { ApiError, fetchJson } from "@/lib/api/fetchJson";
 import { REFERENCE_FULL_TIME_MONTHLY_HOURS } from "@/lib/employeeContractDenorm";
 
 type ContractType = "FULL_TIME" | "PART_TIME" | "MINI_JOB" | "AUSBILDUNG";
+type StatusType = "ACTIVE" | "KRANK" | "LANGZEITKRANK" | "MUTTERSCHUTZ" | "URLAUB" | "KUR";
+
+interface QualificationCatalog {
+  id: string;
+  name: string;
+  abbreviation: string;
+}
+
+interface ShiftProfileCatalog {
+  id: string;
+  name: string;
+  shiftType: string;
+}
+
+interface Absence {
+  id: string;
+  type: string;
+  startDate: string;
+  endDate: string;
+  note?: string | null;
+}
 
 interface EmployeeRow {
   id: string;
   firstName: string;
   lastName: string;
   contractType: ContractType;
+  status: string;
   targetHours: number | null;
   targetHoursPeriod: string | null;
   miniJobMaxMonthlyHours: number | null;
@@ -50,6 +74,8 @@ interface EmployeeRow {
   assignedStationNumber: number | null;
   workProfile: { id: string; name: string } | null;
   qualificationTags: string[];
+  qualifications: { id: string; name: string; abbreviation: string }[];
+  allowedShiftProfiles: { id: string; name: string; shiftType: string }[];
 }
 
 const CONTRACT_LABELS: Record<ContractType, string> = {
@@ -59,7 +85,6 @@ const CONTRACT_LABELS: Record<ContractType, string> = {
   AUSBILDUNG: "Ausbildung",
 };
 
-/** Table sort: Vollzeit → Teilzeit → Mini-Job → Ausbildung (asc). */
 const CONTRACT_SORT_ORDER: ContractType[] = [
   "FULL_TIME",
   "PART_TIME",
@@ -75,6 +100,49 @@ const CONTRACT_CHIP_COLOR: Record<
   PART_TIME: "info",
   MINI_JOB: "warning",
   AUSBILDUNG: "secondary",
+};
+
+const STATUS_LABELS: Record<StatusType, string> = {
+  ACTIVE: "Aktiv",
+  KRANK: "Krank",
+  LANGZEITKRANK: "Langzeitkrank",
+  MUTTERSCHUTZ: "Mutterschutz",
+  URLAUB: "Urlaub",
+  KUR: "Kur",
+};
+
+const STATUS_CHIP_COLOR: Record<
+  StatusType,
+  "success" | "error" | "warning" | "secondary" | "info" | "default"
+> = {
+  ACTIVE: "success",
+  KRANK: "error",
+  LANGZEITKRANK: "warning",
+  MUTTERSCHUTZ: "secondary",
+  URLAUB: "info",
+  KUR: "default",
+};
+
+const STATUS_OPTIONS: StatusType[] = [
+  "ACTIVE",
+  "KRANK",
+  "LANGZEITKRANK",
+  "MUTTERSCHUTZ",
+  "URLAUB",
+  "KUR",
+];
+
+const SHIFT_TYPE_LABELS: Record<string, string> = {
+  EARLY: "Früh",
+  LATE: "Spät",
+  NIGHT: "Nacht",
+  FULL_DAY: "Ganztag",
+  OTHER: "Sonstig",
+};
+
+const ABSENCE_TYPE_LABELS: Record<string, string> = {
+  KRANK: "Krank",
+  URLAUB: "Urlaub",
 };
 
 function contractSortIndex(ct: ContractType): number {
@@ -96,7 +164,6 @@ function parsePercentInput(raw: string): number | null {
   return n;
 }
 
-/** Hours / cap only (Vertragsart wird separat als Chip angezeigt). */
 function contractHoursDetail(e: EmployeeRow): string | null {
   const bits: string[] = [];
   if (e.targetHoursPercent != null) {
@@ -117,55 +184,114 @@ function contractHoursDetail(e: EmployeeRow): string | null {
   return bits.join(" · ");
 }
 
+function computeSuggestedProfiles(
+  ct: ContractType,
+  quals: QualificationCatalog[],
+  allProfiles: ShiftProfileCatalog[],
+): ShiftProfileCatalog[] {
+  const abbrs = new Set(quals.map((q) => q.abbreviation.toUpperCase()));
+  const suggestedNames = new Set<string>();
+
+  const hasPFK = abbrs.has("PFK");
+  const hasAPH = abbrs.has("APH");
+  const hasKPH = abbrs.has("KPH");
+  const hasPH = abbrs.has("PH");
+  const hasWBL = abbrs.has("WBL");
+  const hasAuxQual = hasAPH || hasKPH || hasPH;
+
+  if (ct === "FULL_TIME") {
+    suggestedNames.add("F2");
+    suggestedNames.add("S1");
+  } else if (ct === "PART_TIME") {
+    if (hasPFK) {
+      suggestedNames.add("F1");
+      suggestedNames.add("S2");
+    }
+    if (hasAuxQual) {
+      suggestedNames.add("F3");
+      suggestedNames.add("S2");
+    }
+  }
+
+  if (hasPFK) suggestedNames.add("N");
+  if (hasAuxQual) suggestedNames.add("N1");
+  if (hasWBL) suggestedNames.add("BL");
+
+  return allProfiles.filter((p) => suggestedNames.has(p.name));
+}
+
+function extractApiError(e: unknown, fallback: string): string {
+  if (e instanceof ApiError) {
+    if (
+      e.body &&
+      typeof e.body === "object" &&
+      e.body !== null &&
+      "error" in e.body &&
+      typeof (e.body as { error: unknown }).error === "string"
+    ) {
+      return (e.body as { error: string }).error;
+    }
+    return fallback;
+  }
+  return "Netzwerkfehler";
+}
+
 export default function EmployeesPage() {
   const [employees, setEmployees] = useState<EmployeeRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+
+  const [qualCatalog, setQualCatalog] = useState<QualificationCatalog[]>([]);
+  const [shiftProfileCatalog, setShiftProfileCatalog] = useState<ShiftProfileCatalog[]>([]);
+
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [contractType, setContractType] = useState<ContractType>("FULL_TIME");
+  const [status, setStatus] = useState<StatusType>("ACTIVE");
   const [percentStr, setPercentStr] = useState("");
   const [miniStr, setMiniStr] = useState("");
-  const [qualificationTags, setQualificationTags] = useState<string[]>([]);
+  const [selectedQuals, setSelectedQuals] = useState<QualificationCatalog[]>([]);
+  const [selectedProfiles, setSelectedProfiles] = useState<ShiftProfileCatalog[]>([]);
   const [assignedStation, setAssignedStation] = useState<number | null>(null);
+  const [profilesTouched, setProfilesTouched] = useState(false);
+
+  const [absences, setAbsences] = useState<Absence[]>([]);
+  const [absencesLoading, setAbsencesLoading] = useState(false);
+  const [absenceType, setAbsenceType] = useState<"KRANK" | "URLAUB">("KRANK");
+  const [absenceStart, setAbsenceStart] = useState("");
+  const [absenceEnd, setAbsenceEnd] = useState("");
+  const [absenceNote, setAbsenceNote] = useState("");
+  const [absenceSaving, setAbsenceSaving] = useState(false);
+  const [absenceError, setAbsenceError] = useState<string | null>(null);
+  const [absenceEditId, setAbsenceEditId] = useState<string | null>(null);
+
   const [deleteTarget, setDeleteTarget] = useState<EmployeeRow | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [sortKey, setSortKey] = useState<"name" | "contract">("name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
-  const qualificationTagOptions = useMemo(() => {
-    const s = new Set<string>();
-    for (const e of employees) {
-      for (const t of e.qualificationTags) {
-        if (t.trim()) s.add(t.trim());
-      }
-    }
-    return [...s].sort((a, b) => a.localeCompare(b, "de"));
-  }, [employees]);
-
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const empRes = await fetchJson<{ employees: EmployeeRow[] }>("/api/employees");
+      const [empRes, qualRes, spRes] = await Promise.all([
+        fetchJson<{ employees: EmployeeRow[] }>("/api/employees"),
+        fetchJson<{ qualifications: QualificationCatalog[] }>("/api/qualifications"),
+        fetchJson<{ shiftProfiles: ShiftProfileCatalog[] }>(
+          "/api/shift-profiles?isActive=true",
+        ),
+      ]);
       setEmployees(empRes.employees ?? []);
+      setQualCatalog(qualRes.qualifications ?? []);
+      setShiftProfileCatalog(spRes.shiftProfiles ?? []);
     } catch (e) {
-      if (e instanceof ApiError) {
-        const msg =
-          e.body &&
-          typeof e.body === "object" &&
-          e.body !== null &&
-          "error" in e.body &&
-          typeof (e.body as { error: unknown }).error === "string"
-            ? (e.body as { error: string }).error
-            : "Laden fehlgeschlagen.";
-        setError(msg);
-      } else setError("Netzwerkfehler");
+      setError(extractApiError(e, "Laden fehlgeschlagen."));
       setEmployees([]);
     } finally {
       setLoading(false);
@@ -176,12 +302,31 @@ export default function EmployeesPage() {
     void load();
   }, [load]);
 
+  const loadAbsences = useCallback(async (empId: string) => {
+    setAbsencesLoading(true);
+    setAbsenceError(null);
+    try {
+      const res = await fetchJson<{ absences: Absence[] }>(
+        `/api/employees/${empId}/absences`,
+      );
+      setAbsences(res.absences ?? []);
+    } catch (e) {
+      setAbsenceError(extractApiError(e, "Abwesenheiten laden fehlgeschlagen."));
+    } finally {
+      setAbsencesLoading(false);
+    }
+  }, []);
+
   const filtered = employees.filter((e) => {
     if (!search.trim()) return true;
     const q = search.toLowerCase();
     return (
       `${e.firstName} ${e.lastName}`.toLowerCase().includes(q) ||
-      e.qualificationTags.some((t) => t.toLowerCase().includes(q))
+      e.qualifications.some(
+        (qu) =>
+          qu.abbreviation.toLowerCase().includes(q) ||
+          qu.name.toLowerCase().includes(q),
+      )
     );
   });
 
@@ -230,12 +375,36 @@ export default function EmployeesPage() {
     setFirstName("");
     setLastName("");
     setContractType("FULL_TIME");
+    setStatus("ACTIVE");
     setPercentStr("");
     setMiniStr("");
-    setQualificationTags([]);
+    setSelectedQuals([]);
+    setSelectedProfiles([]);
     setAssignedStation(null);
     setEditingId(null);
+    setProfilesTouched(false);
+    setAbsences([]);
+    setAbsenceError(null);
+    resetAbsenceForm();
   };
+
+  const resetAbsenceForm = () => {
+    setAbsenceType("KRANK");
+    setAbsenceStart("");
+    setAbsenceEnd("");
+    setAbsenceNote("");
+    setAbsenceEditId(null);
+  };
+
+  useEffect(() => {
+    if (profilesTouched) return;
+    const suggested = computeSuggestedProfiles(
+      contractType,
+      selectedQuals,
+      shiftProfileCatalog,
+    );
+    setSelectedProfiles(suggested);
+  }, [contractType, selectedQuals, shiftProfileCatalog, profilesTouched]);
 
   const openCreateDialog = () => {
     resetForm();
@@ -248,6 +417,7 @@ export default function EmployeesPage() {
     setFirstName(e.firstName);
     setLastName(e.lastName);
     setContractType(e.contractType);
+    setStatus((e.status as StatusType) || "ACTIVE");
     setPercentStr(
       e.targetHoursPercent != null
         ? String(e.targetHoursPercent).replace(".", ",")
@@ -258,14 +428,32 @@ export default function EmployeesPage() {
         ? String(e.miniJobMaxMonthlyHours).replace(".", ",")
         : "",
     );
-    setQualificationTags([...e.qualificationTags]);
+    const matchedQuals = e.qualifications
+      .map((eq) => qualCatalog.find((c) => c.id === eq.id))
+      .filter((x): x is QualificationCatalog => x != null);
+    setSelectedQuals(matchedQuals);
+    const matchedProfiles = e.allowedShiftProfiles
+      .map((sp) => shiftProfileCatalog.find((c) => c.id === sp.id))
+      .filter((x): x is ShiftProfileCatalog => x != null);
+    setSelectedProfiles(matchedProfiles);
+    setProfilesTouched(true);
     setAssignedStation(e.assignedStationNumber ?? null);
     setDialogOpen(true);
+    void loadAbsences(e.id);
   };
 
-  const buildContractPayload = (): { ok: true; body: Record<string, unknown> } | { ok: false; message: string } => {
+  const buildPayload = ():
+    | { ok: true; body: Record<string, unknown> }
+    | { ok: false; message: string } => {
     if (!firstName.trim() || !lastName.trim()) {
       return { ok: false, message: "Vor- und Nachname sind erforderlich." };
+    }
+
+    if (selectedProfiles.length === 0) {
+      return {
+        ok: false,
+        message: "Mindestens ein Schichtprofil muss ausgewählt werden.",
+      };
     }
 
     let mini: number | null = null;
@@ -274,7 +462,10 @@ export default function EmployeesPage() {
       if (mj) {
         const n = Number(mj.replace(",", "."));
         if (!Number.isFinite(n) || n <= 0) {
-          return { ok: false, message: "Mini-Job: gültige Max-Stunden/Monat eingeben." };
+          return {
+            ok: false,
+            message: "Mini-Job: gültige Max-Stunden/Monat eingeben.",
+          };
         }
         mini = n;
       }
@@ -282,19 +473,24 @@ export default function EmployeesPage() {
 
     const p = parsePercentInput(percentStr);
     if (percentStr.trim() !== "" && p == null) {
-      return { ok: false, message: "Soll-Prozent: gültige Zahl eingeben (oder leer lassen)." };
+      return {
+        ok: false,
+        message: "Soll-Prozent: gültige Zahl eingeben (oder leer lassen).",
+      };
     }
-    const pct = p;
 
     const body: Record<string, unknown> = {
       firstName: firstName.trim(),
       lastName: lastName.trim(),
-      qualificationTags: qualificationTags,
-      workProfileId: null,
       contractType,
-      targetHoursPercent: pct,
+      status,
+      targetHoursPercent: p,
       miniJobMaxMonthlyHours: contractType === "MINI_JOB" ? mini : null,
       assignedStationNumber: assignedStation,
+      qualificationTags: selectedQuals.map((q) => q.abbreviation),
+      qualificationIds: selectedQuals.map((q) => q.id),
+      allowedShiftProfileIds: selectedProfiles.map((pr) => pr.id),
+      workProfileId: null,
     };
 
     return { ok: true, body };
@@ -302,7 +498,7 @@ export default function EmployeesPage() {
 
   const submitEmployee = async () => {
     setFormError(null);
-    const built = buildContractPayload();
+    const built = buildPayload();
     if (!built.ok) {
       setFormError(built.message);
       return;
@@ -325,21 +521,49 @@ export default function EmployeesPage() {
       resetForm();
       await load();
     } catch (e) {
-      if (e instanceof ApiError) {
-        const msg =
-          e.body &&
-          typeof e.body === "object" &&
-          e.body !== null &&
-          "error" in e.body &&
-          typeof (e.body as { error: unknown }).error === "string"
-            ? (e.body as { error: string }).error
-            : "Speichern fehlgeschlagen.";
-        setFormError(msg);
-      } else {
-        setFormError("Netzwerkfehler");
-      }
+      setFormError(extractApiError(e, "Speichern fehlgeschlagen."));
     } finally {
       setSaving(false);
+    }
+  };
+
+  const submitAbsence = async () => {
+    if (!editingId) return;
+    if (!absenceStart || !absenceEnd) {
+      setAbsenceError("Datum Von und Bis sind erforderlich.");
+      return;
+    }
+    setAbsenceSaving(true);
+    setAbsenceError(null);
+    try {
+      await fetchJson(`/api/employees/${editingId}/absences`, {
+        method: "POST",
+        body: JSON.stringify({
+          type: absenceType,
+          startDate: absenceStart,
+          endDate: absenceEnd,
+          note: absenceNote.trim() || undefined,
+        }),
+      });
+      resetAbsenceForm();
+      await loadAbsences(editingId);
+    } catch (e) {
+      setAbsenceError(extractApiError(e, "Abwesenheit speichern fehlgeschlagen."));
+    } finally {
+      setAbsenceSaving(false);
+    }
+  };
+
+  const deleteAbsence = async (absenceId: string) => {
+    if (!editingId) return;
+    setAbsenceError(null);
+    try {
+      await fetchJson(`/api/employees/${editingId}/absences/${absenceId}`, {
+        method: "DELETE",
+      });
+      await loadAbsences(editingId);
+    } catch (e) {
+      setAbsenceError(extractApiError(e, "Abwesenheit löschen fehlgeschlagen."));
     }
   };
 
@@ -348,23 +572,11 @@ export default function EmployeesPage() {
     setDeleteBusy(true);
     setError(null);
     try {
-      await fetchJson(`/api/employees/${deleteTarget.id}`, {
-        method: "DELETE",
-      });
+      await fetchJson(`/api/employees/${deleteTarget.id}`, { method: "DELETE" });
       setDeleteTarget(null);
       await load();
     } catch (e) {
-      if (e instanceof ApiError) {
-        const msg =
-          e.body &&
-          typeof e.body === "object" &&
-          e.body !== null &&
-          "error" in e.body &&
-          typeof (e.body as { error: unknown }).error === "string"
-            ? (e.body as { error: string }).error
-            : "Löschen fehlgeschlagen.";
-        setError(msg);
-      } else setError("Netzwerkfehler");
+      setError(extractApiError(e, "Löschen fehlgeschlagen."));
     } finally {
       setDeleteBusy(false);
     }
@@ -404,7 +616,11 @@ export default function EmployeesPage() {
                 ),
               }}
             />
-            <Button variant="contained" startIcon={<AddIcon />} onClick={openCreateDialog}>
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={openCreateDialog}
+            >
               Mitarbeiter hinzufügen
             </Button>
           </Box>
@@ -427,6 +643,7 @@ export default function EmployeesPage() {
                         Mitarbeiter
                       </TableSortLabel>
                     </TableCell>
+                    <TableCell>Status</TableCell>
                     <TableCell>
                       <TableSortLabel
                         active={sortKey === "contract"}
@@ -444,7 +661,7 @@ export default function EmployeesPage() {
                 <TableBody>
                   {sortedRows.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={5}>
+                      <TableCell colSpan={6}>
                         <Typography color="text.secondary" sx={{ py: 2 }}>
                           Keine Mitarbeiter.
                         </Typography>
@@ -453,79 +670,120 @@ export default function EmployeesPage() {
                   ) : (
                     sortedRows.map((employee) => {
                       const ct = employee.contractType as ContractType;
+                      const st = (employee.status || "ACTIVE") as StatusType;
                       const hoursLine = contractHoursDetail(employee);
                       return (
-                      <TableRow key={employee.id} hover>
-                        <TableCell>
-                          <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-                            <Avatar sx={{ bgcolor: "primary.main" }}>
-                              {(employee.firstName[0] ?? "") + (employee.lastName[0] ?? "")}
-                            </Avatar>
-                            <Typography variant="body2" fontWeight={500}>
-                              {employee.firstName} {employee.lastName}
-                            </Typography>
-                          </Box>
-                        </TableCell>
-                        <TableCell sx={{ maxWidth: 280 }}>
-                          <Chip
-                            label={CONTRACT_LABELS[ct] ?? ct}
-                            color={CONTRACT_CHIP_COLOR[ct] ?? "default"}
-                            size="small"
-                            variant="filled"
-                            sx={{ fontWeight: 600, mb: hoursLine ? 0.5 : 0 }}
-                          />
-                          {hoursLine ? (
-                            <Typography variant="caption" color="text.secondary" display="block">
-                              {hoursLine}
-                            </Typography>
-                          ) : null}
-                        </TableCell>
-                        <TableCell>
-                          {employee.assignedStationNumber != null ? (
-                            <Chip
-                              label={`St. ${employee.assignedStationNumber}`}
-                              size="small"
-                              variant="outlined"
-                              color="primary"
-                              sx={{ fontWeight: 600, fontSize: 11 }}
-                            />
-                          ) : (
-                            <Typography variant="caption" color="text.secondary">
-                              Alle
-                            </Typography>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
-                            {employee.qualificationTags.length === 0 ? (
-                              <Typography variant="caption" color="text.secondary">
-                                —
+                        <TableRow key={employee.id} hover>
+                          <TableCell>
+                            <Box
+                              sx={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 2,
+                              }}
+                            >
+                              <Avatar sx={{ bgcolor: "primary.main" }}>
+                                {(employee.firstName[0] ?? "") +
+                                  (employee.lastName[0] ?? "")}
+                              </Avatar>
+                              <Typography variant="body2" fontWeight={500}>
+                                {employee.firstName} {employee.lastName}
                               </Typography>
-                            ) : (
-                              employee.qualificationTags.map((qual) => (
-                                <Chip key={qual} label={qual} size="small" sx={{ fontSize: 11 }} />
-                              ))
+                            </Box>
+                          </TableCell>
+                          <TableCell>
+                            <Chip
+                              label={STATUS_LABELS[st] ?? st}
+                              color={STATUS_CHIP_COLOR[st] ?? "default"}
+                              size="small"
+                              variant="filled"
+                              sx={{ fontWeight: 600 }}
+                            />
+                          </TableCell>
+                          <TableCell sx={{ maxWidth: 280 }}>
+                            <Chip
+                              label={CONTRACT_LABELS[ct] ?? ct}
+                              color={CONTRACT_CHIP_COLOR[ct] ?? "default"}
+                              size="small"
+                              variant="filled"
+                              sx={{
+                                fontWeight: 600,
+                                mb: hoursLine ? 0.5 : 0,
+                              }}
+                            />
+                            {hoursLine && (
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                                display="block"
+                              >
+                                {hoursLine}
+                              </Typography>
                             )}
-                          </Box>
-                        </TableCell>
-                        <TableCell align="right">
-                          <IconButton
-                            size="small"
-                            aria-label="Bearbeiten"
-                            onClick={() => openEditDialog(employee)}
-                          >
-                            <EditIcon fontSize="small" />
-                          </IconButton>
-                          <IconButton
-                            size="small"
-                            aria-label="Löschen"
-                            color="error"
-                            onClick={() => setDeleteTarget(employee)}
-                          >
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
-                        </TableCell>
-                      </TableRow>
+                          </TableCell>
+                          <TableCell>
+                            {employee.assignedStationNumber != null ? (
+                              <Chip
+                                label={`St. ${employee.assignedStationNumber}`}
+                                size="small"
+                                variant="outlined"
+                                color="primary"
+                                sx={{ fontWeight: 600, fontSize: 11 }}
+                              />
+                            ) : (
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                              >
+                                Alle
+                              </Typography>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <Box
+                              sx={{
+                                display: "flex",
+                                gap: 0.5,
+                                flexWrap: "wrap",
+                              }}
+                            >
+                              {employee.qualifications.length === 0 ? (
+                                <Typography
+                                  variant="caption"
+                                  color="text.secondary"
+                                >
+                                  —
+                                </Typography>
+                              ) : (
+                                employee.qualifications.map((q) => (
+                                  <Chip
+                                    key={q.id}
+                                    label={q.abbreviation}
+                                    size="small"
+                                    sx={{ fontSize: 11 }}
+                                  />
+                                ))
+                              )}
+                            </Box>
+                          </TableCell>
+                          <TableCell align="right">
+                            <IconButton
+                              size="small"
+                              aria-label="Bearbeiten"
+                              onClick={() => openEditDialog(employee)}
+                            >
+                              <EditIcon fontSize="small" />
+                            </IconButton>
+                            <IconButton
+                              size="small"
+                              aria-label="Löschen"
+                              color="error"
+                              onClick={() => setDeleteTarget(employee)}
+                            >
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          </TableCell>
+                        </TableRow>
                       );
                     })
                   )}
@@ -534,12 +792,17 @@ export default function EmployeesPage() {
             </TableContainer>
           )}
 
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: "divider" }}>
+          <Typography
+            variant="body2"
+            color="text.secondary"
+            sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: "divider" }}
+          >
             {loading ? "…" : `${filtered.length} Mitarbeiter`}
           </Typography>
         </CardContent>
       </Card>
 
+      {/* Create / Edit Dialog */}
       <Dialog
         open={dialogOpen}
         onClose={() => !saving && (setDialogOpen(false), resetForm())}
@@ -549,8 +812,18 @@ export default function EmployeesPage() {
         <DialogTitle>
           {editingId ? "Mitarbeiter bearbeiten" : "Mitarbeiter hinzufügen"}
         </DialogTitle>
-        <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 2, pt: 2 }}>
+        <DialogContent
+          sx={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 2,
+            pt: 2,
+            maxHeight: "70vh",
+            overflowY: "auto",
+          }}
+        >
           {formError && <Alert severity="error">{formError}</Alert>}
+
           <TextField
             label="Vorname"
             value={firstName}
@@ -572,7 +845,11 @@ export default function EmployeesPage() {
             select
             label="Vertragsart"
             value={contractType}
-            onChange={(e) => setContractType(e.target.value as ContractType)}
+            onChange={(e) => {
+              setContractType(e.target.value as ContractType);
+              if (!profilesTouched) return;
+              setProfilesTouched(false);
+            }}
             fullWidth
             disabled={saving}
           >
@@ -580,6 +857,21 @@ export default function EmployeesPage() {
             <MenuItem value="PART_TIME">Teilzeit</MenuItem>
             <MenuItem value="MINI_JOB">Mini-Job</MenuItem>
             <MenuItem value="AUSBILDUNG">Ausbildung</MenuItem>
+          </TextField>
+
+          <TextField
+            select
+            label="Status"
+            value={status}
+            onChange={(e) => setStatus(e.target.value as StatusType)}
+            fullWidth
+            disabled={saving}
+          >
+            {STATUS_OPTIONS.map((s) => (
+              <MenuItem key={s} value={s}>
+                {STATUS_LABELS[s]}
+              </MenuItem>
+            ))}
           </TextField>
 
           <TextField
@@ -604,32 +896,92 @@ export default function EmployeesPage() {
 
           <Autocomplete
             multiple
-            freeSolo
             openOnFocus
-            options={qualificationTagOptions}
-            value={qualificationTags}
+            options={qualCatalog}
+            value={selectedQuals}
             onChange={(_, v) => {
-              const next = [
-                ...new Set(
-                  v
-                    .map((x) => String(x).trim())
-                    .filter((s) => s.length > 0),
-                ),
-              ];
-              setQualificationTags(next);
+              setSelectedQuals(v);
+              if (profilesTouched) setProfilesTouched(false);
             }}
-            filterSelectedOptions
+            getOptionLabel={(o) => `${o.name} (${o.abbreviation})`}
+            isOptionEqualToValue={(a, b) => a.id === b.id}
+            disableCloseOnSelect
+            renderOption={(props, option, { selected }) => (
+              <li {...props} key={option.id}>
+                <Checkbox
+                  size="small"
+                  checked={selected}
+                  sx={{ mr: 1 }}
+                />
+                {option.name} ({option.abbreviation})
+              </li>
+            )}
             renderTags={(value, getTagProps) =>
               value.map((option, index) => (
-                <Chip variant="outlined" label={option} {...getTagProps({ index })} key={`${option}-${index}`} />
+                <Chip
+                  variant="outlined"
+                  label={option.abbreviation}
+                  {...getTagProps({ index })}
+                  key={option.id}
+                />
               ))
             }
             renderInput={(params) => (
               <TextField
                 {...params}
                 label="Qualifikationen"
-                placeholder="Tippen oder aus bestehenden wählen"
-                helperText="Vorschläge aus allen Mitarbeitern dieser Einrichtung; neue Begriffe möglich."
+                placeholder="Qualifikation wählen"
+              />
+            )}
+            disabled={saving}
+          />
+
+          <Autocomplete
+            multiple
+            openOnFocus
+            options={shiftProfileCatalog}
+            value={selectedProfiles}
+            onChange={(_, v) => {
+              setSelectedProfiles(v);
+              setProfilesTouched(true);
+            }}
+            getOptionLabel={(o) =>
+              `${o.name} (${SHIFT_TYPE_LABELS[o.shiftType] ?? o.shiftType})`
+            }
+            isOptionEqualToValue={(a, b) => a.id === b.id}
+            disableCloseOnSelect
+            renderOption={(props, option, { selected }) => (
+              <li {...props} key={option.id}>
+                <Checkbox
+                  size="small"
+                  checked={selected}
+                  sx={{ mr: 1 }}
+                />
+                {option.name} (
+                {SHIFT_TYPE_LABELS[option.shiftType] ?? option.shiftType})
+              </li>
+            )}
+            renderTags={(value, getTagProps) =>
+              value.map((option, index) => (
+                <Chip
+                  variant="outlined"
+                  label={option.name}
+                  {...getTagProps({ index })}
+                  key={option.id}
+                />
+              ))
+            }
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Erlaubte Schichtprofile"
+                placeholder="Profil wählen"
+                error={selectedProfiles.length === 0 && profilesTouched}
+                helperText={
+                  selectedProfiles.length === 0 && profilesTouched
+                    ? "Mindestens ein Schichtprofil erforderlich"
+                    : "Wird automatisch aus Vertragsart + Qualifikation vorgeschlagen"
+                }
               />
             )}
             disabled={saving}
@@ -652,6 +1004,190 @@ export default function EmployeesPage() {
             <MenuItem value={2}>Station 2</MenuItem>
             <MenuItem value={3}>Station 3</MenuItem>
           </TextField>
+
+          {editingId && (
+            <>
+              <Divider sx={{ mt: 2 }} />
+              <Typography variant="subtitle1" fontWeight={600}>
+                Abwesenheiten
+              </Typography>
+
+              {absenceError && (
+                <Alert
+                  severity="error"
+                  onClose={() => setAbsenceError(null)}
+                >
+                  {absenceError}
+                </Alert>
+              )}
+
+              {absencesLoading ? (
+                <Box
+                  sx={{ display: "flex", justifyContent: "center", py: 2 }}
+                >
+                  <CircularProgress size={24} />
+                </Box>
+              ) : (
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Typ</TableCell>
+                        <TableCell>Von</TableCell>
+                        <TableCell>Bis</TableCell>
+                        <TableCell>Notiz</TableCell>
+                        <TableCell align="right">Aktionen</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {absences.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={5}>
+                            <Typography
+                              variant="caption"
+                              color="text.secondary"
+                            >
+                              Keine Abwesenheiten.
+                            </Typography>
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        absences.map((a) => (
+                          <TableRow key={a.id}>
+                            <TableCell>
+                              <Chip
+                                label={
+                                  ABSENCE_TYPE_LABELS[a.type] ?? a.type
+                                }
+                                size="small"
+                                color={
+                                  a.type === "KRANK" ? "error" : "info"
+                                }
+                                variant="filled"
+                                sx={{ fontWeight: 600 }}
+                              />
+                            </TableCell>
+                            <TableCell>{a.startDate}</TableCell>
+                            <TableCell>{a.endDate}</TableCell>
+                            <TableCell>
+                              {a.note || (
+                                <Typography
+                                  variant="caption"
+                                  color="text.secondary"
+                                >
+                                  —
+                                </Typography>
+                              )}
+                            </TableCell>
+                            <TableCell align="right">
+                              <IconButton
+                                size="small"
+                                aria-label="Abwesenheit bearbeiten"
+                                onClick={() => {
+                                  setAbsenceEditId(a.id);
+                                  setAbsenceType(
+                                    a.type as "KRANK" | "URLAUB",
+                                  );
+                                  setAbsenceStart(a.startDate);
+                                  setAbsenceEnd(a.endDate);
+                                  setAbsenceNote(a.note ?? "");
+                                }}
+                              >
+                                <EditIcon fontSize="small" />
+                              </IconButton>
+                              <IconButton
+                                size="small"
+                                aria-label="Abwesenheit löschen"
+                                color="error"
+                                onClick={() => void deleteAbsence(a.id)}
+                              >
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              )}
+
+              <Box
+                sx={{
+                  display: "flex",
+                  gap: 1.5,
+                  flexWrap: "wrap",
+                  alignItems: "flex-start",
+                  mt: 1,
+                }}
+              >
+                <TextField
+                  select
+                  label="Typ"
+                  value={absenceType}
+                  onChange={(e) =>
+                    setAbsenceType(e.target.value as "KRANK" | "URLAUB")
+                  }
+                  size="small"
+                  sx={{ minWidth: 120 }}
+                  disabled={absenceSaving}
+                >
+                  <MenuItem value="KRANK">Krank</MenuItem>
+                  <MenuItem value="URLAUB">Urlaub</MenuItem>
+                </TextField>
+                <TextField
+                  label="Von"
+                  type="date"
+                  value={absenceStart}
+                  onChange={(e) => setAbsenceStart(e.target.value)}
+                  size="small"
+                  InputLabelProps={{ shrink: true }}
+                  disabled={absenceSaving}
+                />
+                <TextField
+                  label="Bis"
+                  type="date"
+                  value={absenceEnd}
+                  onChange={(e) => setAbsenceEnd(e.target.value)}
+                  size="small"
+                  InputLabelProps={{ shrink: true }}
+                  disabled={absenceSaving}
+                />
+                <TextField
+                  label="Notiz"
+                  value={absenceNote}
+                  onChange={(e) => setAbsenceNote(e.target.value)}
+                  size="small"
+                  sx={{ flex: 1, minWidth: 120 }}
+                  disabled={absenceSaving}
+                />
+                <Button
+                  variant="outlined"
+                  size="small"
+                  sx={{ mt: 0.5 }}
+                  disabled={absenceSaving}
+                  onClick={() => void submitAbsence()}
+                >
+                  {absenceSaving ? (
+                    <CircularProgress size={18} />
+                  ) : absenceEditId ? (
+                    "Aktualisieren"
+                  ) : (
+                    "Neue Abwesenheit"
+                  )}
+                </Button>
+                {absenceEditId && (
+                  <Button
+                    size="small"
+                    sx={{ mt: 0.5 }}
+                    onClick={resetAbsenceForm}
+                  >
+                    Abbrechen
+                  </Button>
+                )}
+              </Box>
+            </>
+          )}
         </DialogContent>
         <DialogActions>
           <Button
@@ -663,12 +1199,17 @@ export default function EmployeesPage() {
           >
             Abbrechen
           </Button>
-          <Button variant="contained" onClick={() => void submitEmployee()} disabled={saving}>
+          <Button
+            variant="contained"
+            onClick={() => void submitEmployee()}
+            disabled={saving}
+          >
             {saving ? <CircularProgress size={22} /> : "Speichern"}
           </Button>
         </DialogActions>
       </Dialog>
 
+      {/* Delete Confirmation Dialog */}
       <Dialog
         open={deleteTarget !== null}
         onClose={() => !deleteBusy && setDeleteTarget(null)}
@@ -677,7 +1218,7 @@ export default function EmployeesPage() {
         <DialogContent>
           <Typography>
             {deleteTarget
-              ? `„${deleteTarget.firstName} ${deleteTarget.lastName}“ wirklich löschen? Zugehörige Zuweisungen und Wünsche werden mit entfernt.`
+              ? `„${deleteTarget.firstName} ${deleteTarget.lastName}" wirklich löschen? Zugehörige Zuweisungen und Wünsche werden mit entfernt.`
               : ""}
           </Typography>
         </DialogContent>
@@ -691,7 +1232,11 @@ export default function EmployeesPage() {
             onClick={() => void confirmDelete()}
             disabled={deleteBusy}
           >
-            {deleteBusy ? <CircularProgress size={22} color="inherit" /> : "Löschen"}
+            {deleteBusy ? (
+              <CircularProgress size={22} color="inherit" />
+            ) : (
+              "Löschen"
+            )}
           </Button>
         </DialogActions>
       </Dialog>

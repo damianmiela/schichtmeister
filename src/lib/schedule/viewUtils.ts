@@ -22,6 +22,7 @@ const SHIFT_TYPE_DE: Record<string, string> = {
   EARLY: "Früh",
   LATE: "Spät",
   NIGHT: "Nacht",
+  BL: "Bereichsleitung",
 };
 
 export function shiftTypeLabel(t: string): string {

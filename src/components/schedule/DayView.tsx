@@ -303,7 +303,7 @@ export default function DayView({
                               >
                                 {name}
                               </Typography>
-                              <QualificationPills tags={tags} compact />
+                              <QualificationPills qualifications={employee?.qualifications} tags={tags} compact />
                             </Box>
                           );
                         })}

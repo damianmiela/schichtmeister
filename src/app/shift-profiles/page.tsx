@@ -29,7 +29,7 @@ import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import { shiftTypeLabel } from "@/lib/schedule/viewUtils";
 
-type ShiftType = "EARLY" | "LATE" | "NIGHT";
+type ShiftType = "EARLY" | "LATE" | "NIGHT" | "BL";
 
 type ShiftProfile = {
   id: string;
@@ -38,6 +38,9 @@ type ShiftProfile = {
   startTime: string;
   endTime: string;
   breakMinutes: number;
+  startTime2: string | null;
+  endTime2: string | null;
+  breakMinutes2: number | null;
   isActive: boolean;
 };
 
@@ -45,15 +48,17 @@ const TYPE_BORDER: Record<string, string> = {
   EARLY: "#ff9800",
   LATE: "#2196f3",
   NIGHT: "#9c27b0",
+  BL: "#00796b",
 };
 
 const SHIFT_TYPE_GROUP_LABELS: Record<ShiftType, string> = {
   EARLY: "Früh",
   LATE: "Spät",
   NIGHT: "Nacht",
+  BL: "Bereichsleitung",
 };
 
-const SHIFT_TYPE_ORDER: ShiftType[] = ["EARLY", "LATE", "NIGHT"];
+const SHIFT_TYPE_ORDER: ShiftType[] = ["EARLY", "LATE", "NIGHT", "BL"];
 
 export default function ShiftProfilesPage() {
   const [profiles, setProfiles] = useState<ShiftProfile[]>([]);
@@ -69,6 +74,9 @@ export default function ShiftProfilesPage() {
   const [startTime, setStartTime] = useState("06:00");
   const [endTime, setEndTime] = useState("14:30");
   const [breakMinutes, setBreakMinutes] = useState("30");
+  const [startTime2, setStartTime2] = useState("");
+  const [endTime2, setEndTime2] = useState("");
+  const [breakMinutes2, setBreakMinutes2] = useState("");
   const [isActive, setIsActive] = useState(true);
   const [deleteTarget, setDeleteTarget] = useState<ShiftProfile | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -109,6 +117,9 @@ export default function ShiftProfilesPage() {
     setStartTime("06:00");
     setEndTime("14:30");
     setBreakMinutes("30");
+    setStartTime2("");
+    setEndTime2("");
+    setBreakMinutes2("");
     setIsActive(true);
   };
 
@@ -125,6 +136,9 @@ export default function ShiftProfilesPage() {
     setStartTime(p.startTime);
     setEndTime(p.endTime);
     setBreakMinutes(String(p.breakMinutes));
+    setStartTime2(p.startTime2 ?? "");
+    setEndTime2(p.endTime2 ?? "");
+    setBreakMinutes2(p.breakMinutes2 != null ? String(p.breakMinutes2) : "");
     setIsActive(p.isActive);
     setDialogOpen(true);
   };
@@ -138,13 +152,16 @@ export default function ShiftProfilesPage() {
       return;
     }
 
-    const body = {
+    const body: Record<string, unknown> = {
       name: name.trim(),
       shiftType,
       startTime,
       endTime,
       breakMinutes: bm,
       isActive,
+      startTime2: startTime2 || null,
+      endTime2: endTime2 || null,
+      breakMinutes2: breakMinutes2 ? parseInt(breakMinutes2, 10) : null,
     };
 
     setSaving(true);
@@ -326,6 +343,22 @@ export default function ShiftProfilesPage() {
                           Pause {profile.breakMinutes} min
                         </Typography>
 
+                        {profile.startTime2 && profile.endTime2 && (
+                          <>
+                            <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 0.5 }}>
+                              <AccessTimeIcon fontSize="small" color="action" />
+                              <Typography variant="body2">
+                                {profile.startTime2} – {profile.endTime2} (Teildienst)
+                              </Typography>
+                            </Box>
+                            {profile.breakMinutes2 != null && (
+                              <Typography variant="body2" color="text.secondary">
+                                Pause 2: {profile.breakMinutes2} min
+                              </Typography>
+                            )}
+                          </>
+                        )}
+
                         <Box sx={{ mt: 2 }}>
                           <FormControlLabel
                             control={
@@ -380,6 +413,7 @@ export default function ShiftProfilesPage() {
               <MenuItem value="EARLY">Früh</MenuItem>
               <MenuItem value="LATE">Spät</MenuItem>
               <MenuItem value="NIGHT">Nacht</MenuItem>
+              <MenuItem value="BL">Bereichsleitung</MenuItem>
             </TextField>
           </Box>
 
@@ -410,6 +444,38 @@ export default function ShiftProfilesPage() {
             fullWidth
             disabled={saving}
           />
+
+          <Typography variant="subtitle2" sx={{ mt: 1, mb: -1 }}>
+            Teildienst (optional, z.B. für F6)
+          </Typography>
+          <Box sx={{ display: "flex", gap: 2 }}>
+            <TextField
+              label="Beginn 2"
+              type="time"
+              value={startTime2}
+              onChange={(e) => setStartTime2(e.target.value)}
+              fullWidth
+              disabled={saving}
+              InputLabelProps={{ shrink: true }}
+            />
+            <TextField
+              label="Ende 2"
+              type="time"
+              value={endTime2}
+              onChange={(e) => setEndTime2(e.target.value)}
+              fullWidth
+              disabled={saving}
+              InputLabelProps={{ shrink: true }}
+            />
+          </Box>
+          <TextField
+            label="Pause 2 (Minuten)"
+            value={breakMinutes2}
+            onChange={(e) => setBreakMinutes2(e.target.value)}
+            fullWidth
+            disabled={saving}
+          />
+
           <FormControlLabel
             control={
               <Switch checked={isActive} onChange={(e) => setIsActive(e.target.checked)} disabled={saving} />

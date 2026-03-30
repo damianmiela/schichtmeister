@@ -3,46 +3,57 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import MainLayout from "@/components/layout/MainLayout";
 import { ApiError, fetchJson } from "@/lib/api/fetchJson";
+import { shiftTypeLabel } from "@/lib/schedule/viewUtils";
 import {
+  Alert,
+  alpha,
+  Autocomplete,
   Box,
+  Button,
   Card,
   CardContent,
-  Typography,
-  TextField,
-  Button,
-  Divider,
-  Grid,
-  Alert,
+  Checkbox,
+  Chip,
   CircularProgress,
   Dialog,
-  DialogTitle,
-  DialogContent,
   DialogActions,
-  MenuItem,
+  DialogContent,
+  DialogTitle,
+  Divider,
+  FormControlLabel,
+  Grid,
   IconButton,
-  Autocomplete,
-  Chip,
+  MenuItem,
+  Switch,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  TextField,
   Tooltip,
-  alpha,
+  Typography,
   useTheme,
 } from "@mui/material";
 import SaveIcon from "@mui/icons-material/Save";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
+import EditIcon from "@mui/icons-material/Edit";
 import GridOnIcon from "@mui/icons-material/GridOn";
 import WbSunnyIcon from "@mui/icons-material/WbSunny";
 import WbTwilightIcon from "@mui/icons-material/WbTwilight";
 import NightsStayIcon from "@mui/icons-material/NightsStay";
-import { shiftTypeLabel } from "@/lib/schedule/viewUtils";
+import WorkIcon from "@mui/icons-material/Work";
 
-const SHIFT_TYPES = ["EARLY", "LATE", "NIGHT"] as const;
-type ShiftTypeValue = (typeof SHIFT_TYPES)[number];
-const STATIONS = [1, 2, 3] as const;
+/* ──────────────── types ──────────────── */
 
-const SHIFT_ICON: Record<string, React.ReactNode> = {
-  EARLY: <WbSunnyIcon fontSize="small" sx={{ color: "warning.main" }} />,
-  LATE: <WbTwilightIcon fontSize="small" sx={{ color: "info.main" }} />,
-  NIGHT: <NightsStayIcon fontSize="small" sx={{ color: "secondary.main" }} />,
+type QualificationCatalog = {
+  id: string;
+  name: string;
+  abbreviation: string;
+  isActive: boolean;
+  sortOrder: number;
 };
 
 type QualificationRow = {
@@ -56,6 +67,8 @@ type StaffingRow = {
   shiftType: string;
   stationNumber: number;
   minTotalCount: number;
+  maxTotalCount: number | null;
+  isFacilityWide: boolean;
   qualificationRequirements: QualificationRow[];
 };
 
@@ -74,7 +87,20 @@ type FacilityRulesResponse = {
   rules: RuleEntry[];
 };
 
-type EmployeeTagSource = { qualificationTags: string[] };
+/* ──────────────── constants ──────────────── */
+
+const SHIFT_TYPES = ["EARLY", "LATE", "NIGHT", "BL"] as const;
+type ShiftTypeValue = (typeof SHIFT_TYPES)[number];
+
+const STATIONS = [1, 2, 3] as const;
+const STATION_SHIFT_TYPES: ShiftTypeValue[] = ["EARLY", "LATE"];
+
+const SHIFT_ICON: Record<string, React.ReactNode> = {
+  EARLY: <WbSunnyIcon fontSize="small" sx={{ color: "warning.main" }} />,
+  LATE: <WbTwilightIcon fontSize="small" sx={{ color: "info.main" }} />,
+  NIGHT: <NightsStayIcon fontSize="small" sx={{ color: "secondary.main" }} />,
+  BL: <WorkIcon fontSize="small" sx={{ color: "success.main" }} />,
+};
 
 const HIDDEN_RULES = new Set([
   "noOverlap",
@@ -115,15 +141,37 @@ function extractApiError(e: unknown, fallback: string): string {
   return "Netzwerkfehler";
 }
 
+/* ──────────────── page ──────────────── */
+
 export default function SettingsPage() {
   const theme = useTheme();
 
-  // --- Staffing state ---
+  // ── Qualification catalog state ──
+  const [qualifications, setQualifications] = useState<QualificationCatalog[]>(
+    [],
+  );
+  const [qualLoading, setQualLoading] = useState(true);
+  const [qualError, setQualError] = useState<string | null>(null);
+  const [qualDialogOpen, setQualDialogOpen] = useState(false);
+  const [qualEditId, setQualEditId] = useState<string | null>(null);
+  const [qualForm, setQualForm] = useState({
+    name: "",
+    abbreviation: "",
+    sortOrder: "0",
+    isActive: true,
+  });
+  const [qualSaving, setQualSaving] = useState(false);
+  const [qualFormError, setQualFormError] = useState<string | null>(null);
+  const [qualDeleteId, setQualDeleteId] = useState<string | null>(null);
+  const [qualDeleteBusy, setQualDeleteBusy] = useState(false);
+  const [qualDeleteError, setQualDeleteError] = useState<string | null>(null);
+
+  // ── Staffing state ──
   const [staffing, setStaffing] = useState<StaffingRow[]>([]);
-  const [employees, setEmployees] = useState<EmployeeTagSource[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [draftMin, setDraftMin] = useState<Record<string, string>>({});
+  const [draftMax, setDraftMax] = useState<Record<string, string>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
   const [templateBusy, setTemplateBusy] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
@@ -132,17 +180,20 @@ export default function SettingsPage() {
   const [newShift, setNewShift] = useState<ShiftTypeValue>("EARLY");
   const [newStation, setNewStation] = useState(1);
   const [newMin, setNewMin] = useState("1");
+  const [newMax, setNewMax] = useState("");
+  const [newFacilityWide, setNewFacilityWide] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
 
-  // --- Qualification sub-row add state ---
+  // ── Qualification sub-row add state ──
   const [addQualSrId, setAddQualSrId] = useState<string | null>(null);
-  const [newQualTag, setNewQualTag] = useState("");
+  const [newQualSelection, setNewQualSelection] =
+    useState<QualificationCatalog | null>(null);
   const [newQualMin, setNewQualMin] = useState("1");
   const [addQualBusy, setAddQualBusy] = useState(false);
   const [addQualError, setAddQualError] = useState<string | null>(null);
 
-  // --- Planning rules state ---
+  // ── Planning rules state ──
   const [rulesData, setRulesData] = useState<FacilityRulesResponse | null>(
     null,
   );
@@ -155,50 +206,72 @@ export default function SettingsPage() {
   const [rulesError, setRulesError] = useState<string | null>(null);
   const [rulesSuccess, setRulesSuccess] = useState(false);
 
-  const qualificationTagOptions = useMemo(() => {
-    const s = new Set<string>();
-    for (const e of employees) {
-      for (const t of e.qualificationTags) {
-        if (t.trim()) s.add(t.trim());
-      }
-    }
-    return [...s].sort((a, b) => a.localeCompare(b, "de"));
-  }, [employees]);
+  // ── Derived ──
 
-  // --- Load staffing ---
+  const activeQualifications = useMemo(
+    () =>
+      qualifications
+        .filter((q) => q.isActive)
+        .sort((a, b) => a.sortOrder - b.sortOrder),
+    [qualifications],
+  );
+
+  const qualNameByAbbr = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const q of qualifications) m.set(q.abbreviation, q.name);
+    return m;
+  }, [qualifications]);
+
+  /* ════════════════ loaders ════════════════ */
+
+  const loadQualifications = useCallback(async () => {
+    setQualLoading(true);
+    setQualError(null);
+    try {
+      const res = await fetchJson<{ qualifications: QualificationCatalog[] }>(
+        "/api/qualifications",
+      );
+      setQualifications(
+        (res.qualifications ?? []).sort((a, b) => a.sortOrder - b.sortOrder),
+      );
+    } catch (e) {
+      setQualError(
+        extractApiError(e, "Qualifikationen konnten nicht geladen werden."),
+      );
+    } finally {
+      setQualLoading(false);
+    }
+  }, []);
+
   const loadStaffing = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [staffRes, empRes] = await Promise.all([
-        fetchJson<{ staffingRequirements: StaffingRow[] }>(
-          "/api/staffing-requirements",
-        ),
-        fetchJson<{ employees: EmployeeTagSource[] }>("/api/employees"),
-      ]);
-      setStaffing(staffRes.staffingRequirements);
-      setEmployees(empRes.employees ?? []);
-      const d: Record<string, string> = {};
-      for (const r of staffRes.staffingRequirements) {
-        d[r.id] = String(r.minTotalCount);
+      const res = await fetchJson<{ staffingRequirements: StaffingRow[] }>(
+        "/api/staffing-requirements",
+      );
+      setStaffing(res.staffingRequirements);
+      const dm: Record<string, string> = {};
+      const dx: Record<string, string> = {};
+      for (const r of res.staffingRequirements) {
+        dm[r.id] = String(r.minTotalCount);
+        dx[r.id] = r.maxTotalCount != null ? String(r.maxTotalCount) : "";
       }
-      setDraft(d);
+      setDraftMin(dm);
+      setDraftMax(dx);
     } catch (e) {
       setError(extractApiError(e, "Laden fehlgeschlagen."));
       setStaffing([]);
-      setEmployees([]);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // --- Load rules ---
   const loadRules = useCallback(async () => {
     setRulesLoading(true);
     try {
-      const data = await fetchJson<FacilityRulesResponse>(
-        "/api/facility/rules",
-      );
+      const data =
+        await fetchJson<FacilityRulesResponse>("/api/facility/rules");
       setRulesData(data);
       setMinRestHoursDraft(String(data.minRestHours));
       const d: Record<
@@ -221,40 +294,164 @@ export default function SettingsPage() {
   }, []);
 
   useEffect(() => {
+    void loadQualifications();
     void loadStaffing();
     void loadRules();
-  }, [loadStaffing, loadRules]);
+  }, [loadQualifications, loadStaffing, loadRules]);
 
-  // --- Staffing grouped by station ---
-  const staffingByStation = useMemo(() => {
+  /* ════════════════ qualification actions ════════════════ */
+
+  const openQualDialog = (qual?: QualificationCatalog) => {
+    if (qual) {
+      setQualEditId(qual.id);
+      setQualForm({
+        name: qual.name,
+        abbreviation: qual.abbreviation,
+        sortOrder: String(qual.sortOrder),
+        isActive: qual.isActive,
+      });
+    } else {
+      setQualEditId(null);
+      const maxSort = qualifications.reduce(
+        (max, q) => Math.max(max, q.sortOrder),
+        0,
+      );
+      setQualForm({
+        name: "",
+        abbreviation: "",
+        sortOrder: String(maxSort + 1),
+        isActive: true,
+      });
+    }
+    setQualFormError(null);
+    setQualDialogOpen(true);
+  };
+
+  const saveQualification = async () => {
+    if (!qualForm.name.trim() || !qualForm.abbreviation.trim()) {
+      setQualFormError("Name und Abkürzung sind erforderlich.");
+      return;
+    }
+    setQualSaving(true);
+    setQualFormError(null);
+    try {
+      const body = {
+        name: qualForm.name.trim(),
+        abbreviation: qualForm.abbreviation.trim(),
+        sortOrder: Number(qualForm.sortOrder) || 0,
+        isActive: qualForm.isActive,
+      };
+      if (qualEditId) {
+        await fetchJson(`/api/qualifications/${qualEditId}`, {
+          method: "PATCH",
+          body: JSON.stringify(body),
+        });
+      } else {
+        await fetchJson("/api/qualifications", {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+      }
+      setQualDialogOpen(false);
+      await loadQualifications();
+    } catch (e) {
+      setQualFormError(extractApiError(e, "Speichern fehlgeschlagen."));
+    } finally {
+      setQualSaving(false);
+    }
+  };
+
+  const confirmDeleteQual = async () => {
+    if (!qualDeleteId) return;
+    setQualDeleteBusy(true);
+    setQualDeleteError(null);
+    try {
+      await fetchJson(`/api/qualifications/${qualDeleteId}`, {
+        method: "DELETE",
+      });
+      setQualDeleteId(null);
+      await loadQualifications();
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) {
+        setQualDeleteError(
+          "Qualifikation wird noch von Mitarbeitern verwendet und kann nicht gelöscht werden.",
+        );
+      } else {
+        setQualDeleteError(extractApiError(e, "Löschen fehlgeschlagen."));
+      }
+    } finally {
+      setQualDeleteBusy(false);
+    }
+  };
+
+  /* ════════════════ staffing computed ════════════════ */
+
+  const stationRowMap = useMemo(() => {
     const map = new Map<number, Map<string, StaffingRow>>();
     for (const st of STATIONS) map.set(st, new Map());
     for (const r of staffing) {
-      map.get(r.stationNumber)?.set(r.shiftType, r);
+      if (!r.isFacilityWide && r.stationNumber >= 1 && r.stationNumber <= 3) {
+        map.get(r.stationNumber)?.set(r.shiftType, r);
+      }
     }
     return map;
   }, [staffing]);
 
-  const missingCombos = useMemo(() => {
+  const facilityWideRows = useMemo(
+    () => staffing.filter((r) => r.isFacilityWide),
+    [staffing],
+  );
+
+  const missingDefaults = useMemo(() => {
     const have = new Set(
-      staffing.map((r) => `${r.shiftType}:${r.stationNumber}`),
+      staffing.map((r) =>
+        r.isFacilityWide
+          ? `FW:${r.shiftType}`
+          : `${r.shiftType}:${r.stationNumber}`,
+      ),
     );
-    const missing: { shiftType: ShiftTypeValue; stationNumber: number }[] = [];
+    const missing: {
+      shiftType: ShiftTypeValue;
+      stationNumber: number;
+      isFacilityWide: boolean;
+    }[] = [];
     for (const st of STATIONS) {
-      for (const shift of SHIFT_TYPES) {
+      for (const shift of STATION_SHIFT_TYPES) {
         if (!have.has(`${shift}:${st}`))
-          missing.push({ shiftType: shift, stationNumber: st });
+          missing.push({
+            shiftType: shift,
+            stationNumber: st,
+            isFacilityWide: false,
+          });
       }
+    }
+    if (!have.has("FW:NIGHT")) {
+      missing.push({
+        shiftType: "NIGHT",
+        stationNumber: 0,
+        isFacilityWide: true,
+      });
     }
     return missing;
   }, [staffing]);
 
-  // --- Staffing actions ---
+  /* ════════════════ staffing actions ════════════════ */
+
   const saveRow = async (id: string) => {
-    const raw = draft[id];
-    const n = Number(raw);
-    if (!Number.isFinite(n) || n < 0) {
+    const rawMin = draftMin[id];
+    const rawMax = draftMax[id];
+    const minVal = Number(rawMin);
+    if (!Number.isFinite(minVal) || minVal < 0) {
       setError("Mindestanzahl: gültige Zahl >= 0.");
+      return;
+    }
+    const maxVal = rawMax?.trim() ? Number(rawMax) : null;
+    if (maxVal !== null && (!Number.isFinite(maxVal) || maxVal < 0)) {
+      setError("Maximalanzahl: gültige Zahl >= 0 oder leer lassen.");
+      return;
+    }
+    if (maxVal !== null && maxVal < minVal) {
+      setError("Maximalanzahl darf nicht kleiner als Mindestanzahl sein.");
       return;
     }
     setSavingId(id);
@@ -262,7 +459,10 @@ export default function SettingsPage() {
     try {
       await fetchJson(`/api/staffing-requirements/${id}`, {
         method: "PATCH",
-        body: JSON.stringify({ minTotalCount: Math.floor(n) }),
+        body: JSON.stringify({
+          minTotalCount: Math.floor(minVal),
+          maxTotalCount: maxVal !== null ? Math.floor(maxVal) : null,
+        }),
       });
       await loadStaffing();
     } catch (e) {
@@ -276,23 +476,16 @@ export default function SettingsPage() {
     setTemplateBusy(true);
     setError(null);
     try {
-      const have = new Set(
-        staffing.map((r) => `${r.shiftType}:${r.stationNumber}`),
-      );
-      for (const station of STATIONS) {
-        for (const st of SHIFT_TYPES) {
-          const key = `${st}:${station}`;
-          if (have.has(key)) continue;
-          await fetchJson("/api/staffing-requirements", {
-            method: "POST",
-            body: JSON.stringify({
-              shiftType: st,
-              stationNumber: station,
-              minTotalCount: 1,
-            }),
-          });
-          have.add(key);
-        }
+      for (const m of missingDefaults) {
+        await fetchJson("/api/staffing-requirements", {
+          method: "POST",
+          body: JSON.stringify({
+            shiftType: m.shiftType,
+            stationNumber: m.stationNumber,
+            minTotalCount: 1,
+            isFacilityWide: m.isFacilityWide,
+          }),
+        });
       }
       await loadStaffing();
     } catch (e) {
@@ -303,28 +496,26 @@ export default function SettingsPage() {
   };
 
   const openAddDialog = () => {
-    if (missingCombos.length === 0) return;
     setAddFormError(null);
-    setNewShift(missingCombos[0]?.shiftType ?? "EARLY");
-    setNewStation(missingCombos[0]?.stationNumber ?? 1);
+    setNewShift("EARLY");
+    setNewStation(1);
     setNewMin("1");
+    setNewMax("");
+    setNewFacilityWide(false);
     setAddOpen(true);
   };
 
   const submitAdd = async () => {
-    const n = Number(newMin.replace(",", "."));
-    if (!Number.isFinite(n) || n < 0) {
+    const minVal = Number(newMin.replace(",", "."));
+    if (!Number.isFinite(minVal) || minVal < 0) {
       setAddFormError("Minimum: gültige Zahl >= 0.");
       return;
     }
-    if (
-      staffing.some(
-        (r) => r.shiftType === newShift && r.stationNumber === newStation,
-      )
-    ) {
-      setAddFormError(
-        "Für diesen Schichttyp und Station existiert bereits ein Eintrag.",
-      );
+    const maxVal = newMax.trim()
+      ? Number(newMax.replace(",", "."))
+      : null;
+    if (maxVal !== null && (!Number.isFinite(maxVal) || maxVal < 0)) {
+      setAddFormError("Maximum: gültige Zahl >= 0 oder leer lassen.");
       return;
     }
     setAddBusy(true);
@@ -335,8 +526,10 @@ export default function SettingsPage() {
         method: "POST",
         body: JSON.stringify({
           shiftType: newShift,
-          stationNumber: newStation,
-          minTotalCount: Math.floor(n),
+          stationNumber: newFacilityWide ? 0 : newStation,
+          minTotalCount: Math.floor(minVal),
+          maxTotalCount: maxVal !== null ? Math.floor(maxVal) : null,
+          isFacilityWide: newFacilityWide,
         }),
       });
       setAddOpen(false);
@@ -365,9 +558,10 @@ export default function SettingsPage() {
     }
   };
 
-  // --- Qualification sub-row actions ---
+  /* ════════════════ qualification sub-row actions ════════════════ */
+
   const addQualification = async () => {
-    if (!addQualSrId || !newQualTag.trim()) return;
+    if (!addQualSrId || !newQualSelection) return;
     const minVal = Number(newQualMin);
     if (!Number.isFinite(minVal) || minVal < 1) {
       setAddQualError("Mindestens 1.");
@@ -381,13 +575,13 @@ export default function SettingsPage() {
         {
           method: "POST",
           body: JSON.stringify({
-            qualificationTag: newQualTag.trim(),
+            qualificationTag: newQualSelection.abbreviation,
             minCount: Math.floor(minVal),
           }),
         },
       );
       setAddQualSrId(null);
-      setNewQualTag("");
+      setNewQualSelection(null);
       setNewQualMin("1");
       await loadStaffing();
     } catch (e) {
@@ -420,10 +614,7 @@ export default function SettingsPage() {
     try {
       await fetchJson(
         `/api/staffing-requirements/${srId}/qualifications/${qId}`,
-        {
-          method: "PATCH",
-          body: JSON.stringify({ minCount }),
-        },
+        { method: "PATCH", body: JSON.stringify({ minCount }) },
       );
       await loadStaffing();
     } catch (e) {
@@ -431,7 +622,8 @@ export default function SettingsPage() {
     }
   };
 
-  // --- Rules actions ---
+  /* ════════════════ rules actions ════════════════ */
+
   const saveRules = async () => {
     setRulesSaving(true);
     setRulesError(null);
@@ -476,101 +668,102 @@ export default function SettingsPage() {
     [rulesData],
   );
 
-  // --- Shift row component inside a station card ---
-  const renderShiftRow = (station: number, shiftType: ShiftTypeValue) => {
-    const row = staffingByStation.get(station)?.get(shiftType);
-    if (!row) {
-      return (
-        <Box
-          key={shiftType}
-          sx={{
-            display: "flex",
-            alignItems: "center",
-            gap: 1.5,
-            py: 1.5,
-            px: 2,
-            borderBottom: "1px solid",
-            borderColor: "divider",
-            opacity: 0.5,
-          }}
+  /* ════════════════ render helpers ════════════════ */
+
+  const renderShiftRow = (row: StaffingRow) => (
+    <Box
+      key={row.id}
+      sx={{
+        py: 1.5,
+        px: 2,
+        borderBottom: "1px solid",
+        borderColor: "divider",
+        "&:last-child": { borderBottom: "none" },
+      }}
+    >
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+        {SHIFT_ICON[row.shiftType]}
+        <Typography variant="body2" fontWeight={600} sx={{ minWidth: 56 }}>
+          {shiftTypeLabel(row.shiftType)}
+        </Typography>
+
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{ ml: 0.5 }}
         >
-          {SHIFT_ICON[shiftType]}
-          <Typography variant="body2" sx={{ minWidth: 60 }}>
-            {shiftTypeLabel(shiftType)}
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            Nicht konfiguriert
-          </Typography>
-        </Box>
-      );
-    }
+          Min:
+        </Typography>
+        <TextField
+          size="small"
+          type="number"
+          value={draftMin[row.id] ?? ""}
+          onChange={(ev) =>
+            setDraftMin((prev) => ({ ...prev, [row.id]: ev.target.value }))
+          }
+          inputProps={{ min: 0, style: { textAlign: "center" } }}
+          sx={{ width: 64 }}
+        />
 
-    return (
+        <Typography variant="caption" color="text.secondary">
+          Max:
+        </Typography>
+        <Tooltip title="Leer lassen für unbegrenzt" arrow>
+          <TextField
+            size="small"
+            type="number"
+            value={draftMax[row.id] ?? ""}
+            onChange={(ev) =>
+              setDraftMax((prev) => ({ ...prev, [row.id]: ev.target.value }))
+            }
+            inputProps={{ min: 0, style: { textAlign: "center" } }}
+            placeholder="–"
+            sx={{ width: 64 }}
+          />
+        </Tooltip>
+
+        <Box sx={{ flex: 1 }} />
+
+        <Button
+          size="small"
+          variant="text"
+          disabled={savingId === row.id}
+          onClick={() => void saveRow(row.id)}
+          sx={{ minWidth: 0, px: 1 }}
+        >
+          {savingId === row.id ? (
+            <CircularProgress size={16} />
+          ) : (
+            <SaveIcon fontSize="small" />
+          )}
+        </Button>
+
+        <IconButton
+          size="small"
+          color="error"
+          onClick={() => setDeleteId(row.id)}
+        >
+          <DeleteIcon fontSize="small" />
+        </IconButton>
+      </Box>
+
       <Box
-        key={shiftType}
-        sx={{
-          py: 1.5,
-          px: 2,
-          borderBottom: "1px solid",
-          borderColor: "divider",
-          "&:last-child": { borderBottom: "none" },
-        }}
+        sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mt: 1, ml: 4.5 }}
       >
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-          {SHIFT_ICON[shiftType]}
-          <Typography variant="body2" fontWeight={600} sx={{ minWidth: 60 }}>
-            {shiftTypeLabel(shiftType)}
-          </Typography>
-
-          <Tooltip title="Mindestbesetzung pro Tag" arrow>
-            <TextField
-              size="small"
-              type="number"
-              value={draft[row.id] ?? ""}
-              onChange={(ev) =>
-                setDraft((prev) => ({ ...prev, [row.id]: ev.target.value }))
-              }
-              inputProps={{ min: 0, style: { textAlign: "center" } }}
-              sx={{ width: 64 }}
-            />
-          </Tooltip>
-
-          <Typography variant="caption" color="text.secondary">
-            MA / Tag
-          </Typography>
-
-          <Box sx={{ flex: 1 }} />
-
-          <Button
-            size="small"
-            variant="text"
-            disabled={savingId === row.id}
-            onClick={() => void saveRow(row.id)}
-            sx={{ minWidth: 0, px: 1 }}
+        {row.qualificationRequirements.map((q) => (
+          <Tooltip
+            key={q.id}
+            title={qualNameByAbbr.get(q.qualificationTag) ?? ""}
+            arrow
+            disableHoverListener={
+              !qualNameByAbbr.has(q.qualificationTag)
+            }
           >
-            {savingId === row.id ? (
-              <CircularProgress size={16} />
-            ) : (
-              <SaveIcon fontSize="small" />
-            )}
-          </Button>
-
-          <IconButton
-            size="small"
-            color="error"
-            onClick={() => setDeleteId(row.id)}
-          >
-            <DeleteIcon fontSize="small" />
-          </IconButton>
-        </Box>
-
-        {/* Qualification chips */}
-        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mt: 1, ml: 4.5 }}>
-          {row.qualificationRequirements.map((q) => (
             <Chip
-              key={q.id}
               label={
-                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                <Box
+                  sx={{ display: "flex", alignItems: "center", gap: 0.5 }}
+                >
                   <span>{q.qualificationTag}</span>
                   <TextField
                     size="small"
@@ -586,7 +779,11 @@ export default function SettingsPage() {
                       },
                     }}
                     variant="standard"
-                    sx={{ "& .MuiInput-underline:before": { borderBottom: "none" } }}
+                    sx={{
+                      "& .MuiInput-underline:before": {
+                        borderBottom: "none",
+                      },
+                    }}
                     onBlur={(e) => {
                       const val = Number(e.target.value);
                       if (val !== q.minCount && val >= 1) {
@@ -601,66 +798,246 @@ export default function SettingsPage() {
               onDelete={() => void deleteQualification(row.id, q.id)}
               sx={{ height: 28 }}
             />
-          ))}
-          <Chip
-            icon={<AddIcon sx={{ fontSize: 16 }} />}
-            label="Qualifikation"
-            size="small"
-            variant="outlined"
-            onClick={() => {
-              setAddQualSrId(row.id);
-              setNewQualTag("");
-              setNewQualMin("1");
-              setAddQualError(null);
-            }}
-            sx={{
-              height: 28,
-              borderStyle: "dashed",
-              cursor: "pointer",
-              "&:hover": { borderStyle: "solid" },
-            }}
-          />
-        </Box>
+          </Tooltip>
+        ))}
+        <Chip
+          icon={<AddIcon sx={{ fontSize: 16 }} />}
+          label="Qualifikation"
+          size="small"
+          variant="outlined"
+          onClick={() => {
+            setAddQualSrId(row.id);
+            setNewQualSelection(null);
+            setNewQualMin("1");
+            setAddQualError(null);
+          }}
+          sx={{
+            height: 28,
+            borderStyle: "dashed",
+            cursor: "pointer",
+            "&:hover": { borderStyle: "solid" },
+          }}
+        />
       </Box>
+    </Box>
+  );
+
+  const renderEmptyShiftRow = (shiftType: string) => (
+    <Box
+      key={shiftType}
+      sx={{
+        display: "flex",
+        alignItems: "center",
+        gap: 1.5,
+        py: 1.5,
+        px: 2,
+        borderBottom: "1px solid",
+        borderColor: "divider",
+        opacity: 0.5,
+      }}
+    >
+      {SHIFT_ICON[shiftType]}
+      <Typography variant="body2" sx={{ minWidth: 56 }}>
+        {shiftTypeLabel(shiftType)}
+      </Typography>
+      <Typography variant="caption" color="text.secondary">
+        Nicht konfiguriert
+      </Typography>
+    </Box>
+  );
+
+  const renderStationCard = (station: number) => {
+    const shiftMap = stationRowMap.get(station);
+    const rows: StaffingRow[] = [];
+    for (const st of STATION_SHIFT_TYPES) {
+      const r = shiftMap?.get(st);
+      if (r) rows.push(r);
+    }
+    const extra = [...(shiftMap?.entries() ?? [])]
+      .filter(
+        ([st]) =>
+          !STATION_SHIFT_TYPES.includes(st as ShiftTypeValue) &&
+          st !== "NIGHT",
+      )
+      .map(([, r]) => r);
+
+    const allRows = [...rows, ...extra];
+    const totalMin = allRows.reduce((s, r) => s + r.minTotalCount, 0);
+
+    return (
+      <Grid key={station} size={{ xs: 12, md: 4 }}>
+        <Card
+          variant="outlined"
+          sx={{ borderColor: alpha(theme.palette.primary.main, 0.3) }}
+        >
+          <Box
+            sx={{
+              px: 2,
+              py: 1.5,
+              bgcolor: alpha(theme.palette.primary.main, 0.06),
+              borderBottom: "1px solid",
+              borderColor: "divider",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <Typography variant="subtitle1" fontWeight={700}>
+              Station {station}
+            </Typography>
+            <Chip
+              label={`${totalMin} MA / Tag`}
+              size="small"
+              color="primary"
+              variant="outlined"
+              sx={{ fontWeight: 600 }}
+            />
+          </Box>
+          {STATION_SHIFT_TYPES.map((st) => {
+            const row = shiftMap?.get(st);
+            return row ? renderShiftRow(row) : renderEmptyShiftRow(st);
+          })}
+          {extra.map((r) => renderShiftRow(r))}
+        </Card>
+      </Grid>
     );
   };
+
+  /* ════════════════ JSX ════════════════ */
 
   return (
     <MainLayout title="Einstellungen">
       <Grid container spacing={3}>
-        {/* Facility info card */}
-        <Grid size={{ xs: 12, md: 6 }}>
+        {/* ──── Section 1: Qualifikationen ──── */}
+        <Grid size={{ xs: 12 }}>
           <Card>
             <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Einrichtung
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  mb: 1,
+                }}
+              >
+                <Typography variant="h6">Qualifikationen</Typography>
+                <Button
+                  size="small"
+                  variant="contained"
+                  startIcon={<AddIcon />}
+                  onClick={() => openQualDialog()}
+                >
+                  Neue Qualifikation
+                </Button>
+              </Box>
+              <Typography
+                variant="body2"
+                color="text.secondary"
+                sx={{ mb: 2 }}
+              >
+                Verwalten Sie die im System verfügbaren Qualifikationen.
+                Diese werden für Mitarbeiterprofile und
+                Personalbedarfsanforderungen verwendet.
               </Typography>
-              <Divider sx={{ mb: 3 }} />
-              <Typography variant="body2" color="text.secondary">
-                Name und Adresse werden in einer späteren Version über die API
-                gepflegt.
-              </Typography>
+              <Divider sx={{ mb: 2 }} />
+
+              {qualError && (
+                <Alert
+                  severity="error"
+                  sx={{ mb: 2 }}
+                  onClose={() => setQualError(null)}
+                >
+                  {qualError}
+                </Alert>
+              )}
+
+              {qualLoading ? (
+                <Box
+                  sx={{ display: "flex", justifyContent: "center", py: 4 }}
+                >
+                  <CircularProgress />
+                </Box>
+              ) : qualifications.length === 0 ? (
+                <Alert severity="info">
+                  Noch keine Qualifikationen angelegt.
+                </Alert>
+              ) : (
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell sx={{ fontWeight: 700 }}>Name</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>
+                          Abkürzung
+                        </TableCell>
+                        <TableCell sx={{ fontWeight: 700 }} align="center">
+                          Aktiv
+                        </TableCell>
+                        <TableCell sx={{ fontWeight: 700 }} align="center">
+                          Sortierung
+                        </TableCell>
+                        <TableCell sx={{ fontWeight: 700 }} align="right">
+                          Aktionen
+                        </TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {qualifications.map((q) => (
+                        <TableRow key={q.id} hover>
+                          <TableCell>{q.name}</TableCell>
+                          <TableCell>
+                            <Chip
+                              label={q.abbreviation}
+                              size="small"
+                              variant="outlined"
+                              sx={{ fontWeight: 600 }}
+                            />
+                          </TableCell>
+                          <TableCell align="center">
+                            <Chip
+                              label={q.isActive ? "Ja" : "Nein"}
+                              size="small"
+                              color={q.isActive ? "success" : "default"}
+                              variant={q.isActive ? "filled" : "outlined"}
+                              sx={{ minWidth: 44 }}
+                            />
+                          </TableCell>
+                          <TableCell align="center">
+                            {q.sortOrder}
+                          </TableCell>
+                          <TableCell align="right">
+                            <Tooltip title="Bearbeiten" arrow>
+                              <IconButton
+                                size="small"
+                                onClick={() => openQualDialog(q)}
+                              >
+                                <EditIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Löschen" arrow>
+                              <IconButton
+                                size="small"
+                                color="error"
+                                onClick={() => {
+                                  setQualDeleteError(null);
+                                  setQualDeleteId(q.id);
+                                }}
+                              >
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              )}
             </CardContent>
           </Card>
         </Grid>
 
-        {/* Notifications card */}
-        <Grid size={{ xs: 12, md: 6 }}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Benachrichtigungen
-              </Typography>
-              <Divider sx={{ mb: 3 }} />
-              <Typography variant="body2" color="text.secondary">
-                E-Mail-Benachrichtigungen können später über externe Automation
-                (z.B. Webhooks) ergänzt werden.
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        {/* Staffing requirements - grouped by station */}
+        {/* ──── Section 2: Mindestbesetzung (Personalbedarf) ──── */}
         <Grid size={{ xs: 12 }}>
           <Card>
             <CardContent>
@@ -676,33 +1053,31 @@ export default function SettingsPage() {
                   Mindestbesetzung (Personalbedarf)
                 </Typography>
                 <Box sx={{ display: "flex", gap: 1 }}>
-                  {missingCombos.length > 0 && (
-                    <>
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        startIcon={<AddIcon />}
-                        disabled={loading}
-                        onClick={openAddDialog}
-                      >
-                        Einzeln hinzufügen
-                      </Button>
-                      <Button
-                        size="small"
-                        variant="contained"
-                        startIcon={
-                          templateBusy ? (
-                            <CircularProgress size={16} color="inherit" />
-                          ) : (
-                            <GridOnIcon />
-                          )
-                        }
-                        disabled={templateBusy || loading}
-                        onClick={() => void applyAllShiftsTemplate()}
-                      >
-                        Fehlende anlegen
-                      </Button>
-                    </>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={<AddIcon />}
+                    disabled={loading}
+                    onClick={openAddDialog}
+                  >
+                    Einzeln hinzufügen
+                  </Button>
+                  {missingDefaults.length > 0 && (
+                    <Button
+                      size="small"
+                      variant="contained"
+                      startIcon={
+                        templateBusy ? (
+                          <CircularProgress size={16} color="inherit" />
+                        ) : (
+                          <GridOnIcon />
+                        )
+                      }
+                      disabled={templateBusy || loading}
+                      onClick={() => void applyAllShiftsTemplate()}
+                    >
+                      Fehlende anlegen
+                    </Button>
                   )}
                 </Box>
               </Box>
@@ -711,10 +1086,9 @@ export default function SettingsPage() {
                 color="text.secondary"
                 sx={{ mb: 2 }}
               >
-                Mindestanzahl Mitarbeiter pro Schicht und Station, die jeden
-                Kalendertag benötigt wird. Qualifikationsanforderungen (z.B.
-                &quot;mind. 1 Fachkraft&quot;) können pro Schicht hinzugefügt
-                werden.
+                Mindest- und Maximalanzahl Mitarbeiter pro Schicht und
+                Station. Qualifikationsanforderungen (z.B. &quot;mind. 1
+                Fachkraft&quot;) können pro Schicht hinzugefügt werden.
               </Typography>
               <Divider sx={{ mb: 2 }} />
 
@@ -737,61 +1111,84 @@ export default function SettingsPage() {
               ) : staffing.length === 0 ? (
                 <Alert severity="info">
                   Noch kein Personalbedarf konfiguriert. Klicken Sie auf
-                  &quot;Fehlende anlegen&quot; um alle 9 Einträge (Früh / Spät
-                  / Nacht × 3 Stationen) mit Minimum 1 zu erstellen.
+                  &quot;Fehlende anlegen&quot; um die Standardeinträge
+                  (Früh / Spät × 3 Stationen + Nacht gesamtes Gebäude) zu
+                  erstellen.
                 </Alert>
               ) : (
-                <Grid container spacing={2}>
-                  {STATIONS.map((station) => {
-                    const stationShifts = staffingByStation.get(station);
-                    const totalMin = SHIFT_TYPES.reduce((sum, st) => {
-                      const row = stationShifts?.get(st);
-                      return sum + (row?.minTotalCount ?? 0);
-                    }, 0);
+                <>
+                  <Grid container spacing={2}>
+                    {STATIONS.map((station) => renderStationCard(station))}
+                  </Grid>
 
-                    return (
-                      <Grid key={station} size={{ xs: 12, md: 4 }}>
-                        <Card
+                  {/* Nacht (gesamtes Gebäude) */}
+                  <Card
+                    variant="outlined"
+                    sx={{
+                      mt: 2,
+                      borderColor: alpha(
+                        theme.palette.secondary.main,
+                        0.4,
+                      ),
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        px: 2,
+                        py: 1.5,
+                        bgcolor: alpha(
+                          theme.palette.secondary.main,
+                          0.06,
+                        ),
+                        borderBottom: "1px solid",
+                        borderColor: "divider",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                      }}
+                    >
+                      <Box
+                        sx={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 1,
+                        }}
+                      >
+                        <NightsStayIcon
+                          fontSize="small"
+                          sx={{ color: "secondary.main" }}
+                        />
+                        <Typography variant="subtitle1" fontWeight={700}>
+                          Nacht (gesamtes Gebäude)
+                        </Typography>
+                      </Box>
+                      {facilityWideRows.length > 0 && (
+                        <Chip
+                          label={`${facilityWideRows.reduce((s, r) => s + r.minTotalCount, 0)} MA / Nacht`}
+                          size="small"
+                          color="secondary"
                           variant="outlined"
-                          sx={{
-                            borderColor: alpha(theme.palette.primary.main, 0.3),
-                          }}
-                        >
-                          <Box
-                            sx={{
-                              px: 2,
-                              py: 1.5,
-                              bgcolor: alpha(theme.palette.primary.main, 0.06),
-                              borderBottom: "1px solid",
-                              borderColor: "divider",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "space-between",
-                            }}
-                          >
-                            <Typography variant="subtitle1" fontWeight={700}>
-                              Station {station}
-                            </Typography>
-                            <Chip
-                              label={`${totalMin} MA / Tag`}
-                              size="small"
-                              color="primary"
-                              variant="outlined"
-                              sx={{ fontWeight: 600 }}
-                            />
-                          </Box>
-                          {SHIFT_TYPES.map((st) => renderShiftRow(station, st))}
-                        </Card>
-                      </Grid>
-                    );
-                  })}
-                </Grid>
+                          sx={{ fontWeight: 600 }}
+                        />
+                      )}
+                    </Box>
+                    {facilityWideRows.length > 0 ? (
+                      facilityWideRows.map((row) => renderShiftRow(row))
+                    ) : (
+                      <Box sx={{ py: 2, px: 2, opacity: 0.5 }}>
+                        <Typography variant="caption" color="text.secondary">
+                          Nicht konfiguriert
+                        </Typography>
+                      </Box>
+                    )}
+                  </Card>
+                </>
               )}
             </CardContent>
           </Card>
         </Grid>
 
-        {/* Planning rules */}
+        {/* ──── Section 3: Planungsregeln ──── */}
         <Grid size={{ xs: 12 }}>
           <Card>
             <CardContent>
@@ -835,7 +1232,6 @@ export default function SettingsPage() {
                 </Box>
               ) : rulesData ? (
                 <>
-                  {/* minRestBetweenShifts — special: value comes from Facility.minRestHours */}
                   <Box
                     sx={{
                       mb: 2,
@@ -867,7 +1263,6 @@ export default function SettingsPage() {
                     />
                   </Box>
 
-                  {/* Other configurable rules (maxConsecutiveNights, maxConsecutiveDays) */}
                   {visibleRules
                     .filter((r) => r.id !== "minRestBetweenShifts")
                     .map((rule) => {
@@ -958,7 +1353,132 @@ export default function SettingsPage() {
         </Grid>
       </Grid>
 
-      {/* Add shift type dialog */}
+      {/* ──── Qualification add/edit dialog ──── */}
+      <Dialog
+        open={qualDialogOpen}
+        onClose={() => !qualSaving && setQualDialogOpen(false)}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle>
+          {qualEditId ? "Qualifikation bearbeiten" : "Neue Qualifikation"}
+        </DialogTitle>
+        <DialogContent
+          sx={{ display: "flex", flexDirection: "column", gap: 2.5, pt: 1 }}
+        >
+          {qualFormError && (
+            <Alert severity="error">{qualFormError}</Alert>
+          )}
+          <TextField
+            label="Name"
+            value={qualForm.name}
+            onChange={(e) =>
+              setQualForm((f) => ({ ...f, name: e.target.value }))
+            }
+            fullWidth
+            disabled={qualSaving}
+            autoFocus
+          />
+          <TextField
+            label="Abkürzung"
+            value={qualForm.abbreviation}
+            onChange={(e) =>
+              setQualForm((f) => ({ ...f, abbreviation: e.target.value }))
+            }
+            fullWidth
+            disabled={qualSaving}
+          />
+          <TextField
+            label="Sortierung"
+            type="number"
+            value={qualForm.sortOrder}
+            onChange={(e) =>
+              setQualForm((f) => ({ ...f, sortOrder: e.target.value }))
+            }
+            fullWidth
+            disabled={qualSaving}
+            inputProps={{ min: 0 }}
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                checked={qualForm.isActive}
+                onChange={(e) =>
+                  setQualForm((f) => ({
+                    ...f,
+                    isActive: e.target.checked,
+                  }))
+                }
+                disabled={qualSaving}
+              />
+            }
+            label="Aktiv"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setQualDialogOpen(false)}
+            disabled={qualSaving}
+          >
+            Abbrechen
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => void saveQualification()}
+            disabled={qualSaving}
+          >
+            {qualSaving ? (
+              <CircularProgress size={22} />
+            ) : qualEditId ? (
+              "Speichern"
+            ) : (
+              "Anlegen"
+            )}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ──── Qualification delete confirmation ──── */}
+      <Dialog
+        open={qualDeleteId !== null}
+        onClose={() => !qualDeleteBusy && setQualDeleteId(null)}
+      >
+        <DialogTitle>Qualifikation löschen?</DialogTitle>
+        <DialogContent>
+          {qualDeleteError ? (
+            <Alert severity="error" sx={{ mt: 1 }}>
+              {qualDeleteError}
+            </Alert>
+          ) : (
+            <Typography variant="body2">
+              Diese Qualifikation wird dauerhaft entfernt. Falls sie noch
+              von Mitarbeitern referenziert wird, schlägt das Löschen fehl.
+            </Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setQualDeleteId(null)}
+            disabled={qualDeleteBusy}
+          >
+            Abbrechen
+          </Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={() => void confirmDeleteQual()}
+            disabled={qualDeleteBusy}
+          >
+            {qualDeleteBusy ? (
+              <CircularProgress size={22} color="inherit" />
+            ) : (
+              "Löschen"
+            )}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ──── Staffing add dialog ──── */}
       <Dialog
         open={addOpen}
         onClose={() => !addBusy && setAddOpen(false)}
@@ -970,12 +1490,30 @@ export default function SettingsPage() {
           sx={{ display: "flex", flexDirection: "column", gap: 2, pt: 1 }}
         >
           {addFormError && <Alert severity="error">{addFormError}</Alert>}
+
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={newFacilityWide}
+                onChange={(e) => {
+                  setNewFacilityWide(e.target.checked);
+                  if (e.target.checked) setNewStation(0);
+                  else setNewStation(1);
+                }}
+                disabled={addBusy}
+              />
+            }
+            label="Gebäudeweit (z.B. Nachtschicht)"
+          />
+
           <Box sx={{ display: "flex", gap: 2 }}>
             <TextField
               select
               label="Schichttyp"
               value={newShift}
-              onChange={(e) => setNewShift(e.target.value as ShiftTypeValue)}
+              onChange={(e) =>
+                setNewShift(e.target.value as ShiftTypeValue)
+              }
               fullWidth
               disabled={addBusy}
             >
@@ -985,28 +1523,43 @@ export default function SettingsPage() {
                 </MenuItem>
               ))}
             </TextField>
+            {!newFacilityWide && (
+              <TextField
+                select
+                label="Station"
+                value={newStation}
+                onChange={(e) => setNewStation(Number(e.target.value))}
+                fullWidth
+                disabled={addBusy}
+              >
+                <MenuItem value={1}>Station 1</MenuItem>
+                <MenuItem value={2}>Station 2</MenuItem>
+                <MenuItem value={3}>Station 3</MenuItem>
+              </TextField>
+            )}
+          </Box>
+
+          <Box sx={{ display: "flex", gap: 2 }}>
             <TextField
-              select
-              label="Station"
-              value={newStation}
-              onChange={(e) => setNewStation(Number(e.target.value))}
+              label="Mindestanzahl"
+              type="number"
+              value={newMin}
+              onChange={(e) => setNewMin(e.target.value)}
               fullWidth
               disabled={addBusy}
-            >
-              <MenuItem value={1}>Station 1</MenuItem>
-              <MenuItem value={2}>Station 2</MenuItem>
-              <MenuItem value={3}>Station 3</MenuItem>
-            </TextField>
+              inputProps={{ min: 0 }}
+            />
+            <TextField
+              label="Maximalanzahl (optional)"
+              type="number"
+              value={newMax}
+              onChange={(e) => setNewMax(e.target.value)}
+              fullWidth
+              disabled={addBusy}
+              inputProps={{ min: 0 }}
+              placeholder="Unbegrenzt"
+            />
           </Box>
-          <TextField
-            label="Mindestanzahl (pro Kalendertag)"
-            type="number"
-            value={newMin}
-            onChange={(e) => setNewMin(e.target.value)}
-            fullWidth
-            disabled={addBusy}
-            inputProps={{ min: 0 }}
-          />
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setAddOpen(false)} disabled={addBusy}>
@@ -1022,7 +1575,7 @@ export default function SettingsPage() {
         </DialogActions>
       </Dialog>
 
-      {/* Delete confirmation */}
+      {/* ──── Staffing delete confirmation ──── */}
       <Dialog
         open={deleteId !== null}
         onClose={() => !deleteBusy && setDeleteId(null)}
@@ -1053,7 +1606,7 @@ export default function SettingsPage() {
         </DialogActions>
       </Dialog>
 
-      {/* Add qualification dialog */}
+      {/* ──── Add qualification to staffing row dialog ──── */}
       <Dialog
         open={addQualSrId !== null}
         onClose={() => !addQualBusy && setAddQualSrId(null)}
@@ -1064,17 +1617,20 @@ export default function SettingsPage() {
         <DialogContent
           sx={{ display: "flex", flexDirection: "column", gap: 2, pt: 1 }}
         >
-          {addQualError && <Alert severity="error">{addQualError}</Alert>}
+          {addQualError && (
+            <Alert severity="error">{addQualError}</Alert>
+          )}
           <Autocomplete
-            freeSolo
-            options={qualificationTagOptions}
-            value={newQualTag}
-            onInputChange={(_, v) => setNewQualTag(v)}
+            options={activeQualifications}
+            getOptionLabel={(opt) => `${opt.name} (${opt.abbreviation})`}
+            value={newQualSelection}
+            onChange={(_, v) => setNewQualSelection(v)}
+            isOptionEqualToValue={(a, b) => a.id === b.id}
             renderInput={(params) => (
               <TextField
                 {...params}
-                label="Qualifikations-Tag"
-                placeholder="z.B. Fachkraft, PDL..."
+                label="Qualifikation"
+                placeholder="Auswählen…"
                 disabled={addQualBusy}
               />
             )}
@@ -1090,15 +1646,22 @@ export default function SettingsPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setAddQualSrId(null)} disabled={addQualBusy}>
+          <Button
+            onClick={() => setAddQualSrId(null)}
+            disabled={addQualBusy}
+          >
             Abbrechen
           </Button>
           <Button
             variant="contained"
             onClick={() => void addQualification()}
-            disabled={addQualBusy || !newQualTag.trim()}
+            disabled={addQualBusy || !newQualSelection}
           >
-            {addQualBusy ? <CircularProgress size={22} /> : "Hinzufügen"}
+            {addQualBusy ? (
+              <CircularProgress size={22} />
+            ) : (
+              "Hinzufügen"
+            )}
           </Button>
         </DialogActions>
       </Dialog>

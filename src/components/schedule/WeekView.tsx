@@ -98,7 +98,7 @@ export default function WeekView({
                   >
                     {e.firstName} {e.lastName}
                   </Box>
-                  <QualificationPills tags={e.qualificationTags ?? []} compact />
+                  <QualificationPills qualifications={e.qualifications} tags={e.qualificationTags ?? []} compact />
                 </Box>
               </TableCell>
               {dayIsos.map((iso) => {

@@ -244,7 +244,7 @@ export default function MonthTableView({
                     >
                       {e.firstName} {e.lastName}
                     </Box>
-                    <QualificationPills tags={tags} compact />
+                    <QualificationPills qualifications={e.qualifications} tags={tags} compact />
                   </Box>
                 </TableCell>
                 <TableCell
