@@ -1,3 +1,5 @@
+import * as fs from "fs";
+import * as path from "path";
 import type { PrismaClient, ShiftProfile, Wish } from "@prisma/client";
 import {
   ContractType,
@@ -309,6 +311,7 @@ function sortCandidates(
   alreadyPlacedIds: Set<string>,
   stationNumber: number,
   rng?: () => number,
+  shiftTypeProfileIds?: Set<string>,
 ): GenEmployee[] {
   const dateIso = toIsoDateOnly(date);
   const available = employees.filter(
@@ -316,7 +319,10 @@ function sortCandidates(
       !e.unavailableDateSet.has(dateIso) &&
       !alreadyPlacedIds.has(e.id) &&
       (e.assignedStationNumber == null || e.assignedStationNumber === stationNumber || stationNumber === 0) &&
-      (e.allowedShiftProfileIds.size === 0 || e.allowedShiftProfileIds.has(profileId)),
+      (e.allowedShiftProfileIds.size === 0 ||
+        (shiftTypeProfileIds
+          ? [...e.allowedShiftProfileIds].some((pid) => shiftTypeProfileIds.has(pid))
+          : e.allowedShiftProfileIds.has(profileId))),
   );
 
   const pool = requiredTag
@@ -769,8 +775,35 @@ export async function runGreedyScheduleGeneration(
   const seed = hashString(schedule.id) ^ Date.now();
   const rng = mulberry32(seed);
 
+  const debugLog: string[] = [];
+  const log = (msg: string) => debugLog.push(`[${new Date().toISOString()}] ${msg}`);
+
+  log(`=== Schedule Generation Start ===`);
+  log(`Schedule: ${schedule.id}, Period: ${schedule.periodStart.toISOString().slice(0, 10)} - ${schedule.periodEnd.toISOString().slice(0, 10)}`);
+  log(`Employees: ${ctx.employees.length} active`);
+  for (const emp of ctx.employees) {
+    const allowedNames = [...emp.allowedShiftProfileIds].map(pid => {
+      const p = ctx.profiles.find(pr => pr.id === pid);
+      return p ? p.name : pid;
+    });
+    log(`  Employee ${emp.id}: station=${emp.assignedStationNumber ?? "any"}, quals=[${emp.qualificationTags.join(",")}], allowedProfiles=[${allowedNames.join(",")}], pct=${emp.targetHoursPercent ?? "?"}`);
+  }
+  log(`Profiles: ${ctx.profiles.filter(p => p.isActive).map(p => `${p.name}(${p.shiftType})`).join(", ")}`);
+  log(`Staffing requirements: ${ctx.mergedStaffing.size} entries`);
+  for (const [key, entry] of ctx.mergedStaffing) {
+    log(`  ${key}: min=${entry.minTotalCount}, max=${entry.maxTotalCount ?? "none"}, fw=${entry.isFacilityWide}, quals=[${entry.qualificationRequirements.map(q => `${q.qualificationTag}×${q.minCount}`).join(",")}]`);
+  }
+
   const defaultProfileByType = buildDefaultProfileByType(ctx.profiles);
   const profilesById = new Map(ctx.profiles.map((p) => [p.id, p]));
+
+  const profileIdsByShiftType = new Map<ShiftType, Set<string>>();
+  for (const p of ctx.profiles) {
+    if (!p.isActive) continue;
+    const set = profileIdsByShiftType.get(p.shiftType) ?? new Set<string>();
+    set.add(p.id);
+    profileIdsByShiftType.set(p.shiftType, set);
+  }
 
   const dates = eachUtcDateInPeriod(schedule.periodStart, schedule.periodEnd);
 
@@ -851,6 +884,7 @@ export async function runGreedyScheduleGeneration(
         const key = staffingKey(shiftType, station);
         const req = ctx.mergedStaffing.get(key);
         if (!req || req.isFacilityWide) continue;
+        log(`--- ${dateIso} ${shiftType} St.${station}: min=${req.minTotalCount}, max=${req.maxTotalCount ?? "none"}, quals=${req.qualificationRequirements.length}`);
 
         const defaultProfile = defaultProfileByType.get(shiftType) ?? null;
         if (!defaultProfile) {
@@ -872,52 +906,67 @@ export async function runGreedyScheduleGeneration(
         // Pass 1: fill qualification-required slots
         for (const qr of req.qualificationRequirements) {
           for (let slot = 0; slot < qr.minCount; slot++) {
+            const stProfileIds = profileIdsByShiftType.get(shiftType);
             const candidates = sortCandidates(
               ctx.employees, date, shiftType, defaultProfile.id,
               qr.qualificationTag, ctx.wishes, proposed, profilesById, placedOnSlot, station, rng,
+              stProfileIds,
             );
+            log(`  Pass1 qual="${qr.qualificationTag}" slot ${slot+1}/${qr.minCount}: ${candidates.length} candidates`);
             let placed = false;
             for (const emp of candidates) {
-              const empProfile = selectProfileForEmployee(emp, shiftType, ctx.profiles) ?? defaultProfile;
+              const empProfile = selectProfileForEmployee(emp, shiftType, ctx.profiles);
+              if (!empProfile) { log(`    ${emp.id}: no profile for ${shiftType}, skip`); continue; }
               const assignment = await tryPlaceEmployee(
                 emp, date, empProfile.id, proposed, tx, facilityId, schedule, idSeq,
               );
               if (assignment) {
+                log(`    PLACED ${emp.id} -> ${empProfile.name}`);
                 proposed.push(assignment);
                 placedOnSlot.add(emp.id);
                 placedForTypeToday.add(emp.id);
                 filled++;
                 placed = true;
                 break;
+              } else {
+                log(`    ${emp.id}: validation rejected (profile=${empProfile.name})`);
               }
             }
-            if (!placed) break;
+            if (!placed) { log(`  Pass1: could not fill slot`); break; }
           }
         }
 
         // Pass 2: fill remaining general slots
         const remaining = req.minTotalCount - filled;
+        if (remaining > 0) log(`  Pass2: ${remaining} general slots to fill`);
         for (let slot = 0; slot < remaining; slot++) {
+          const stProfileIds2 = profileIdsByShiftType.get(shiftType);
           const candidates = sortCandidates(
             ctx.employees, date, shiftType, defaultProfile.id,
             null, ctx.wishes, proposed, profilesById, placedOnSlot, station, rng,
+            stProfileIds2,
           );
+          log(`  Pass2 slot ${slot+1}/${remaining}: ${candidates.length} candidates`);
           let placed = false;
           for (const emp of candidates) {
-            const empProfile = selectProfileForEmployee(emp, shiftType, ctx.profiles) ?? defaultProfile;
+            const empProfile = selectProfileForEmployee(emp, shiftType, ctx.profiles);
+            if (!empProfile) continue;
             const assignment = await tryPlaceEmployee(
               emp, date, empProfile.id, proposed, tx, facilityId, schedule, idSeq,
             );
             if (assignment) {
+              log(`    PLACED ${emp.id} -> ${empProfile.name}`);
               proposed.push(assignment);
               placedOnSlot.add(emp.id);
               placedForTypeToday.add(emp.id);
               filled++;
               placed = true;
               break;
+            } else {
+              log(`    ${emp.id}: validation rejected`);
             }
           }
-          if (!placed) break;
+          if (!placed) { log(`  Pass2: could not fill slot`); break; }
         }
 
         // Pass 3: fill up to maxTotalCount for employees who need more hours
@@ -927,9 +976,11 @@ export async function runGreedyScheduleGeneration(
           const month = date.getUTCMonth();
           const wd = monthlyWorkingDays(year, month);
           for (let slot = 0; slot < maxSlots; slot++) {
+            const stProfileIds3 = profileIdsByShiftType.get(shiftType);
             const candidates = sortCandidates(
               ctx.employees, date, shiftType, defaultProfile.id,
               null, ctx.wishes, proposed, profilesById, placedOnSlot, station, rng,
+              stProfileIds3,
             ).filter(emp => {
               const hours = sumPaidHoursForEmployeeInProposed(emp.id, proposed, profilesById);
               const soll = emp.targetHoursPercent != null
@@ -940,7 +991,8 @@ export async function runGreedyScheduleGeneration(
             if (candidates.length === 0) break;
             let placed = false;
             for (const emp of candidates) {
-              const empProfile = selectProfileForEmployee(emp, shiftType, ctx.profiles) ?? defaultProfile;
+              const empProfile = selectProfileForEmployee(emp, shiftType, ctx.profiles);
+              if (!empProfile) continue;
               const assignment = await tryPlaceEmployee(
                 emp, date, empProfile.id, proposed, tx, facilityId, schedule, idSeq,
               );
@@ -957,6 +1009,7 @@ export async function runGreedyScheduleGeneration(
           }
         }
 
+        log(`  Result: filled ${filled}/${req.minTotalCount} (max ${req.maxTotalCount ?? "none"})`);
         if (filled < req.minTotalCount) {
           unmet.push({ date: toIsoDateOnly(date), shiftType, requested: req.minTotalCount, assigned: filled });
         }
@@ -981,12 +1034,15 @@ export async function runGreedyScheduleGeneration(
           }
         }
 
+        const fwProfileIds = profileIdsByShiftType.get(shiftType);
+
         // Pass 1: qualification-required
         for (const qr of fwReq.qualificationRequirements) {
           for (let slot = 0; slot < qr.minCount; slot++) {
             const candidates = sortCandidates(
               ctx.employees, date, shiftType, defaultProfile.id,
               qr.qualificationTag, ctx.wishes, proposed, profilesById, placedOnSlot, 0, rng,
+              fwProfileIds,
             );
             let placed = false;
             for (const emp of candidates) {
@@ -1014,6 +1070,7 @@ export async function runGreedyScheduleGeneration(
           const candidates = sortCandidates(
             ctx.employees, date, shiftType, defaultProfile.id,
             null, ctx.wishes, proposed, profilesById, placedOnSlot, 0, rng,
+            fwProfileIds,
           );
           let placed = false;
           for (const emp of candidates) {
@@ -1044,6 +1101,7 @@ export async function runGreedyScheduleGeneration(
             const candidates = sortCandidates(
               ctx.employees, date, shiftType, defaultProfile.id,
               null, ctx.wishes, proposed, profilesById, placedOnSlot, 0, rng,
+              fwProfileIds,
             ).filter(emp => {
               const hours = sumPaidHoursForEmployeeInProposed(emp.id, proposed, profilesById);
               const soll = emp.targetHoursPercent != null
@@ -1234,6 +1292,22 @@ export async function runGreedyScheduleGeneration(
     if (!ok) {
       unfulfilled.push({ wishId: w.id, employeeId: w.employeeId, date: dateIso });
     }
+  }
+
+  log(`=== Generation Complete: ${proposed.length} assignments, ${warnings.length} warnings, ${unmet.length} unmet ===`);
+
+  try {
+    const logDir = path.join(process.cwd(), "_LOCAL_DOCS");
+    if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
+    const logPath = path.join(logDir, "generate-debug.log");
+    fs.writeFileSync(logPath, debugLog.join("\n"), "utf-8");
+    warnings.push(`Debug-Log geschrieben: ${logPath} (${debugLog.length} Zeilen)`);
+  } catch {
+    try {
+      const tmpPath = path.join("/tmp", "schichtmeister-generate-debug.log");
+      fs.writeFileSync(tmpPath, debugLog.join("\n"), "utf-8");
+      warnings.push(`Debug-Log geschrieben: ${tmpPath} (${debugLog.length} Zeilen)`);
+    } catch { /* ignore if file write fails entirely */ }
   }
 
   return {
