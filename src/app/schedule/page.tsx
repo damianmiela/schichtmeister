@@ -51,6 +51,7 @@ import SaveIcon from "@mui/icons-material/Save";
 import DeleteSweepIcon from "@mui/icons-material/DeleteSweep";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import CloseIcon from "@mui/icons-material/Close";
+import DescriptionIcon from "@mui/icons-material/Description";
 import { ApiError, fetchJson } from "@/lib/api/fetchJson";
 import {
   monthRangeIso,
@@ -162,6 +163,9 @@ export default function SchedulePage() {
   const [editedShiftWishSet, setEditedShiftWishSet] = useState<Set<string>>(new Set());
   const [editedFreiWishSet, setEditedFreiWishSet] = useState<Set<string>>(new Set());
   const [editSaving, setEditSaving] = useState(false);
+  const [logDialogOpen, setLogDialogOpen] = useState(false);
+  const [logContent, setLogContent] = useState<string | null>(null);
+  const [logLoading, setLogLoading] = useState(false);
 
   const daysInMonth = useMemo(() => {
     const { year, month } = viewState;
@@ -613,22 +617,18 @@ export default function SchedulePage() {
         const uniqueEmps = new Set(blockedDates.map((b) => b.employeeId)).size;
         parts.push(`${blockedDates.length} Frei-Tag(e) für ${uniqueEmps} MA berücksichtigt.`);
       }
-      for (const w of res.warnings ?? []) {
-        if (w.trim()) parts.push(w.trim());
-      }
+      const warnCount = (res.warnings?.length ?? 0);
       const unmet = res.unmetStaffing?.length ?? 0;
-      if (unmet > 0) {
-        parts.push(`${unmet} Bedarfsslots nur teilweise oder gar nicht besetzt.`);
+      const totalIssues = warnCount + unmet;
+      if (totalIssues > 0) {
+        parts.push(`${totalIssues} Warnung(en) — siehe Seitenleiste.`);
       }
 
-      const hasIssue =
-        res.createdAssignments === 0 ||
-        (res.warnings?.length ?? 0) > 0 ||
-        unmet > 0;
+      const hasIssue = res.createdAssignments === 0 || totalIssues > 0;
       setActionAlertSeverity(hasIssue ? "warning" : "success");
       setActionMsg(parts.join(" "));
       setActionDebugPayload(null);
-      if (hasIssue) setWarningsOpen(true);
+      if (totalIssues > 0) setWarningsOpen(true);
     } catch (e) {
       stageTimers.forEach(clearTimeout);
       setActionAlertSeverity("error");
@@ -667,6 +667,24 @@ export default function SchedulePage() {
     }
   };
 
+  const currentMonthKey = `${viewState.year}-${String(viewState.month + 1).padStart(2, "0")}`;
+
+  const onViewLogs = async () => {
+    setLogLoading(true);
+    setLogContent(null);
+    setLogDialogOpen(true);
+    try {
+      const res = await fetchJson<{ content: string | null }>(
+        `/api/generate-logs?month=${currentMonthKey}`,
+      );
+      setLogContent(res.content);
+    } catch {
+      setLogContent(null);
+    } finally {
+      setLogLoading(false);
+    }
+  };
+
   const onClearSchedule = async () => {
     if (!schedule) return;
     setClearConfirmOpen(false);
@@ -679,6 +697,9 @@ export default function SchedulePage() {
         `/api/schedules/${schedule.id}/clear`,
         { method: "POST" },
       );
+      try {
+        await fetch(`/api/generate-logs?month=${currentMonthKey}`, { method: "DELETE" });
+      } catch { /* ignore log deletion errors */ }
       await loadBundle({ preserveActionMessage: true });
       setActionAlertSeverity("success");
       setActionMsg(
@@ -1027,6 +1048,17 @@ export default function SchedulePage() {
               </MenuItem>
             </Menu>
           </>
+          <Tooltip title="Generator-Protokoll anzeigen">
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<DescriptionIcon />}
+              disabled={loading || !schedule || editMode}
+              onClick={() => void onViewLogs()}
+            >
+              Logs
+            </Button>
+          </Tooltip>
           <Button
             variant="outlined"
             startIcon={<AutoAwesomeIcon />}
@@ -1456,6 +1488,58 @@ export default function SchedulePage() {
             </Typography>
           </Box>
         </DialogContent>
+      </Dialog>
+
+      {/* Generation logs dialog */}
+      <Dialog
+        open={logDialogOpen}
+        onClose={() => setLogDialogOpen(false)}
+        maxWidth="lg"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <DescriptionIcon color="primary" />
+            Generator-Protokoll — {MONTH_NAMES[viewState.month]} {viewState.year}
+          </Box>
+          <IconButton size="small" onClick={() => setLogDialogOpen(false)}>
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          {logLoading ? (
+            <Box sx={{ display: "flex", justifyContent: "center", p: 4 }}>
+              <CircularProgress />
+            </Box>
+          ) : logContent ? (
+            <Box
+              component="pre"
+              sx={{
+                m: 0,
+                p: 1.5,
+                bgcolor: "grey.50",
+                borderRadius: 1,
+                fontSize: "0.75rem",
+                lineHeight: 1.5,
+                overflow: "auto",
+                maxHeight: "60vh",
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+                fontFamily: "monospace",
+              }}
+            >
+              {logContent}
+            </Box>
+          ) : (
+            <Typography color="text.secondary" sx={{ py: 4, textAlign: "center" }}>
+              Kein Protokoll für {MONTH_NAMES[viewState.month]} {viewState.year} vorhanden.
+              Generieren Sie zuerst einen Dienstplan.
+            </Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setLogDialogOpen(false)}>Schließen</Button>
+        </DialogActions>
       </Dialog>
 
       {/* Warnings sidebar */}

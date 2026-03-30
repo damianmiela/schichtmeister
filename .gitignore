@@ -59,3 +59,6 @@ deploy/*
 
 # Local documentation (not deployed)
 _LOCAL_DOCS/
+
+# Generator debug logs
+generate-logs/

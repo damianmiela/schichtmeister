@@ -27,6 +27,7 @@ interface WeekViewProps {
 
 const WISH_SHIFT_BG = "#e8f5e9";
 const WISH_FREI_BG = "#e3f2fd";
+const NAME_COL_WIDTH = 200;
 
 const EMP_STATUS_MAP: Record<string, string> = {
   KRANK: "K", LANGZEITKRANK: "LZ", MUTTERSCHUTZ: "MS", URLAUB: "U", KUR: "KU",
@@ -81,7 +82,7 @@ export default function WeekView({
       <Table size="small">
         <TableHead>
           <TableRow>
-            <TableCell sx={{ fontWeight: 600 }}>Mitarbeiter</TableCell>
+            <TableCell sx={{ fontWeight: 600, width: NAME_COL_WIDTH, minWidth: NAME_COL_WIDTH, maxWidth: NAME_COL_WIDTH }}>Mitarbeiter</TableCell>
             {dayIsos.map((iso) => {
               const [y, m, d] = iso.split("-").map(Number);
               const wd = new Date(y, m - 1, d).toLocaleDateString("de-DE", {
@@ -107,7 +108,7 @@ export default function WeekView({
         <TableBody>
           {sortedEmps.map((e) => (
             <TableRow key={e.id} hover>
-              <TableCell>
+              <TableCell sx={{ width: NAME_COL_WIDTH, minWidth: NAME_COL_WIDTH, maxWidth: NAME_COL_WIDTH, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                 <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
                   <Box
                     component="span"

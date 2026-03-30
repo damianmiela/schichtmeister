@@ -1241,17 +1241,17 @@ export async function runGreedyScheduleGeneration(
 
   log(`=== Generation Complete: ${proposed.length} assignments, ${warnings.length} warnings, ${unmet.length} unmet ===`);
 
+  const logMonth = `${schedule.periodStart.getUTCFullYear()}-${String(schedule.periodStart.getUTCMonth() + 1).padStart(2, "0")}`;
   try {
-    const logDir = path.join(process.cwd(), "_LOCAL_DOCS");
+    const logDir = path.join(process.cwd(), "generate-logs");
     if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
-    const logPath = path.join(logDir, "generate-debug.log");
+    const logPath = path.join(logDir, `generate-${logMonth}.log`);
     fs.writeFileSync(logPath, debugLog.join("\n"), "utf-8");
-    warnings.push(`Debug-Log geschrieben: ${logPath} (${debugLog.length} Zeilen)`);
   } catch {
     try {
-      const tmpPath = path.join("/tmp", "schichtmeister-generate-debug.log");
-      fs.writeFileSync(tmpPath, debugLog.join("\n"), "utf-8");
-      warnings.push(`Debug-Log geschrieben: ${tmpPath} (${debugLog.length} Zeilen)`);
+      const tmpDir = path.join("/tmp", "schichtmeister-logs");
+      if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+      fs.writeFileSync(path.join(tmpDir, `generate-${logMonth}.log`), debugLog.join("\n"), "utf-8");
     } catch { /* ignore if file write fails entirely */ }
   }
 

@@ -114,6 +114,7 @@ const WISH_SHIFT_BG = "#e8f5e9";
 const WISH_FREI_BG = "#e3f2fd";
 const EDIT_CHANGED_BORDER = "2px dashed #ff9800";
 const ROW_HEIGHT = 56;
+const NAME_COL_WIDTH = 200;
 
 const MARKING_CODES = ["FO", "PA", "E", "BD"] as const;
 
@@ -405,7 +406,9 @@ export default function MonthTableView({
             <TableRow>
               <TableCell
                 sx={{
-                  minWidth: 180,
+                  width: NAME_COL_WIDTH,
+                  minWidth: NAME_COL_WIDTH,
+                  maxWidth: NAME_COL_WIDTH,
                   fontWeight: 600,
                   position: "sticky",
                   left: 0,
@@ -421,7 +424,7 @@ export default function MonthTableView({
                   minWidth: 72,
                   fontWeight: 600,
                   position: "sticky",
-                  left: 180,
+                  left: NAME_COL_WIDTH,
                   zIndex: 3,
                   bgcolor: "background.paper",
                   borderRight: 1,
@@ -487,6 +490,11 @@ export default function MonthTableView({
                   <TableCell
                     sx={{
                       whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      width: NAME_COL_WIDTH,
+                      minWidth: NAME_COL_WIDTH,
+                      maxWidth: NAME_COL_WIDTH,
                       position: "sticky",
                       left: 0,
                       bgcolor: "background.paper",
@@ -522,7 +530,7 @@ export default function MonthTableView({
                     align="center"
                     sx={{
                       position: "sticky",
-                      left: 180,
+                      left: NAME_COL_WIDTH,
                       bgcolor: "background.paper",
                       zIndex: 1,
                       borderRight: 1,
@@ -650,10 +658,8 @@ export default function MonthTableView({
                             sx={{
                               display: "flex",
                               flexDirection: "column",
-                              alignItems: "center",
-                              justifyContent: "center",
                               height: "100%",
-                              px: 0.25,
+                              width: "100%",
                             }}
                           >
                             {/* Row 1 – shift profile / status */}
@@ -673,7 +679,12 @@ export default function MonthTableView({
                                 cursor: editMode ? "pointer" : "inherit",
                                 width: "100%",
                                 textAlign: "center",
-                                borderRadius: 0.5,
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                flex: 1,
+                                borderBottom: "1px solid",
+                                borderColor: "divider",
                                 "&:hover": editMode
                                   ? { bgcolor: "action.hover" }
                                   : undefined,
@@ -699,8 +710,12 @@ export default function MonthTableView({
                                 cursor: editMode ? "pointer" : "inherit",
                                 width: "100%",
                                 textAlign: "center",
-                                minHeight: 12,
-                                borderRadius: 0.5,
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                flex: 1,
+                                borderBottom: "1px solid",
+                                borderColor: "divider",
                                 "&:hover": editMode
                                   ? { bgcolor: "action.hover" }
                                   : undefined,
@@ -726,8 +741,10 @@ export default function MonthTableView({
                                 cursor: editMode ? "pointer" : "inherit",
                                 width: "100%",
                                 textAlign: "center",
-                                minHeight: 12,
-                                borderRadius: 0.5,
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                flex: 1,
                                 "&:hover": editMode
                                   ? { bgcolor: "action.hover" }
                                   : undefined,
