@@ -6,6 +6,7 @@ const SHIFT_TYPE_DE: Record<string, string> = {
   EARLY: "Frühdienst",
   LATE: "Spätdienst",
   NIGHT: "Nachtdienst",
+  BL: "Bereichsleitung",
 };
 
 function eName(ids: string[] | undefined, lookup: EmployeeLookup): string {
@@ -152,6 +153,27 @@ export function formatRuleViolations(
         if (!prev || streak > prev.maxStreak) {
           daysByEmp.set(empKey, { maxStreak: streak, limit });
         }
+        break;
+      }
+      case "PROFILE_NOT_ALLOWED": {
+        const name = eName(msg.employeeIds, employeeNames);
+        out.push(`Nicht erlaubtes Schichtprofil: ${name} ist einem Profil zugewiesen, das nicht in der erlaubten Liste steht.`);
+        break;
+      }
+      case "OVERSTAFFED": {
+        const st = parseString(msg.message, /(\w+) station/) ?? "";
+        const stn = parseNumber(msg.message, /station (\d+)/) ?? 0;
+        const date = parseString(msg.message, /on (\d{4}-\d{2}-\d{2})/) ?? "";
+        const got = parseNumber(msg.message, /has (\d+) employees/) ?? 0;
+        const max = parseNumber(msg.message, /max (\d+)/) ?? 0;
+        out.push(`Überbesetzung: ${shiftDe(st)} Station ${stn} am ${fmtDate(date)} — ${got}/${max} (max. ${max} erlaubt).`);
+        break;
+      }
+      case "OVERTIME_EXCESS": {
+        const name = eName(msg.employeeIds, employeeNames);
+        const hrs = parseNumber(msg.message, /has (\d+\.?\d*)h/) ?? 0;
+        const soll = parseNumber(msg.message, /Soll: (\d+\.?\d*)h/) ?? 0;
+        out.push(`Überstunden: ${name} hat ${hrs.toFixed(1)}h geplant (Soll: ${soll.toFixed(1)}h, max. +8h Überstunden erlaubt).`);
         break;
       }
       case "INSUFFICIENT_REST_AFTER_MAX_DAYS": {

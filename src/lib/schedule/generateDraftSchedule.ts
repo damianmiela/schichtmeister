@@ -1,6 +1,7 @@
 import type { PrismaClient, ShiftProfile, Wish } from "@prisma/client";
 import {
   ContractType,
+  EmployeeStatus,
   ShiftType,
   TargetHoursPeriod,
   WishPriority,
@@ -26,12 +27,14 @@ export const SHIFT_TYPE_ORDER: ShiftType[] = [
   ShiftType.EARLY,
   ShiftType.LATE,
   ShiftType.NIGHT,
+  ShiftType.BL,
 ];
 
 const SHIFT_LABEL_DE: Record<string, string> = {
   EARLY: "Früh",
   LATE: "Spät",
   NIGHT: "Nacht",
+  BL: "BL",
 };
 
 function formatDateDE(d: Date): string {
@@ -63,6 +66,8 @@ export function hashString(str: string): number {
 
 export type MergedStaffingEntry = {
   minTotalCount: number;
+  maxTotalCount: number | null;
+  isFacilityWide: boolean;
   qualificationRequirements: QualificationRequirementInput[];
 };
 
@@ -77,6 +82,8 @@ export function mergeStaffingRequirements(
     shiftType: ShiftType;
     stationNumber: number;
     minTotalCount: number;
+    maxTotalCount?: number | null;
+    isFacilityWide?: boolean;
     qualificationRequirements: { qualificationTag: string; minCount: number }[];
   }[],
 ): Map<string, MergedStaffingEntry> {
@@ -87,6 +94,8 @@ export function mergeStaffingRequirements(
     if (!cur) {
       map.set(k, {
         minTotalCount: r.minTotalCount,
+        maxTotalCount: r.maxTotalCount ?? null,
+        isFacilityWide: r.isFacilityWide ?? false,
         qualificationRequirements: [...r.qualificationRequirements],
       });
     } else {
@@ -99,6 +108,11 @@ export function mergeStaffingRequirements(
       }
       map.set(k, {
         minTotalCount: cur.minTotalCount + r.minTotalCount,
+        maxTotalCount:
+          cur.maxTotalCount != null && r.maxTotalCount != null
+            ? cur.maxTotalCount + r.maxTotalCount
+            : (cur.maxTotalCount ?? r.maxTotalCount ?? null),
+        isFacilityWide: cur.isFacilityWide || (r.isFacilityWide ?? false),
         qualificationRequirements: [...tagMap.entries()].map(([qualificationTag, minCount]) => ({ qualificationTag, minCount })),
       });
     }
@@ -188,12 +202,15 @@ export function schedulingTargetHoursBonus(
 export type GenEmployee = {
   id: string;
   qualificationTags: string[];
+  qualificationAbbreviations: string[];
   preferredShiftTypes: ShiftType[];
   targetHours: number | null;
   targetHoursPeriod: TargetHoursPeriod | null;
+  targetHoursPercent: number | null;
   contractType: ContractType;
   miniJobMaxMonthlyHours: number | null;
   assignedStationNumber: number | null;
+  allowedShiftProfileIds: Set<string>;
   unavailableDateSet: Set<string>;
 };
 
@@ -215,6 +232,20 @@ export function sumPaidHoursForEmployeeInProposed(
     sum += assignmentPaidHours(a.date, p.startTime, p.endTime, p.breakMinutes);
   }
   return sum;
+}
+
+export function monthlyWorkingDays(year: number, month: number): number {
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  let wd = 0;
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dow = new Date(year, month, d).getDay();
+    if (dow !== 0 && dow !== 6) wd++;
+  }
+  return wd;
+}
+
+export function monthlySollHours(workingDays: number, percent: number): number {
+  return workingDays * 8 * (percent / 100);
 }
 
 export function buildDefaultProfileByShiftType(
@@ -246,6 +277,20 @@ export function buildDefaultProfileByType(
   return out;
 }
 
+export function selectProfileForEmployee(
+  emp: GenEmployee,
+  shiftType: ShiftType,
+  allProfiles: ShiftProfile[],
+): ShiftProfile | null {
+  const candidates = allProfiles.filter(p =>
+    p.shiftType === shiftType &&
+    p.isActive &&
+    (emp.allowedShiftProfileIds.size === 0 || emp.allowedShiftProfileIds.has(p.id))
+  );
+  if (candidates.length === 0) return null;
+  return candidates[0]!;
+}
+
 const JITTER_MAX = 3;
 
 /**
@@ -270,7 +315,8 @@ function sortCandidates(
     (e) =>
       !e.unavailableDateSet.has(dateIso) &&
       !alreadyPlacedIds.has(e.id) &&
-      (e.assignedStationNumber == null || e.assignedStationNumber === stationNumber),
+      (e.assignedStationNumber == null || e.assignedStationNumber === stationNumber || stationNumber === 0) &&
+      (e.allowedShiftProfileIds.size === 0 || e.allowedShiftProfileIds.has(profileId)),
   );
 
   const pool = requiredTag
@@ -321,7 +367,7 @@ export type GenerateReport = {
 
 type LoaderDb = Pick<
   PrismaClient,
-  "employee" | "employeeAvailability" | "shiftProfile" | "staffingRequirement" | "wish"
+  "employee" | "employeeAvailability" | "employeeAbsence" | "shiftProfile" | "staffingRequirement" | "wish"
 >;
 
 export async function loadGenerateContext(
@@ -335,7 +381,19 @@ export async function loadGenerateContext(
   mergedStaffing: Map<string, MergedStaffingEntry>;
   wishes: Wish[];
 }> {
-  const employeesRaw = await db.employee.findMany({ where: { facilityId } });
+  const employeesRaw = await db.employee.findMany({
+    where: { facilityId, status: EmployeeStatus.ACTIVE },
+    include: {
+      qualifications: true,
+      allowedShiftProfiles: true,
+      absences: {
+        where: {
+          startDate: { lte: periodEnd },
+          endDate: { gte: periodStart },
+        },
+      },
+    },
+  });
   const ids = employeesRaw.map((e) => e.id);
   const [availability, profiles, staffingRows, wishes] = await Promise.all([
     ids.length === 0
@@ -370,23 +428,41 @@ export async function loadGenerateContext(
     unavailByEmp.set(a.employeeId, set);
   }
 
-  const employees: GenEmployee[] = employeesRaw.map((e) => ({
-    id: e.id,
-    qualificationTags: e.qualificationTags,
-    preferredShiftTypes: e.preferredShiftTypes,
-    targetHours: e.targetHours != null ? Number(e.targetHours) : null,
-    targetHoursPeriod: e.targetHoursPeriod,
-    contractType: e.contractType,
-    miniJobMaxMonthlyHours:
-      e.miniJobMaxMonthlyHours != null ? Number(e.miniJobMaxMonthlyHours) : null,
-    assignedStationNumber: e.assignedStationNumber ?? null,
-    unavailableDateSet: unavailByEmp.get(e.id) ?? new Set(),
-  }));
+  const employees: GenEmployee[] = employeesRaw.map((e) => {
+    const unavail = unavailByEmp.get(e.id) ?? new Set<string>();
+
+    for (const abs of e.absences) {
+      let t = Date.UTC(abs.startDate.getUTCFullYear(), abs.startDate.getUTCMonth(), abs.startDate.getUTCDate());
+      const end = Date.UTC(abs.endDate.getUTCFullYear(), abs.endDate.getUTCMonth(), abs.endDate.getUTCDate());
+      while (t <= end) {
+        unavail.add(toIsoDateOnly(new Date(t)));
+        t += 24 * 60 * 60 * 1000;
+      }
+    }
+
+    return {
+      id: e.id,
+      qualificationTags: e.qualificationTags,
+      qualificationAbbreviations: e.qualifications.map(q => q.abbreviation),
+      preferredShiftTypes: e.preferredShiftTypes,
+      targetHours: e.targetHours != null ? Number(e.targetHours) : null,
+      targetHoursPeriod: e.targetHoursPeriod,
+      targetHoursPercent: e.targetHoursPercent != null ? Number(e.targetHoursPercent) : null,
+      contractType: e.contractType,
+      miniJobMaxMonthlyHours:
+        e.miniJobMaxMonthlyHours != null ? Number(e.miniJobMaxMonthlyHours) : null,
+      assignedStationNumber: e.assignedStationNumber ?? null,
+      allowedShiftProfileIds: new Set(e.allowedShiftProfiles.map(p => p.id)),
+      unavailableDateSet: unavail,
+    };
+  });
 
   const mappedRows = staffingRows.map((r) => ({
     shiftType: r.shiftType,
     stationNumber: r.stationNumber,
     minTotalCount: r.minTotalCount,
+    maxTotalCount: r.maxTotalCount ?? null,
+    isFacilityWide: r.isFacilityWide,
     qualificationRequirements: r.qualificationRequirements.map((q) => ({
       qualificationTag: q.qualificationTag,
       minCount: q.minCount,
@@ -399,6 +475,31 @@ export async function loadGenerateContext(
     mergedStaffing: mergeStaffingRequirements(mappedRows),
     wishes,
   };
+}
+
+function isoWeekKey(date: Date): string {
+  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
+}
+
+function selectFacilityWideProfile(
+  emp: GenEmployee,
+  shiftType: ShiftType,
+  allProfiles: ShiftProfile[],
+): ShiftProfile | null {
+  if (shiftType === ShiftType.NIGHT) {
+    const isPfk = emp.qualificationTags.includes("PFK") || emp.qualificationAbbreviations.includes("PFK");
+    const targetName = isPfk ? "N" : "N1";
+    const nightProfiles = allProfiles.filter(p => p.shiftType === ShiftType.NIGHT && p.isActive);
+    const match = nightProfiles.find(p => p.name === targetName);
+    if (match && (emp.allowedShiftProfileIds.size === 0 || emp.allowedShiftProfileIds.has(match.id))) {
+      return match;
+    }
+  }
+  return selectProfileForEmployee(emp, shiftType, allProfiles);
 }
 
 function unfulfilledOpenWishes(wishes: Wish[]): UnfulfilledWishEntry[] {
@@ -557,6 +658,8 @@ export function rebalanceAssignments(
             if (underSt != null && overSt == null) continue;
           }
 
+          if (underEmp.allowedShiftProfileIds.size > 0 && !underEmp.allowedShiftProfileIds.has(assignment.shiftProfileId)) continue;
+
           const alreadyOnSameType = proposed.some(
             (a2) =>
               a2.employeeId === underEmpId &&
@@ -637,9 +740,10 @@ export function rebalanceAssignments(
 }
 
 /**
- * Two-pass greedy fill: ascending dates, EARLY->LATE->NIGHT.
+ * Three-pass greedy fill: ascending dates, EARLY->LATE->NIGHT->BL.
  * Pass 1: fill qualification-required slots (tag-specific candidates only).
- * Pass 2: fill remaining general slots with anyone.
+ * Pass 2: fill remaining general slots up to minTotalCount.
+ * Pass 3: fill up to maxTotalCount for employees who need more hours.
  */
 export type BlockedDateInput = { employeeId: string; date: string };
 
@@ -683,7 +787,6 @@ export async function runGreedyScheduleGeneration(
     };
   }
 
-  // Pre-place manual assignments (hardest constraint — bypasses all rules)
   let manualPlaced = 0;
   if (manualPlacements && manualPlacements.length > 0) {
     const empIds = new Set(ctx.employees.map((e) => e.id));
@@ -730,7 +833,6 @@ export async function runGreedyScheduleGeneration(
     for (const shiftType of SHIFT_TYPE_ORDER) {
       const placedForTypeToday = new Set<string>();
 
-      // Seed placed sets with manually pre-placed employees for this date+shiftType
       for (const a of proposed) {
         if (!lockedIds.has(a.id)) continue;
         if (toIsoDateOnly(a.date) !== dateIso) continue;
@@ -740,13 +842,14 @@ export async function runGreedyScheduleGeneration(
         }
       }
 
+      // Station-based filling (non-facility-wide)
       for (const station of STATION_NUMBERS) {
         const key = staffingKey(shiftType, station);
         const req = ctx.mergedStaffing.get(key);
-        if (!req) continue;
+        if (!req || req.isFacilityWide) continue;
 
-        const profile = defaultProfileByType.get(shiftType) ?? null;
-        if (!profile) {
+        const defaultProfile = defaultProfileByType.get(shiftType) ?? null;
+        if (!defaultProfile) {
           warnings.push(`Kein aktives Schichtprofil für ${SHIFT_LABEL_DE[shiftType] ?? shiftType} Station ${station} am ${formatDateDE(date)}.`);
           unmet.push({ date: toIsoDateOnly(date), shiftType, requested: req.minTotalCount, assigned: 0 });
           continue;
@@ -754,10 +857,9 @@ export async function runGreedyScheduleGeneration(
 
         const placedOnSlot = new Set<string>(placedForTypeToday);
 
-        // Count pre-placed assignments for this exact profile+date
         let filled = 0;
         for (const a of proposed) {
-          if (lockedIds.has(a.id) && a.shiftProfileId === profile.id && toIsoDateOnly(a.date) === dateIso) {
+          if (lockedIds.has(a.id) && a.shiftProfileId === defaultProfile.id && toIsoDateOnly(a.date) === dateIso) {
             placedOnSlot.add(a.employeeId);
             filled++;
           }
@@ -767,13 +869,14 @@ export async function runGreedyScheduleGeneration(
         for (const qr of req.qualificationRequirements) {
           for (let slot = 0; slot < qr.minCount; slot++) {
             const candidates = sortCandidates(
-              ctx.employees, date, shiftType, profile.id,
+              ctx.employees, date, shiftType, defaultProfile.id,
               qr.qualificationTag, ctx.wishes, proposed, profilesById, placedOnSlot, station, rng,
             );
             let placed = false;
             for (const emp of candidates) {
+              const empProfile = selectProfileForEmployee(emp, shiftType, ctx.profiles) ?? defaultProfile;
               const assignment = await tryPlaceEmployee(
-                emp, date, profile.id, proposed, tx, facilityId, schedule, idSeq,
+                emp, date, empProfile.id, proposed, tx, facilityId, schedule, idSeq,
               );
               if (assignment) {
                 proposed.push(assignment);
@@ -792,13 +895,14 @@ export async function runGreedyScheduleGeneration(
         const remaining = req.minTotalCount - filled;
         for (let slot = 0; slot < remaining; slot++) {
           const candidates = sortCandidates(
-            ctx.employees, date, shiftType, profile.id,
+            ctx.employees, date, shiftType, defaultProfile.id,
             null, ctx.wishes, proposed, profilesById, placedOnSlot, station, rng,
           );
           let placed = false;
           for (const emp of candidates) {
+            const empProfile = selectProfileForEmployee(emp, shiftType, ctx.profiles) ?? defaultProfile;
             const assignment = await tryPlaceEmployee(
-              emp, date, profile.id, proposed, tx, facilityId, schedule, idSeq,
+              emp, date, empProfile.id, proposed, tx, facilityId, schedule, idSeq,
             );
             if (assignment) {
               proposed.push(assignment);
@@ -812,8 +916,211 @@ export async function runGreedyScheduleGeneration(
           if (!placed) break;
         }
 
+        // Pass 3: fill up to maxTotalCount for employees who need more hours
+        const maxSlots = (req.maxTotalCount ?? req.minTotalCount) - filled;
+        if (maxSlots > 0) {
+          const year = date.getUTCFullYear();
+          const month = date.getUTCMonth();
+          const wd = monthlyWorkingDays(year, month);
+          for (let slot = 0; slot < maxSlots; slot++) {
+            const candidates = sortCandidates(
+              ctx.employees, date, shiftType, defaultProfile.id,
+              null, ctx.wishes, proposed, profilesById, placedOnSlot, station, rng,
+            ).filter(emp => {
+              const hours = sumPaidHoursForEmployeeInProposed(emp.id, proposed, profilesById);
+              const soll = emp.targetHoursPercent != null
+                ? monthlySollHours(wd, emp.targetHoursPercent)
+                : (emp.targetHours ?? DEFAULT_BALANCE_TARGET);
+              return hours < soll + 8;
+            });
+            if (candidates.length === 0) break;
+            let placed = false;
+            for (const emp of candidates) {
+              const empProfile = selectProfileForEmployee(emp, shiftType, ctx.profiles) ?? defaultProfile;
+              const assignment = await tryPlaceEmployee(
+                emp, date, empProfile.id, proposed, tx, facilityId, schedule, idSeq,
+              );
+              if (assignment) {
+                proposed.push(assignment);
+                placedOnSlot.add(emp.id);
+                placedForTypeToday.add(emp.id);
+                filled++;
+                placed = true;
+                break;
+              }
+            }
+            if (!placed) break;
+          }
+        }
+
         if (filled < req.minTotalCount) {
           unmet.push({ date: toIsoDateOnly(date), shiftType, requested: req.minTotalCount, assigned: filled });
+        }
+      }
+
+      // Facility-wide handling (e.g. night shifts)
+      for (const [fwKey, fwReq] of ctx.mergedStaffing) {
+        const parts = fwKey.split(":");
+        if (parts[0] !== shiftType || !fwReq.isFacilityWide) continue;
+
+        const defaultProfile = defaultProfileByType.get(shiftType) ?? null;
+        if (!defaultProfile) continue;
+
+        const placedOnSlot = new Set<string>();
+        let filled = 0;
+        for (const a of proposed) {
+          if (toIsoDateOnly(a.date) !== dateIso) continue;
+          const p = profilesById.get(a.shiftProfileId);
+          if (p && p.shiftType === shiftType) {
+            placedOnSlot.add(a.employeeId);
+            filled++;
+          }
+        }
+
+        // Pass 1: qualification-required
+        for (const qr of fwReq.qualificationRequirements) {
+          for (let slot = 0; slot < qr.minCount; slot++) {
+            const candidates = sortCandidates(
+              ctx.employees, date, shiftType, defaultProfile.id,
+              qr.qualificationTag, ctx.wishes, proposed, profilesById, placedOnSlot, 0, rng,
+            );
+            let placed = false;
+            for (const emp of candidates) {
+              const empProfile = selectFacilityWideProfile(emp, shiftType, ctx.profiles);
+              if (!empProfile) continue;
+              const assignment = await tryPlaceEmployee(
+                emp, date, empProfile.id, proposed, tx, facilityId, schedule, idSeq,
+              );
+              if (assignment) {
+                proposed.push(assignment);
+                placedOnSlot.add(emp.id);
+                placedForTypeToday.add(emp.id);
+                filled++;
+                placed = true;
+                break;
+              }
+            }
+            if (!placed) break;
+          }
+        }
+
+        // Pass 2: fill remaining to minTotalCount
+        const fwRemaining = fwReq.minTotalCount - filled;
+        for (let slot = 0; slot < fwRemaining; slot++) {
+          const candidates = sortCandidates(
+            ctx.employees, date, shiftType, defaultProfile.id,
+            null, ctx.wishes, proposed, profilesById, placedOnSlot, 0, rng,
+          );
+          let placed = false;
+          for (const emp of candidates) {
+            const empProfile = selectFacilityWideProfile(emp, shiftType, ctx.profiles);
+            if (!empProfile) continue;
+            const assignment = await tryPlaceEmployee(
+              emp, date, empProfile.id, proposed, tx, facilityId, schedule, idSeq,
+            );
+            if (assignment) {
+              proposed.push(assignment);
+              placedOnSlot.add(emp.id);
+              placedForTypeToday.add(emp.id);
+              filled++;
+              placed = true;
+              break;
+            }
+          }
+          if (!placed) break;
+        }
+
+        // Pass 3: fill up to maxTotalCount
+        const fwMaxSlots = (fwReq.maxTotalCount ?? fwReq.minTotalCount) - filled;
+        if (fwMaxSlots > 0) {
+          const year = date.getUTCFullYear();
+          const month = date.getUTCMonth();
+          const wd = monthlyWorkingDays(year, month);
+          for (let slot = 0; slot < fwMaxSlots; slot++) {
+            const candidates = sortCandidates(
+              ctx.employees, date, shiftType, defaultProfile.id,
+              null, ctx.wishes, proposed, profilesById, placedOnSlot, 0, rng,
+            ).filter(emp => {
+              const hours = sumPaidHoursForEmployeeInProposed(emp.id, proposed, profilesById);
+              const soll = emp.targetHoursPercent != null
+                ? monthlySollHours(wd, emp.targetHoursPercent)
+                : (emp.targetHours ?? DEFAULT_BALANCE_TARGET);
+              return hours < soll + 8;
+            });
+            if (candidates.length === 0) break;
+            let placed = false;
+            for (const emp of candidates) {
+              const empProfile = selectFacilityWideProfile(emp, shiftType, ctx.profiles);
+              if (!empProfile) continue;
+              const assignment = await tryPlaceEmployee(
+                emp, date, empProfile.id, proposed, tx, facilityId, schedule, idSeq,
+              );
+              if (assignment) {
+                proposed.push(assignment);
+                placedOnSlot.add(emp.id);
+                placedForTypeToday.add(emp.id);
+                filled++;
+                placed = true;
+                break;
+              }
+            }
+            if (!placed) break;
+          }
+        }
+
+        if (filled < fwReq.minTotalCount) {
+          unmet.push({ date: toIsoDateOnly(date), shiftType, requested: fwReq.minTotalCount, assigned: filled });
+        }
+      }
+    }
+  }
+
+  // WBL-BL check: ensure WBL employees have at least 1 BL per calendar week
+  const wblEmployees = ctx.employees.filter(e =>
+    e.qualificationTags.includes("WBL") || e.qualificationAbbreviations.includes("WBL")
+  );
+  if (wblEmployees.length > 0) {
+    const weekDatesMap = new Map<string, Date[]>();
+    for (const date of dates) {
+      const wk = isoWeekKey(date);
+      const arr = weekDatesMap.get(wk) ?? [];
+      arr.push(date);
+      weekDatesMap.set(wk, arr);
+    }
+
+    for (const emp of wblEmployees) {
+      for (const [weekKey, weekDates] of weekDatesMap) {
+        const hasBl = proposed.some(a => {
+          if (a.employeeId !== emp.id) return false;
+          const p = profilesById.get(a.shiftProfileId);
+          if (!p || p.shiftType !== ShiftType.BL) return false;
+          return weekDates.some(d => toIsoDateOnly(d) === toIsoDateOnly(a.date));
+        });
+        if (hasBl) continue;
+
+        let added = false;
+        for (const date of weekDates) {
+          const dateIso = toIsoDateOnly(date);
+          if (emp.unavailableDateSet.has(dateIso)) continue;
+          const alreadyOnDate = proposed.some(a =>
+            a.employeeId === emp.id && toIsoDateOnly(a.date) === dateIso
+          );
+          if (alreadyOnDate) continue;
+
+          const blProfile = selectProfileForEmployee(emp, ShiftType.BL, ctx.profiles);
+          if (!blProfile) continue;
+
+          const assignment = await tryPlaceEmployee(
+            emp, date, blProfile.id, proposed, tx, facilityId, schedule, idSeq,
+          );
+          if (assignment) {
+            proposed.push(assignment);
+            added = true;
+            break;
+          }
+        }
+        if (!added) {
+          warnings.push(`WBL: Mitarbeiter ${emp.id} hat in ${weekKey} keinen BL-Dienst.`);
         }
       }
     }
@@ -833,6 +1140,22 @@ export async function runGreedyScheduleGeneration(
       lockedIds,
     );
     warnings.push(...rebalResult.warnings);
+  }
+
+  // Overtime warnings
+  {
+    const year = schedule.periodStart.getUTCFullYear();
+    const month = schedule.periodStart.getUTCMonth();
+    const wd = monthlyWorkingDays(year, month);
+    for (const emp of ctx.employees) {
+      const hours = sumPaidHoursForEmployeeInProposed(emp.id, proposed, profilesById);
+      const pct = emp.targetHoursPercent ?? 100;
+      const soll = monthlySollHours(wd, pct);
+      if (hours > soll + 8) {
+        const empName = emp.id;
+        warnings.push(`Überstunden: MA ${empName} hat ${hours.toFixed(1)}h geplant (Soll: ${soll.toFixed(1)}h, +${(hours - soll).toFixed(1)}h Überstunden).`);
+      }
+    }
   }
 
   // Check qualification coverage on FINAL assignments (after rebalancing)

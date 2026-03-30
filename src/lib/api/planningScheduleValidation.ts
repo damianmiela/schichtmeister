@@ -32,6 +32,8 @@ function buildEmployeeInput(e: {
   contractType: EmployeeInput["contractType"];
   miniJobMaxMonthlyHours: Prisma.Decimal | null;
   qualificationTags: string[];
+  targetHoursPercent?: Prisma.Decimal | null;
+  allowedShiftProfiles?: { id: string }[];
 }): EmployeeInput {
   return {
     id: e.id,
@@ -39,6 +41,8 @@ function buildEmployeeInput(e: {
     miniJobMaxMonthlyHours:
       e.miniJobMaxMonthlyHours != null ? Number(e.miniJobMaxMonthlyHours) : null,
     qualificationTags: e.qualificationTags,
+    targetHoursPercent: e.targetHoursPercent != null ? Number(e.targetHoursPercent) : null,
+    allowedShiftProfileIds: e.allowedShiftProfiles?.map((p) => p.id),
   };
 }
 
@@ -78,7 +82,7 @@ export async function validateScheduleAssignments(
   }
 
   const [employees, profiles, staffingRows] = await Promise.all([
-    db.employee.findMany({ where: { facilityId } }),
+    db.employee.findMany({ where: { facilityId }, include: { allowedShiftProfiles: { select: { id: true } } } }),
     db.shiftProfile.findMany({ where: { facilityId } }),
     db.staffingRequirement.findMany({
       where: { facilityId },

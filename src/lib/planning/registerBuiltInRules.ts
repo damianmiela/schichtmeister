@@ -1,11 +1,14 @@
 import { registerRule } from "@/lib/planning/registry";
-import { fairnessCountersRule, targetHoursBalanceRule, wishFulfillmentRule } from "@/lib/planning/rules/softStubs";
+import { allowedShiftProfilesRule } from "@/lib/planning/rules/allowedShiftProfiles";
 import { maxConsecutiveDaysRule } from "@/lib/planning/rules/maxConsecutiveDays";
 import { maxConsecutiveNightsRule } from "@/lib/planning/rules/maxConsecutiveNights";
+import { maxStaffingRule } from "@/lib/planning/rules/maxStaffing";
 import { minRestBetweenShiftsRule } from "@/lib/planning/rules/minRestBetweenShifts";
 import { miniJobMonthlyHoursRule } from "@/lib/planning/rules/miniJobMonthlyHours";
 import { noOverlapRule } from "@/lib/planning/rules/noOverlap";
+import { overtimeExcessRule } from "@/lib/planning/rules/overtimeExcess";
 import { qualificationCoverageRule } from "@/lib/planning/rules/qualificationCoverage";
+import { fairnessCountersRule, targetHoursBalanceRule, wishFulfillmentRule } from "@/lib/planning/rules/softStubs";
 import { staffingMinimumRule } from "@/lib/planning/rules/staffingMinimum";
 
 /** Idempotent: overwrites any prior registration for the same rule ids. */
@@ -49,5 +52,17 @@ export function registerBuiltInPlanningRules(): void {
   registerRule(
     { id: "maxConsecutiveDays", severity: "hard", scope: "employee", description: "Maximale aufeinanderfolgende Arbeitstage (Standard 7, danach 2 Ruhetage)." },
     maxConsecutiveDaysRule,
+  );
+  registerRule(
+    { id: "allowedShiftProfiles", severity: "hard", scope: "employee", description: "Employee must only be assigned to their allowed shift profiles." },
+    allowedShiftProfilesRule,
+  );
+  registerRule(
+    { id: "maxStaffing", severity: "soft", scope: "global", description: "Max staffing per shift/station must not be exceeded." },
+    maxStaffingRule,
+  );
+  registerRule(
+    { id: "overtimeExcess", severity: "soft", scope: "employee", description: "Employee hours should not exceed Soll + 8h overtime." },
+    overtimeExcessRule,
   );
 }

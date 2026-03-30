@@ -32,6 +32,8 @@ export type EmployeeInput = {
   contractType: ContractType;
   miniJobMaxMonthlyHours: number | null;
   qualificationTags: string[];
+  allowedShiftProfileIds?: string[];
+  targetHoursPercent?: number | null;
 };
 
 export type ShiftProfileInput = {

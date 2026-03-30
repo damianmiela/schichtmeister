@@ -191,6 +191,43 @@ describe("formatRuleViolations", () => {
     expect(result[0]).toContain("7 aufeinanderfolgenden");
   });
 
+  // ── PROFILE_NOT_ALLOWED ──
+
+  it("formats PROFILE_NOT_ALLOWED in German", () => {
+    const msgs: RuleMessage[] = [
+      { ruleId: "allowedShiftProfiles", code: "PROFILE_NOT_ALLOWED", message: "Employee e1 assigned to profile p1 which is not in their allowed list.", employeeIds: ["e1"] },
+    ];
+    const result = formatRuleViolations(msgs, empNames);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toContain("Nicht erlaubtes Schichtprofil");
+    expect(result[0]).toContain("Max Müller");
+  });
+
+  // ── OVERSTAFFED ──
+
+  it("formats OVERSTAFFED in German", () => {
+    const msgs: RuleMessage[] = [
+      { ruleId: "maxStaffing", code: "OVERSTAFFED", message: "EARLY station 1 on 2026-03-10 has 6 employees (max 5)." },
+    ];
+    const result = formatRuleViolations(msgs, empNames);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toContain("Überbesetzung");
+    expect(result[0]).toContain("Frühdienst Station 1");
+    expect(result[0]).toContain("10.03.");
+    expect(result[0]).toContain("6/5");
+  });
+
+  // ── OVERTIME_EXCESS ──
+
+  it("formats OVERTIME_EXCESS in German", () => {
+    const msgs: RuleMessage[] = [
+      { ruleId: "overtimeExcess", code: "OVERTIME_EXCESS", message: "Employee e2 has 190.5h planned (Soll: 176.0h, max +8h overtime).", employeeIds: ["e2"] },
+    ];
+    const result = formatRuleViolations(msgs, empNames);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toBe("Überstunden: Anna Schmidt hat 190.5h geplant (Soll: 176.0h, max. +8h Überstunden erlaubt).");
+  });
+
   // ── Unknown codes ──
 
   it("passes through unknown codes as-is", () => {

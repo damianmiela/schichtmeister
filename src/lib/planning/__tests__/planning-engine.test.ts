@@ -1022,4 +1022,187 @@ describe("phase 04 — planning rules", () => {
       expect(errors.some((e) => e.code === "MAX_CONSECUTIVE_DAYS")).toBe(true);
     });
   });
+
+  describe("allowedShiftProfiles", () => {
+    it("errors when employee is assigned a non-allowed profile", () => {
+      const profiles = new Map([
+        ["early", { id: "early", shiftType: ShiftType.EARLY, startTime: "06:00", endTime: "14:00", breakMinutes: 0 }],
+      ]);
+      const employees = new Map([
+        ["e1", { id: "e1", contractType: ContractType.FULL_TIME, miniJobMaxMonthlyHours: null, qualificationTags: [], allowedShiftProfileIds: ["late1"] }],
+      ]);
+      const ctx = minimalCtx({
+        assignments: [
+          { id: "a1", date: new Date(Date.UTC(2026, 0, 5)), shiftProfileId: "early", employeeId: "e1" },
+        ],
+        employeesById: employees,
+        profilesById: profiles,
+        snapshot: baseSnapshot({
+          ruleStates: {
+            allowedShiftProfiles: { enabled: true, params: {} },
+          },
+        }),
+      });
+      const { errors } = runAllRules(ctx);
+      expect(errors.some((e) => e.code === "PROFILE_NOT_ALLOWED")).toBe(true);
+    });
+
+    it("passes when employee has no allowedShiftProfileIds restriction", () => {
+      const profiles = new Map([
+        ["early", { id: "early", shiftType: ShiftType.EARLY, startTime: "06:00", endTime: "14:00", breakMinutes: 0 }],
+      ]);
+      const employees = new Map([
+        ["e1", { id: "e1", contractType: ContractType.FULL_TIME, miniJobMaxMonthlyHours: null, qualificationTags: [] }],
+      ]);
+      const ctx = minimalCtx({
+        assignments: [
+          { id: "a1", date: new Date(Date.UTC(2026, 0, 5)), shiftProfileId: "early", employeeId: "e1" },
+        ],
+        employeesById: employees,
+        profilesById: profiles,
+        snapshot: baseSnapshot({
+          ruleStates: {
+            allowedShiftProfiles: { enabled: true, params: {} },
+          },
+        }),
+      });
+      const { errors } = runAllRules(ctx);
+      expect(errors.filter((e) => e.ruleId === "allowedShiftProfiles")).toEqual([]);
+    });
+
+    it("passes when employee is assigned an allowed profile", () => {
+      const profiles = new Map([
+        ["early", { id: "early", shiftType: ShiftType.EARLY, startTime: "06:00", endTime: "14:00", breakMinutes: 0 }],
+      ]);
+      const employees = new Map([
+        ["e1", { id: "e1", contractType: ContractType.FULL_TIME, miniJobMaxMonthlyHours: null, qualificationTags: [], allowedShiftProfileIds: ["early"] }],
+      ]);
+      const ctx = minimalCtx({
+        assignments: [
+          { id: "a1", date: new Date(Date.UTC(2026, 0, 5)), shiftProfileId: "early", employeeId: "e1" },
+        ],
+        employeesById: employees,
+        profilesById: profiles,
+        snapshot: baseSnapshot({
+          ruleStates: {
+            allowedShiftProfiles: { enabled: true, params: {} },
+          },
+        }),
+      });
+      const { errors } = runAllRules(ctx);
+      expect(errors.filter((e) => e.ruleId === "allowedShiftProfiles")).toEqual([]);
+    });
+  });
+
+  describe("maxStaffing", () => {
+    it("warns when shift exceeds maxTotalCount", () => {
+      const profiles = new Map([
+        ["early", { id: "early", shiftType: ShiftType.EARLY, startTime: "06:00", endTime: "14:00", breakMinutes: 0 }],
+      ]);
+      const ctx = minimalCtx({
+        periodStart: new Date(Date.UTC(2026, 0, 5)),
+        periodEnd: new Date(Date.UTC(2026, 0, 5)),
+        assignments: [
+          { id: "a1", date: new Date(Date.UTC(2026, 0, 5)), shiftProfileId: "early", employeeId: "e1" },
+          { id: "a2", date: new Date(Date.UTC(2026, 0, 5)), shiftProfileId: "early", employeeId: "e2" },
+          { id: "a3", date: new Date(Date.UTC(2026, 0, 5)), shiftProfileId: "early", employeeId: "e3" },
+        ],
+        profilesById: profiles,
+        staffingRequirements: [
+          { shiftType: ShiftType.EARLY, stationNumber: 1, minTotalCount: 1, maxTotalCount: 2, qualificationRequirements: [] },
+        ],
+        snapshot: baseSnapshot({
+          ruleStates: {
+            maxStaffing: { enabled: true, params: {} },
+          },
+        }),
+      });
+      const { warnings } = runAllRules(ctx);
+      expect(warnings.some((w) => w.code === "OVERSTAFFED")).toBe(true);
+    });
+
+    it("does not warn when under maxTotalCount", () => {
+      const profiles = new Map([
+        ["early", { id: "early", shiftType: ShiftType.EARLY, startTime: "06:00", endTime: "14:00", breakMinutes: 0 }],
+      ]);
+      const ctx = minimalCtx({
+        periodStart: new Date(Date.UTC(2026, 0, 5)),
+        periodEnd: new Date(Date.UTC(2026, 0, 5)),
+        assignments: [
+          { id: "a1", date: new Date(Date.UTC(2026, 0, 5)), shiftProfileId: "early", employeeId: "e1" },
+        ],
+        profilesById: profiles,
+        staffingRequirements: [
+          { shiftType: ShiftType.EARLY, stationNumber: 1, minTotalCount: 1, maxTotalCount: 5, qualificationRequirements: [] },
+        ],
+        snapshot: baseSnapshot({
+          ruleStates: {
+            maxStaffing: { enabled: true, params: {} },
+          },
+        }),
+      });
+      const { warnings } = runAllRules(ctx);
+      expect(warnings.filter((w) => w.ruleId === "maxStaffing")).toEqual([]);
+    });
+  });
+
+  describe("overtimeExcess", () => {
+    it("warns when employee hours exceed Soll + 8h", () => {
+      const profiles = new Map([
+        ["early", { id: "early", shiftType: ShiftType.EARLY, startTime: "06:00", endTime: "14:00", breakMinutes: 0 }],
+      ]);
+      const employees = new Map([
+        ["e1", { id: "e1", contractType: ContractType.FULL_TIME, miniJobMaxMonthlyHours: null, qualificationTags: [], targetHoursPercent: 100 }],
+      ]);
+      const assignments = Array.from({ length: 25 }, (_, i) => ({
+        id: `a${i}`,
+        date: new Date(Date.UTC(2026, 0, 5 + i)),
+        shiftProfileId: "early",
+        employeeId: "e1",
+      }));
+      const ctx = minimalCtx({
+        periodStart: new Date(Date.UTC(2026, 0, 1)),
+        periodEnd: new Date(Date.UTC(2026, 0, 31)),
+        assignments,
+        employeesById: employees,
+        profilesById: profiles,
+        snapshot: baseSnapshot({
+          ruleStates: {
+            overtimeExcess: { enabled: true, params: {} },
+          },
+        }),
+      });
+      const { warnings } = runAllRules(ctx);
+      expect(warnings.some((w) => w.code === "OVERTIME_EXCESS")).toBe(true);
+    });
+
+    it("does not warn when hours are within Soll + 8h", () => {
+      const profiles = new Map([
+        ["early", { id: "early", shiftType: ShiftType.EARLY, startTime: "06:00", endTime: "14:00", breakMinutes: 0 }],
+      ]);
+      const employees = new Map([
+        ["e1", { id: "e1", contractType: ContractType.FULL_TIME, miniJobMaxMonthlyHours: null, qualificationTags: [], targetHoursPercent: 100 }],
+      ]);
+      const assignments = Array.from({ length: 5 }, (_, i) => ({
+        id: `a${i}`,
+        date: new Date(Date.UTC(2026, 0, 5 + i)),
+        shiftProfileId: "early",
+        employeeId: "e1",
+      }));
+      const ctx = minimalCtx({
+        periodStart: new Date(Date.UTC(2026, 0, 1)),
+        periodEnd: new Date(Date.UTC(2026, 0, 31)),
+        assignments,
+        employeesById: employees,
+        profilesById: profiles,
+        snapshot: baseSnapshot({
+          ruleStates: {
+            overtimeExcess: { enabled: true, params: {} },
+          },
+        }),
+      });
+      const { warnings } = runAllRules(ctx);
+      expect(warnings.filter((w) => w.ruleId === "overtimeExcess")).toEqual([]);
+    });
+  });
 });

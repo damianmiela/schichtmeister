@@ -19,9 +19,12 @@ import {
   hashString,
   isUnavailableOnDate,
   mergeStaffingRequirements,
+  monthlyWorkingDays,
+  monthlySollHours,
   mulberry32,
   preferencePenalty,
   rebalanceAssignments,
+  selectProfileForEmployee,
   sumPaidHoursForEmployeeInProposed,
   schedulingTargetHoursBonus,
   wishBonusForSlot,
@@ -33,6 +36,7 @@ describe("phase 07 — generate draft schedule (pure helpers)", () => {
       ShiftType.EARLY,
       ShiftType.LATE,
       ShiftType.NIGHT,
+      ShiftType.BL,
     ]);
   });
 
@@ -72,12 +76,15 @@ describe("phase 07 — generate draft schedule (pure helpers)", () => {
     const emp: GenEmployee = {
       id: "e1",
       qualificationTags: [],
+      qualificationAbbreviations: [],
       preferredShiftTypes: [],
       targetHours: null,
       targetHoursPeriod: null,
+      targetHoursPercent: null,
       contractType: ContractType.FULL_TIME,
       miniJobMaxMonthlyHours: null,
       assignedStationNumber: null,
+      allowedShiftProfileIds: new Set(),
       unavailableDateSet: new Set(["2026-02-01"]),
     };
     expect(isUnavailableOnDate(emp, "2026-02-01")).toBe(true);
@@ -259,7 +266,7 @@ describe("rebalanceAssignments", () => {
   const profilesById = new Map<string, ShiftProfile>([["early1", earlyProfile]]);
 
   const mergedStaffing = new Map<string, MergedStaffingEntry>([
-    ["EARLY:1", { minTotalCount: 2, qualificationRequirements: [] }],
+    ["EARLY:1", { minTotalCount: 2, maxTotalCount: null, isFacilityWide: false, qualificationRequirements: [] }],
   ]);
 
   const baseSnapshot: PlanningRulesSnapshot = {
@@ -285,12 +292,15 @@ describe("rebalanceAssignments", () => {
     return {
       id,
       qualificationTags: tags,
+      qualificationAbbreviations: [],
       preferredShiftTypes: [],
       targetHours,
       targetHoursPeriod: TargetHoursPeriod.MONTHLY,
+      targetHoursPercent: null,
       contractType: ContractType.FULL_TIME,
       miniJobMaxMonthlyHours: null,
       assignedStationNumber: assignedStation,
+      allowedShiftProfileIds: new Set(),
       unavailableDateSet: new Set(),
     };
   }
@@ -344,6 +354,8 @@ describe("rebalanceAssignments", () => {
         "EARLY:1",
         {
           minTotalCount: 1,
+          maxTotalCount: null,
+          isFacilityWide: false,
           qualificationRequirements: [{ qualificationTag: "Fachkraft", minCount: 1 }],
         },
       ],
@@ -519,12 +531,15 @@ describe("blocked dates (Frei-Wünsche)", () => {
     const emp: GenEmployee = {
       id: "e1",
       qualificationTags: [],
+      qualificationAbbreviations: [],
       preferredShiftTypes: [],
       targetHours: null,
       targetHoursPeriod: null,
+      targetHoursPercent: null,
       contractType: ContractType.FULL_TIME,
       miniJobMaxMonthlyHours: null,
       assignedStationNumber: null,
+      allowedShiftProfileIds: new Set(),
       unavailableDateSet: new Set(),
     };
 
@@ -553,23 +568,29 @@ describe("blocked dates (Frei-Wünsche)", () => {
     const emp1: GenEmployee = {
       id: "e1",
       qualificationTags: [],
+      qualificationAbbreviations: [],
       preferredShiftTypes: [],
       targetHours: null,
       targetHoursPeriod: null,
+      targetHoursPercent: null,
       contractType: ContractType.FULL_TIME,
       miniJobMaxMonthlyHours: null,
       assignedStationNumber: null,
+      allowedShiftProfileIds: new Set(),
       unavailableDateSet: new Set(),
     };
     const emp2: GenEmployee = {
       id: "e2",
       qualificationTags: [],
+      qualificationAbbreviations: [],
       preferredShiftTypes: [],
       targetHours: null,
       targetHoursPeriod: null,
+      targetHoursPercent: null,
       contractType: ContractType.FULL_TIME,
       miniJobMaxMonthlyHours: null,
       assignedStationNumber: null,
+      allowedShiftProfileIds: new Set(),
       unavailableDateSet: new Set(),
     };
 
@@ -587,12 +608,15 @@ describe("blocked dates (Frei-Wünsche)", () => {
     const emp: GenEmployee = {
       id: "e1",
       qualificationTags: [],
+      qualificationAbbreviations: [],
       preferredShiftTypes: [],
       targetHours: null,
       targetHoursPeriod: null,
+      targetHoursPercent: null,
       contractType: ContractType.FULL_TIME,
       miniJobMaxMonthlyHours: null,
       assignedStationNumber: null,
+      allowedShiftProfileIds: new Set(),
       unavailableDateSet: new Set(["2026-03-01"]),
     };
 
@@ -607,12 +631,15 @@ describe("blocked dates (Frei-Wünsche)", () => {
     const emp: GenEmployee = {
       id: "e1",
       qualificationTags: [],
+      qualificationAbbreviations: [],
       preferredShiftTypes: [],
       targetHours: null,
       targetHoursPeriod: null,
+      targetHoursPercent: null,
       contractType: ContractType.FULL_TIME,
       miniJobMaxMonthlyHours: null,
       assignedStationNumber: null,
+      allowedShiftProfileIds: new Set(),
       unavailableDateSet: new Set(),
     };
 
@@ -623,5 +650,209 @@ describe("blocked dates (Frei-Wünsche)", () => {
     }
 
     expect(isUnavailableOnDate(emp, "2026-03-10")).toBe(false);
+  });
+});
+
+describe("monthlyWorkingDays & monthlySollHours", () => {
+  it("counts weekdays in March 2026 (22 working days)", () => {
+    expect(monthlyWorkingDays(2026, 2)).toBe(22);
+  });
+
+  it("counts weekdays in February 2026 (20 working days)", () => {
+    expect(monthlyWorkingDays(2026, 1)).toBe(20);
+  });
+
+  it("calculates Soll hours for 100% in March 2026", () => {
+    expect(monthlySollHours(22, 100)).toBe(176);
+  });
+
+  it("calculates Soll hours for 75% in March 2026", () => {
+    expect(monthlySollHours(22, 75)).toBe(132);
+  });
+
+  it("calculates Soll hours for 50%", () => {
+    expect(monthlySollHours(20, 50)).toBe(80);
+  });
+});
+
+describe("selectProfileForEmployee", () => {
+  const profiles = [
+    { id: "f1", name: "F1", shiftType: ShiftType.EARLY, isActive: true, startTime: "06:00", endTime: "13:30", breakMinutes: 0 },
+    { id: "f2", name: "F2", shiftType: ShiftType.EARLY, isActive: true, startTime: "06:00", endTime: "14:30", breakMinutes: 0 },
+    { id: "s1", name: "S1", shiftType: ShiftType.LATE, isActive: true, startTime: "13:00", endTime: "21:30", breakMinutes: 0 },
+    { id: "n1", name: "N", shiftType: ShiftType.NIGHT, isActive: true, startTime: "21:00", endTime: "06:30", breakMinutes: 0 },
+    { id: "inactive", name: "X", shiftType: ShiftType.EARLY, isActive: false, startTime: "06:00", endTime: "10:00", breakMinutes: 0 },
+  ] as any[];
+
+  it("returns first matching active profile when no allowedShiftProfileIds", () => {
+    const emp: GenEmployee = {
+      id: "e1",
+      qualificationTags: [],
+      qualificationAbbreviations: [],
+      preferredShiftTypes: [],
+      targetHours: null,
+      targetHoursPeriod: null,
+      targetHoursPercent: null,
+      contractType: ContractType.FULL_TIME,
+      miniJobMaxMonthlyHours: null,
+      assignedStationNumber: null,
+      allowedShiftProfileIds: new Set(),
+      unavailableDateSet: new Set(),
+    };
+    const result = selectProfileForEmployee(emp, ShiftType.EARLY, profiles);
+    expect(result).not.toBeNull();
+    expect(result!.shiftType).toBe(ShiftType.EARLY);
+  });
+
+  it("filters by allowedShiftProfileIds", () => {
+    const emp: GenEmployee = {
+      id: "e1",
+      qualificationTags: [],
+      qualificationAbbreviations: [],
+      preferredShiftTypes: [],
+      targetHours: null,
+      targetHoursPeriod: null,
+      targetHoursPercent: null,
+      contractType: ContractType.FULL_TIME,
+      miniJobMaxMonthlyHours: null,
+      assignedStationNumber: null,
+      allowedShiftProfileIds: new Set(["f2"]),
+      unavailableDateSet: new Set(),
+    };
+    const result = selectProfileForEmployee(emp, ShiftType.EARLY, profiles);
+    expect(result).not.toBeNull();
+    expect(result!.id).toBe("f2");
+  });
+
+  it("returns null when no matching profiles", () => {
+    const emp: GenEmployee = {
+      id: "e1",
+      qualificationTags: [],
+      qualificationAbbreviations: [],
+      preferredShiftTypes: [],
+      targetHours: null,
+      targetHoursPeriod: null,
+      targetHoursPercent: null,
+      contractType: ContractType.FULL_TIME,
+      miniJobMaxMonthlyHours: null,
+      assignedStationNumber: null,
+      allowedShiftProfileIds: new Set(["nonexistent"]),
+      unavailableDateSet: new Set(),
+    };
+    const result = selectProfileForEmployee(emp, ShiftType.EARLY, profiles);
+    expect(result).toBeNull();
+  });
+
+  it("excludes inactive profiles", () => {
+    const emp: GenEmployee = {
+      id: "e1",
+      qualificationTags: [],
+      qualificationAbbreviations: [],
+      preferredShiftTypes: [],
+      targetHours: null,
+      targetHoursPeriod: null,
+      targetHoursPercent: null,
+      contractType: ContractType.FULL_TIME,
+      miniJobMaxMonthlyHours: null,
+      assignedStationNumber: null,
+      allowedShiftProfileIds: new Set(["inactive"]),
+      unavailableDateSet: new Set(),
+    };
+    const result = selectProfileForEmployee(emp, ShiftType.EARLY, profiles);
+    expect(result).toBeNull();
+  });
+});
+
+describe("rebalanceAssignments respects allowedShiftProfileIds", () => {
+  beforeEach(() => {
+    resetRuleRegistry();
+    registerBuiltInPlanningRules();
+  });
+
+  const earlyProfile = {
+    id: "early1",
+    facilityId: "f",
+    name: "F1",
+    shiftType: ShiftType.EARLY,
+    startTime: "06:00",
+    endTime: "14:00",
+    breakMinutes: 0,
+    startTime2: null,
+    endTime2: null,
+    breakMinutes2: null,
+    isActive: true,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  } as any;
+
+  const profilesById = new Map([["early1", earlyProfile]]);
+  const mergedStaffing = new Map<string, MergedStaffingEntry>([
+    ["EARLY:1", { minTotalCount: 2, maxTotalCount: null, isFacilityWide: false, qualificationRequirements: [] }],
+  ]);
+
+  const baseSnapshot = {
+    schemaVersion: 1,
+    minRestHours: 11,
+    miniJobMaxMonthlyHours: 520,
+    maxConsecutiveNightsEnabled: false,
+    ruleStates: {
+      noOverlap: { enabled: true, params: {} },
+      minRestBetweenShifts: { enabled: true, params: {} },
+      miniJobMonthlyHours: { enabled: true, params: {} },
+      maxConsecutiveNights: { enabled: true, params: { maxCount: 3 } },
+      maxConsecutiveDays: { enabled: true, params: { maxDays: 7, requiredRestDays: 2 } },
+    },
+  } as PlanningRulesSnapshot;
+
+  const period = {
+    periodStart: new Date(Date.UTC(2026, 0, 5)),
+    periodEnd: new Date(Date.UTC(2026, 0, 11)),
+  };
+
+  it("blocks swap when under-employee has no matching allowedShiftProfileIds", () => {
+    const empOver: GenEmployee = {
+      id: "over",
+      qualificationTags: [],
+      qualificationAbbreviations: [],
+      preferredShiftTypes: [],
+      targetHours: 40,
+      targetHoursPeriod: TargetHoursPeriod.MONTHLY,
+      targetHoursPercent: null,
+      contractType: ContractType.FULL_TIME,
+      miniJobMaxMonthlyHours: null,
+      assignedStationNumber: null,
+      allowedShiftProfileIds: new Set(),
+      unavailableDateSet: new Set(),
+    };
+    const empUnder: GenEmployee = {
+      id: "under",
+      qualificationTags: [],
+      qualificationAbbreviations: [],
+      preferredShiftTypes: [],
+      targetHours: 40,
+      targetHoursPeriod: TargetHoursPeriod.MONTHLY,
+      targetHoursPercent: null,
+      contractType: ContractType.FULL_TIME,
+      miniJobMaxMonthlyHours: null,
+      assignedStationNumber: null,
+      allowedShiftProfileIds: new Set(["late1"]),
+      unavailableDateSet: new Set(),
+    };
+
+    const proposed: AssignmentInput[] = [];
+    for (let d = 5; d <= 11; d++) {
+      proposed.push({
+        id: `a${d}`,
+        date: new Date(Date.UTC(2026, 0, d)),
+        shiftProfileId: "early1",
+        employeeId: "over",
+      });
+    }
+
+    const result = rebalanceAssignments(
+      proposed, [empOver, empUnder], profilesById, mergedStaffing, baseSnapshot, period,
+    );
+
+    expect(result.swapsMade).toBe(0);
   });
 });
