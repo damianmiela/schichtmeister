@@ -71,7 +71,7 @@ interface EmployeeRow {
   targetHoursPeriod: string | null;
   miniJobMaxMonthlyHours: number | null;
   targetHoursPercent: number | null;
-  assignedStationNumber: number | null;
+  assignedStations: number[];
   workProfile: { id: string; name: string } | null;
   qualificationTags: string[];
   qualifications: { id: string; name: string; abbreviation: string }[];
@@ -258,7 +258,7 @@ export default function EmployeesPage() {
   const [miniStr, setMiniStr] = useState("");
   const [selectedQuals, setSelectedQuals] = useState<QualificationCatalog[]>([]);
   const [selectedProfiles, setSelectedProfiles] = useState<ShiftProfileCatalog[]>([]);
-  const [assignedStation, setAssignedStation] = useState<number | null>(null);
+  const [assignedStations, setAssignedStations] = useState<number[]>([]);
   const [profilesTouched, setProfilesTouched] = useState(false);
 
   const [absences, setAbsences] = useState<Absence[]>([]);
@@ -380,7 +380,7 @@ export default function EmployeesPage() {
     setMiniStr("");
     setSelectedQuals([]);
     setSelectedProfiles([]);
-    setAssignedStation(null);
+    setAssignedStations([]);
     setEditingId(null);
     setProfilesTouched(false);
     setAbsences([]);
@@ -437,7 +437,7 @@ export default function EmployeesPage() {
       .filter((x): x is ShiftProfileCatalog => x != null);
     setSelectedProfiles(matchedProfiles);
     setProfilesTouched(true);
-    setAssignedStation(e.assignedStationNumber ?? null);
+    setAssignedStations(e.assignedStations ?? []);
     setDialogOpen(true);
     void loadAbsences(e.id);
   };
@@ -486,7 +486,7 @@ export default function EmployeesPage() {
       status,
       targetHoursPercent: p,
       miniJobMaxMonthlyHours: contractType === "MINI_JOB" ? mini : null,
-      assignedStationNumber: assignedStation,
+      assignedStations: assignedStations,
       qualificationTags: selectedQuals.map((q) => q.abbreviation),
       qualificationIds: selectedQuals.map((q) => q.id),
       allowedShiftProfileIds: selectedProfiles.map((pr) => pr.id),
@@ -722,14 +722,19 @@ export default function EmployeesPage() {
                             )}
                           </TableCell>
                           <TableCell>
-                            {employee.assignedStationNumber != null ? (
-                              <Chip
-                                label={`St. ${employee.assignedStationNumber}`}
-                                size="small"
-                                variant="outlined"
-                                color="primary"
-                                sx={{ fontWeight: 600, fontSize: 11 }}
-                              />
+                            {employee.assignedStations.length > 0 ? (
+                              <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
+                                {employee.assignedStations.map((st) => (
+                                  <Chip
+                                    key={st}
+                                    label={`St. ${st}`}
+                                    size="small"
+                                    variant="outlined"
+                                    color="primary"
+                                    sx={{ fontWeight: 600, fontSize: 11 }}
+                                  />
+                                ))}
+                              </Box>
                             ) : (
                               <Typography
                                 variant="caption"
@@ -989,20 +994,41 @@ export default function EmployeesPage() {
 
           <TextField
             select
-            label="Feste Station"
-            value={assignedStation ?? ""}
+            label="Feste Station(en)"
+            value={assignedStations}
             onChange={(e) => {
               const v = e.target.value;
-              setAssignedStation(v === "" ? null : Number(v));
+              setAssignedStations(
+                typeof v === "string"
+                  ? v.split(",").map(Number).filter(Boolean)
+                  : (v as number[]),
+              );
             }}
             fullWidth
             disabled={saving}
-            helperText="Wenn gesetzt, wird der Mitarbeiter nur auf dieser Station eingeplant."
+            helperText={
+              assignedStations.length === 0
+                ? "Keine Einschränkung — alle Stationen möglich."
+                : `Nur Station ${assignedStations.join(" + ")}.`
+            }
+            slotProps={{
+              select: {
+                multiple: true,
+                renderValue: (selected) => {
+                  const sel = selected as number[];
+                  return sel.length === 0
+                    ? "Alle Stationen"
+                    : sel.map((s) => `St. ${s}`).join(", ");
+                },
+              },
+            }}
           >
-            <MenuItem value="">Keine (alle Stationen)</MenuItem>
-            <MenuItem value={1}>Station 1</MenuItem>
-            <MenuItem value={2}>Station 2</MenuItem>
-            <MenuItem value={3}>Station 3</MenuItem>
+            {[1, 2, 3].map((st) => (
+              <MenuItem key={st} value={st}>
+                <Checkbox checked={assignedStations.includes(st)} size="small" />
+                Station {st}
+              </MenuItem>
+            ))}
           </TextField>
 
           {editingId && (

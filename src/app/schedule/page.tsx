@@ -577,7 +577,7 @@ export default function SchedulePage() {
         return {
           employeeId: e.employeeId,
           date: e.date,
-          stationNumber: emp?.assignedStationNumber ?? 1,
+          stationNumber: emp?.assignedStations?.[0] ?? 1,
           shiftType: prof?.shiftType ?? "EARLY",
         };
       });

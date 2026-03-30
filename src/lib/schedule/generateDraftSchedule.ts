@@ -209,7 +209,7 @@ export type GenEmployee = {
   targetHoursPercent: number | null;
   contractType: ContractType;
   miniJobMaxMonthlyHours: number | null;
-  assignedStationNumber: number | null;
+  assignedStations: number[];
   allowedShiftProfileIds: Set<string>;
   unavailableDateSet: Set<string>;
 };
@@ -316,7 +316,7 @@ function sortCandidates(
     (e) =>
       !e.unavailableDateSet.has(dateIso) &&
       !alreadyPlacedIds.has(e.id) &&
-      (e.assignedStationNumber == null || e.assignedStationNumber === stationNumber || stationNumber === 0) &&
+      (e.assignedStations.length === 0 || e.assignedStations.includes(stationNumber) || stationNumber === 0) &&
       (e.allowedShiftProfileIds.size === 0 ||
         (shiftTypeProfileIds
           ? [...e.allowedShiftProfileIds].some((pid) => shiftTypeProfileIds.has(pid))
@@ -459,7 +459,7 @@ export async function loadGenerateContext(
       contractType: e.contractType,
       miniJobMaxMonthlyHours:
         e.miniJobMaxMonthlyHours != null ? Number(e.miniJobMaxMonthlyHours) : null,
-      assignedStationNumber: e.assignedStationNumber ?? null,
+      assignedStations: e.assignedStations ?? [],
       allowedShiftProfileIds: new Set(e.allowedShiftProfiles.map(p => p.id)),
       unavailableDateSet: unavail,
     };
@@ -659,11 +659,9 @@ export function rebalanceAssignments(
           const underEmp = empById.get(underEmpId);
           if (!underEmp) continue;
           if (underEmp.unavailableDateSet.has(dateIso)) continue;
-          if (underEmp.assignedStationNumber != null || overEmp.assignedStationNumber != null) {
-            const overSt = overEmp.assignedStationNumber;
-            const underSt = underEmp.assignedStationNumber;
-            if (overSt != null && underSt != null && overSt !== underSt) continue;
-            if (underSt != null && overSt == null) continue;
+          if (underEmp.assignedStations.length > 0) {
+            const overStation = overEmp.assignedStations.length > 0 ? overEmp.assignedStations[0]! : 0;
+            if (overStation > 0 && !underEmp.assignedStations.includes(overStation)) continue;
           }
 
           if (underEmp.allowedShiftProfileIds.size > 0 && !underEmp.allowedShiftProfileIds.has(assignment.shiftProfileId)) continue;
@@ -785,7 +783,7 @@ export async function runGreedyScheduleGeneration(
       const p = ctx.profiles.find(pr => pr.id === pid);
       return p ? p.name : pid;
     });
-    log(`  Employee ${emp.id}: station=${emp.assignedStationNumber ?? "any"}, quals=[${emp.qualificationTags.join(",")}], allowedProfiles=[${allowedNames.join(",")}], pct=${emp.targetHoursPercent ?? "?"}`);
+    log(`  Employee ${emp.id}: stations=${emp.assignedStations.length > 0 ? emp.assignedStations.join("+") : "any"}, quals=[${emp.qualificationTags.join(",")}], allowedProfiles=[${allowedNames.join(",")}], pct=${emp.targetHoursPercent ?? "?"}`);
   }
   log(`Profiles: ${ctx.profiles.filter(p => p.isActive).map(p => `${p.name}(${p.shiftType})`).join(", ")}`);
   log(`Staffing requirements: ${ctx.mergedStaffing.size} entries`);

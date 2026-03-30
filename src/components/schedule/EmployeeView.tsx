@@ -213,7 +213,7 @@ export default function EmployeeView({
                 <QualificationPills qualifications={employee.qualifications} tags={tags} />
               </Box>
               <Typography variant="body2" color="text.secondary">
-                {employee.targetHoursPercent ?? 100}% · Station {employee.assignedStationNumber ?? "?"} · Soll: {target != null ? `${fmtHours(target)}h` : "n/a"}
+                {employee.targetHoursPercent ?? 100}% · Station {employee.assignedStations?.length ? employee.assignedStations.join("+") : "alle"} · Soll: {target != null ? `${fmtHours(target)}h` : "n/a"}
               </Typography>
             </Box>
             <Box
@@ -540,7 +540,7 @@ export default function EmployeeView({
                     </TableCell>
                     <TableCell align="center">
                       <Chip
-                        label={`St. ${employee.assignedStationNumber ?? "?"}`}
+                        label={`St. ${employee.assignedStations?.length ? employee.assignedStations.join("+") : "alle"}`}
                         size="small"
                         variant="outlined"
                         sx={{ height: 20, fontSize: "0.7rem" }}

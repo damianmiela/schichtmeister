@@ -172,7 +172,7 @@ function EmployeeRow({
         />
       </Box>
       <Typography variant="caption" display="block" color="text.secondary">
-        Station {employee?.assignedStationNumber ?? "–"}
+        Station {employee?.assignedStations?.length ? employee.assignedStations.join("+") : "–"}
       </Typography>
     </Box>
   );
@@ -403,7 +403,7 @@ export default function DayView({
       if (profile.shiftType === "NIGHT") {
         nightRows.push(row);
       } else {
-        const st = employee?.assignedStationNumber ?? 1;
+        const st = employee?.assignedStations?.[0] ?? 1;
         (stationRows[st] ?? stationRows[1]).push(row);
       }
     }

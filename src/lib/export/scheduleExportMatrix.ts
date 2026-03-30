@@ -101,9 +101,20 @@ export function sortEmployeesByName(emps: Employee[]): Employee[] {
 
 export function groupEmployeesByStation(employees: Employee[]): Record<1 | 2 | 3, Employee[]> {
   const grouped: Record<number, Employee[]> = { 1: [], 2: [], 3: [] };
+  const added = new Set<string>();
   for (const emp of employees) {
-    const station = emp.assignedStationNumber ?? 0;
-    if (station >= 1 && station <= 3) grouped[station]!.push(emp);
+    const stations = emp.assignedStations ?? [];
+    if (stations.length > 0) {
+      for (const st of stations) {
+        if (st >= 1 && st <= 3 && !added.has(`${emp.id}-${st}`)) {
+          grouped[st]!.push(emp);
+          added.add(`${emp.id}-${st}`);
+        }
+      }
+    } else if (!added.has(emp.id)) {
+      grouped[1]!.push(emp);
+      added.add(emp.id);
+    }
   }
   return grouped as Record<1 | 2 | 3, Employee[]>;
 }

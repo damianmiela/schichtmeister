@@ -83,7 +83,7 @@ describe("phase 07 — generate draft schedule (pure helpers)", () => {
       targetHoursPercent: null,
       contractType: ContractType.FULL_TIME,
       miniJobMaxMonthlyHours: null,
-      assignedStationNumber: null,
+      assignedStations: [],
       allowedShiftProfileIds: new Set(),
       unavailableDateSet: new Set(["2026-02-01"]),
     };
@@ -299,7 +299,7 @@ describe("rebalanceAssignments", () => {
       targetHoursPercent: null,
       contractType: ContractType.FULL_TIME,
       miniJobMaxMonthlyHours: null,
-      assignedStationNumber: assignedStation,
+      assignedStations: assignedStation != null ? [assignedStation] : [],
       allowedShiftProfileIds: new Set(),
       unavailableDateSet: new Set(),
     };
@@ -538,7 +538,7 @@ describe("blocked dates (Frei-Wünsche)", () => {
       targetHoursPercent: null,
       contractType: ContractType.FULL_TIME,
       miniJobMaxMonthlyHours: null,
-      assignedStationNumber: null,
+      assignedStations: [],
       allowedShiftProfileIds: new Set(),
       unavailableDateSet: new Set(),
     };
@@ -575,7 +575,7 @@ describe("blocked dates (Frei-Wünsche)", () => {
       targetHoursPercent: null,
       contractType: ContractType.FULL_TIME,
       miniJobMaxMonthlyHours: null,
-      assignedStationNumber: null,
+      assignedStations: [],
       allowedShiftProfileIds: new Set(),
       unavailableDateSet: new Set(),
     };
@@ -589,7 +589,7 @@ describe("blocked dates (Frei-Wünsche)", () => {
       targetHoursPercent: null,
       contractType: ContractType.FULL_TIME,
       miniJobMaxMonthlyHours: null,
-      assignedStationNumber: null,
+      assignedStations: [],
       allowedShiftProfileIds: new Set(),
       unavailableDateSet: new Set(),
     };
@@ -615,7 +615,7 @@ describe("blocked dates (Frei-Wünsche)", () => {
       targetHoursPercent: null,
       contractType: ContractType.FULL_TIME,
       miniJobMaxMonthlyHours: null,
-      assignedStationNumber: null,
+      assignedStations: [],
       allowedShiftProfileIds: new Set(),
       unavailableDateSet: new Set(["2026-03-01"]),
     };
@@ -638,7 +638,7 @@ describe("blocked dates (Frei-Wünsche)", () => {
       targetHoursPercent: null,
       contractType: ContractType.FULL_TIME,
       miniJobMaxMonthlyHours: null,
-      assignedStationNumber: null,
+      assignedStations: [],
       allowedShiftProfileIds: new Set(),
       unavailableDateSet: new Set(),
     };
@@ -695,7 +695,7 @@ describe("selectProfileForEmployee", () => {
       targetHoursPercent: null,
       contractType: ContractType.FULL_TIME,
       miniJobMaxMonthlyHours: null,
-      assignedStationNumber: null,
+      assignedStations: [],
       allowedShiftProfileIds: new Set(),
       unavailableDateSet: new Set(),
     };
@@ -715,7 +715,7 @@ describe("selectProfileForEmployee", () => {
       targetHoursPercent: null,
       contractType: ContractType.FULL_TIME,
       miniJobMaxMonthlyHours: null,
-      assignedStationNumber: null,
+      assignedStations: [],
       allowedShiftProfileIds: new Set(["f2"]),
       unavailableDateSet: new Set(),
     };
@@ -735,7 +735,7 @@ describe("selectProfileForEmployee", () => {
       targetHoursPercent: null,
       contractType: ContractType.FULL_TIME,
       miniJobMaxMonthlyHours: null,
-      assignedStationNumber: null,
+      assignedStations: [],
       allowedShiftProfileIds: new Set(["nonexistent"]),
       unavailableDateSet: new Set(),
     };
@@ -754,7 +754,7 @@ describe("selectProfileForEmployee", () => {
       targetHoursPercent: null,
       contractType: ContractType.FULL_TIME,
       miniJobMaxMonthlyHours: null,
-      assignedStationNumber: null,
+      assignedStations: [],
       allowedShiftProfileIds: new Set(["inactive"]),
       unavailableDateSet: new Set(),
     };
@@ -820,7 +820,7 @@ describe("rebalanceAssignments respects allowedShiftProfileIds", () => {
       targetHoursPercent: null,
       contractType: ContractType.FULL_TIME,
       miniJobMaxMonthlyHours: null,
-      assignedStationNumber: null,
+      assignedStations: [],
       allowedShiftProfileIds: new Set(),
       unavailableDateSet: new Set(),
     };
@@ -834,7 +834,7 @@ describe("rebalanceAssignments respects allowedShiftProfileIds", () => {
       targetHoursPercent: null,
       contractType: ContractType.FULL_TIME,
       miniJobMaxMonthlyHours: null,
-      assignedStationNumber: null,
+      assignedStations: [],
       allowedShiftProfileIds: new Set(["late1"]),
       unavailableDateSet: new Set(),
     };
