@@ -487,6 +487,102 @@ describe("phase 04 — planning rules", () => {
       expect(errors.filter((e) => e.ruleId === "qualificationCoverage")).toEqual([]);
     });
 
+    it("passes when employee has any of the comma-separated tags (OR logic)", () => {
+      const profiles = new Map([
+        [
+          "early",
+          {
+            id: "early",
+            shiftType: ShiftType.EARLY,
+            startTime: "06:00",
+            endTime: "14:00",
+            breakMinutes: 0,
+          },
+        ],
+      ]);
+      const employees = new Map([
+        ["e1", { id: "e1", contractType: ContractType.FULL_TIME, miniJobMaxMonthlyHours: null, qualificationTags: ["APH"] }],
+        ["e2", { id: "e2", contractType: ContractType.FULL_TIME, miniJobMaxMonthlyHours: null, qualificationTags: ["KPH"] }],
+      ]);
+      const ctx = minimalCtx({
+        periodStart: new Date(Date.UTC(2026, 0, 5)),
+        periodEnd: new Date(Date.UTC(2026, 0, 5)),
+        assignments: [
+          { id: "a1", date: new Date(Date.UTC(2026, 0, 5)), shiftProfileId: "early", employeeId: "e1" },
+          { id: "a2", date: new Date(Date.UTC(2026, 0, 5)), shiftProfileId: "early", employeeId: "e2" },
+        ],
+        employeesById: employees,
+        profilesById: profiles,
+        staffingRequirements: [
+          {
+            shiftType: ShiftType.EARLY,
+            stationNumber: 1,
+            minTotalCount: 2,
+            qualificationRequirements: [{ qualificationTag: "APH,KPH,PH", minCount: 2 }],
+          },
+        ],
+        snapshot: baseSnapshot({
+          ruleStates: {
+            noOverlap: { enabled: false, params: {} },
+            minRestBetweenShifts: { enabled: false, params: {} },
+            miniJobMonthlyHours: { enabled: false, params: {} },
+            staffingMinimum: { enabled: false, params: {} },
+            qualificationCoverage: { enabled: true, params: {} },
+          },
+        }),
+      });
+      const { errors } = runAllRules(ctx);
+      expect(errors.filter((e) => e.ruleId === "qualificationCoverage")).toEqual([]);
+    });
+
+    it("errors when not enough employees match any of the OR tags", () => {
+      const profiles = new Map([
+        [
+          "early",
+          {
+            id: "early",
+            shiftType: ShiftType.EARLY,
+            startTime: "06:00",
+            endTime: "14:00",
+            breakMinutes: 0,
+          },
+        ],
+      ]);
+      const employees = new Map([
+        ["e1", { id: "e1", contractType: ContractType.FULL_TIME, miniJobMaxMonthlyHours: null, qualificationTags: ["EA"] }],
+        ["e2", { id: "e2", contractType: ContractType.FULL_TIME, miniJobMaxMonthlyHours: null, qualificationTags: ["EA"] }],
+      ]);
+      const ctx = minimalCtx({
+        periodStart: new Date(Date.UTC(2026, 0, 5)),
+        periodEnd: new Date(Date.UTC(2026, 0, 5)),
+        assignments: [
+          { id: "a1", date: new Date(Date.UTC(2026, 0, 5)), shiftProfileId: "early", employeeId: "e1" },
+          { id: "a2", date: new Date(Date.UTC(2026, 0, 5)), shiftProfileId: "early", employeeId: "e2" },
+        ],
+        employeesById: employees,
+        profilesById: profiles,
+        staffingRequirements: [
+          {
+            shiftType: ShiftType.EARLY,
+            stationNumber: 1,
+            minTotalCount: 2,
+            qualificationRequirements: [{ qualificationTag: "APH,KPH,PH", minCount: 2 }],
+          },
+        ],
+        snapshot: baseSnapshot({
+          ruleStates: {
+            noOverlap: { enabled: false, params: {} },
+            minRestBetweenShifts: { enabled: false, params: {} },
+            miniJobMonthlyHours: { enabled: false, params: {} },
+            staffingMinimum: { enabled: false, params: {} },
+            qualificationCoverage: { enabled: true, params: {} },
+          },
+        }),
+      });
+      const { errors } = runAllRules(ctx);
+      expect(errors.some((e) => e.code === "MISSING_QUALIFICATION")).toBe(true);
+    });
+
     it("errors when minCount > 1 and not enough qualified employees assigned", () => {
       const profiles = new Map([
         [

@@ -134,6 +134,18 @@ describe("formatRuleViolations", () => {
     expect(result[0]).toContain("11.03.");
   });
 
+  it("displays multi-tag MISSING_QUALIFICATION with slash-separated tags", () => {
+    const msgs: RuleMessage[] = [
+      { ruleId: "qualificationCoverage", code: "MISSING_QUALIFICATION", message: 'Need at least 2 employee(s) with tag "APH,KPH,PH" for EARLY station 1 on 2026-03-10 (got 0).' },
+      { ruleId: "qualificationCoverage", code: "MISSING_QUALIFICATION", message: 'Need at least 2 employee(s) with tag "APH,KPH,PH" for EARLY station 1 on 2026-03-11 (got 1).' },
+    ];
+    const result = formatRuleViolations(msgs, empNames);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toContain('Qualifikation "APH/KPH/PH" fehlt');
+    expect(result[0]).toContain("Frühdienst Station 1");
+    expect(result[0]).toContain("2 Tag(e) betroffen");
+  });
+
   // ── MAX_CONSECUTIVE_NIGHTS ──
 
   it("aggregates MAX_CONSECUTIVE_NIGHTS to max streak per employee", () => {

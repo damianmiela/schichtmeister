@@ -237,8 +237,9 @@ export function formatRuleViolations(
   for (const bucket of qualBuckets.values()) {
     const sortedDates = [...bucket.dates.entries()].sort((a, b) => a[0].localeCompare(b[0]));
     const dateList = sortedDates.map(([d]) => fmtDate(d)).join(", ");
+    const tagDisplay = bucket.tag.split(",").map((t) => t.trim()).join("/");
     out.push(
-      `Qualifikation "${bucket.tag}" fehlt — ${shiftDe(bucket.shiftType)} Station ${bucket.station}: ` +
+      `Qualifikation "${tagDisplay}" fehlt — ${shiftDe(bucket.shiftType)} Station ${bucket.station}: ` +
         `${sortedDates.length} Tag(e) betroffen — ${dateList}`,
     );
   }

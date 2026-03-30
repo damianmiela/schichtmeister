@@ -188,7 +188,7 @@ export default function SettingsPage() {
   // ── Qualification sub-row add state ──
   const [addQualSrId, setAddQualSrId] = useState<string | null>(null);
   const [newQualSelection, setNewQualSelection] =
-    useState<QualificationCatalog | null>(null);
+    useState<QualificationCatalog[]>([]);
   const [newQualMin, setNewQualMin] = useState("1");
   const [addQualBusy, setAddQualBusy] = useState(false);
   const [addQualError, setAddQualError] = useState<string | null>(null);
@@ -561,7 +561,7 @@ export default function SettingsPage() {
   /* ════════════════ qualification sub-row actions ════════════════ */
 
   const addQualification = async () => {
-    if (!addQualSrId || !newQualSelection) return;
+    if (!addQualSrId || newQualSelection.length === 0) return;
     const minVal = Number(newQualMin);
     if (!Number.isFinite(minVal) || minVal < 1) {
       setAddQualError("Mindestens 1.");
@@ -570,18 +570,19 @@ export default function SettingsPage() {
     setAddQualBusy(true);
     setAddQualError(null);
     try {
+      const qualificationTag = newQualSelection.map((q) => q.abbreviation).join(",");
       await fetchJson(
         `/api/staffing-requirements/${addQualSrId}/qualifications`,
         {
           method: "POST",
           body: JSON.stringify({
-            qualificationTag: newQualSelection.abbreviation,
+            qualificationTag,
             minCount: Math.floor(minVal),
           }),
         },
       );
       setAddQualSrId(null);
-      setNewQualSelection(null);
+      setNewQualSelection([]);
       setNewQualMin("1");
       await loadStaffing();
     } catch (e) {
@@ -750,21 +751,26 @@ export default function SettingsPage() {
       <Box
         sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mt: 1, ml: 4.5 }}
       >
-        {row.qualificationRequirements.map((q) => (
+        {row.qualificationRequirements.map((q) => {
+          const tagParts = q.qualificationTag.split(",").map((t) => t.trim());
+          const tagDisplay = tagParts.join(" / ");
+          const tooltipText = tagParts
+            .map((t) => qualNameByAbbr.get(t))
+            .filter(Boolean)
+            .join(", ");
+          return (
           <Tooltip
             key={q.id}
-            title={qualNameByAbbr.get(q.qualificationTag) ?? ""}
+            title={tooltipText}
             arrow
-            disableHoverListener={
-              !qualNameByAbbr.has(q.qualificationTag)
-            }
+            disableHoverListener={!tooltipText}
           >
             <Chip
               label={
                 <Box
                   sx={{ display: "flex", alignItems: "center", gap: 0.5 }}
                 >
-                  <span>{q.qualificationTag}</span>
+                  <span>{tagDisplay}</span>
                   <TextField
                     size="small"
                     type="number"
@@ -799,7 +805,7 @@ export default function SettingsPage() {
               sx={{ height: 28 }}
             />
           </Tooltip>
-        ))}
+        ); })}
         <Chip
           icon={<AddIcon sx={{ fontSize: 16 }} />}
           label="Qualifikation"
@@ -807,7 +813,7 @@ export default function SettingsPage() {
           variant="outlined"
           onClick={() => {
             setAddQualSrId(row.id);
-            setNewQualSelection(null);
+            setNewQualSelection([]);
             setNewQualMin("1");
             setAddQualError(null);
           }}
@@ -1621,6 +1627,7 @@ export default function SettingsPage() {
             <Alert severity="error">{addQualError}</Alert>
           )}
           <Autocomplete
+            multiple
             options={activeQualifications}
             getOptionLabel={(opt) => `${opt.name} (${opt.abbreviation})`}
             value={newQualSelection}
@@ -1629,9 +1636,10 @@ export default function SettingsPage() {
             renderInput={(params) => (
               <TextField
                 {...params}
-                label="Qualifikation"
-                placeholder="Auswählen…"
+                label="Qualifikation(en)"
+                placeholder={newQualSelection.length === 0 ? "Auswählen…" : ""}
                 disabled={addQualBusy}
+                helperText="Mehrere Qualifikationen = ODER-Logik (eine davon reicht)"
               />
             )}
           />
@@ -1655,7 +1663,7 @@ export default function SettingsPage() {
           <Button
             variant="contained"
             onClick={() => void addQualification()}
-            disabled={addQualBusy || !newQualSelection}
+            disabled={addQualBusy || newQualSelection.length === 0}
           >
             {addQualBusy ? (
               <CircularProgress size={22} />

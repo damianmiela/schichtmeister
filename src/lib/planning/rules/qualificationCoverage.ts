@@ -24,10 +24,11 @@ export function qualificationCoverageRule(ctx: RuleContext): RuleResult {
         onShiftEmpIds.push(a.employeeId);
       }
       for (const qr of req.qualificationRequirements) {
+        const tags = qr.qualificationTag.split(",").map((t) => t.trim());
         let tagCount = 0;
         for (const empId of onShiftEmpIds) {
           const emp = ctx.employeesById.get(empId);
-          if (emp?.qualificationTags.includes(qr.qualificationTag)) {
+          if (emp && tags.some((t) => emp.qualificationTags.includes(t))) {
             tagCount++;
           }
         }

@@ -168,19 +168,19 @@ async function main() {
   };
   const staffingDefs: StaffingDef[] = [
     { shiftType: ShiftType.EARLY, stationNumber: 1, minTotalCount: 3, maxTotalCount: 5, isFacilityWide: false,
-      qualifications: [{ tag: "PFK", minCount: 1 }] },
+      qualifications: [{ tag: "PFK", minCount: 1 }, { tag: "APH,KPH,PH", minCount: 2 }] },
     { shiftType: ShiftType.LATE, stationNumber: 1, minTotalCount: 2, maxTotalCount: 2, isFacilityWide: false,
-      qualifications: [{ tag: "PFK", minCount: 1 }] },
+      qualifications: [{ tag: "PFK", minCount: 1 }, { tag: "APH,KPH,PH", minCount: 1 }] },
     { shiftType: ShiftType.EARLY, stationNumber: 2, minTotalCount: 1, maxTotalCount: 1, isFacilityWide: false,
-      qualifications: [] },
+      qualifications: [{ tag: "PFK,APH,KPH,PH", minCount: 1 }] },
     { shiftType: ShiftType.LATE, stationNumber: 2, minTotalCount: 1, maxTotalCount: 1, isFacilityWide: false,
-      qualifications: [] },
+      qualifications: [{ tag: "PFK,APH,KPH,PH", minCount: 1 }] },
     { shiftType: ShiftType.EARLY, stationNumber: 3, minTotalCount: 3, maxTotalCount: 5, isFacilityWide: false,
-      qualifications: [{ tag: "PFK", minCount: 1 }] },
+      qualifications: [{ tag: "PFK", minCount: 1 }, { tag: "APH,KPH,PH", minCount: 2 }] },
     { shiftType: ShiftType.LATE, stationNumber: 3, minTotalCount: 2, maxTotalCount: 3, isFacilityWide: false,
-      qualifications: [{ tag: "PFK", minCount: 1 }] },
+      qualifications: [{ tag: "PFK", minCount: 1 }, { tag: "APH,KPH,PH", minCount: 1 }] },
     { shiftType: ShiftType.NIGHT, stationNumber: 0, minTotalCount: 2, maxTotalCount: 2, isFacilityWide: true,
-      qualifications: [{ tag: "PFK", minCount: 1 }] },
+      qualifications: [{ tag: "PFK", minCount: 1 }, { tag: "APH,KPH,PH", minCount: 1 }] },
   ];
 
   for (const sd of staffingDefs) {

@@ -320,7 +320,10 @@ function sortCandidates(
   );
 
   const pool = requiredTag
-    ? available.filter((e) => e.qualificationTags.includes(requiredTag))
+    ? (() => {
+        const tags = requiredTag.split(",").map((t) => t.trim());
+        return available.filter((e) => tags.some((t) => e.qualificationTags.includes(t)));
+      })()
     : available;
 
   const scored = pool.map((e) => {
@@ -671,20 +674,21 @@ export function rebalanceAssignments(
           if (staffReq) {
             let qualOk = true;
             for (const qr of staffReq.qualificationRequirements) {
-              if (!overEmp.qualificationTags.includes(qr.qualificationTag)) continue;
+              const tags = qr.qualificationTag.split(",").map((t) => t.trim());
+              const overHasTag = tags.some((t) => overEmp.qualificationTags.includes(t));
+              if (!overHasTag) continue;
               const othersWithTag = proposed.filter(
                 (a2) =>
                   a2.employeeId !== overEmpId &&
                   toIsoDateOnly(a2.date) === dateIso &&
                   a2.shiftProfileId === assignment.shiftProfileId &&
-                  empById
-                    .get(a2.employeeId)
-                    ?.qualificationTags.includes(qr.qualificationTag),
+                  (() => {
+                    const empTags = empById.get(a2.employeeId)?.qualificationTags;
+                    return empTags && tags.some((t) => empTags.includes(t));
+                  })(),
               ).length;
-              if (
-                othersWithTag < qr.minCount &&
-                !underEmp.qualificationTags.includes(qr.qualificationTag)
-              ) {
+              const underHasTag = tags.some((t) => underEmp.qualificationTags.includes(t));
+              if (othersWithTag < qr.minCount && !underHasTag) {
                 qualOk = false;
                 break;
               }
@@ -1180,19 +1184,22 @@ export async function runGreedyScheduleGeneration(
         );
 
         for (const qr of req.qualificationRequirements) {
-          const withTag = slotAssignments.filter((a) =>
-            empTagsById.get(a.employeeId)?.includes(qr.qualificationTag),
-          ).length;
+          const tags = qr.qualificationTag.split(",").map((t) => t.trim());
+          const withTag = slotAssignments.filter((a) => {
+            const empTags = empTagsById.get(a.employeeId);
+            return empTags && tags.some((t) => empTags.includes(t));
+          }).length;
           if (withTag < qr.minCount) {
             const shift = SHIFT_LABEL_DE[shiftType] ?? shiftType;
             const dateDE = formatDateDE(date);
             const totalFilled = slotAssignments.length;
+            const tagLabel = tags.join("/");
             const suffix =
               totalFilled >= req.minTotalCount
                 ? `Schicht ist mit ${totalFilled} MA besetzt, aber ohne die geforderte Qualifikation`
                 : `Schicht unterbesetzt: ${totalFilled}/${req.minTotalCount}`;
             warnings.push(
-              `${shift} Station ${station} am ${dateDE}: ${withTag}/${qr.minCount} ${qr.qualificationTag} vorhanden – ${suffix}.`,
+              `${shift} Station ${station} am ${dateDE}: ${withTag}/${qr.minCount} ${tagLabel} vorhanden – ${suffix}.`,
             );
           }
         }
