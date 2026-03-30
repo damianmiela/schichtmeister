@@ -80,7 +80,8 @@ export default function DayView({
     for (const a of dayAssignments) {
       const prof = profilesById[a.shiftProfileId];
       if (!prof) continue;
-      const st = prof.stationNumber;
+      const emp = employeesById[a.employeeId];
+      const st = emp?.assignedStationNumber ?? 1;
 
       if (!byStation.has(st)) byStation.set(st, new Map());
       const stMap = byStation.get(st)!;

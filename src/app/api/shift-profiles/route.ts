@@ -5,16 +5,16 @@ import { shiftTypeZ } from "@/lib/api/employeeSchemas";
 import { hhmmSchema, parseJsonBody, plannerJsonErrors } from "@/lib/api/validation";
 import { requirePlanner } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
-import { autoProfileName } from "@/lib/schedule/stationHelpers";
-
-const stationNumberZ = z.number().int().min(1).max(3);
 
 const createSchema = z.object({
+  name: z.string().min(1).max(20),
   shiftType: shiftTypeZ,
-  stationNumber: stationNumberZ,
   startTime: hhmmSchema,
   endTime: hhmmSchema,
   breakMinutes: z.number().int().min(0).max(24 * 60).optional(),
+  startTime2: hhmmSchema.optional().nullable(),
+  endTime2: hhmmSchema.optional().nullable(),
+  breakMinutes2: z.number().int().min(0).max(24 * 60).optional().nullable(),
   isActive: z.boolean().optional(),
 });
 
@@ -22,10 +22,12 @@ function serialize(p: {
   id: string;
   name: string;
   shiftType: ShiftType;
-  stationNumber: number;
   startTime: string;
   endTime: string;
   breakMinutes: number;
+  startTime2: string | null;
+  endTime2: string | null;
+  breakMinutes2: number | null;
   isActive: boolean;
   createdAt: Date;
 }) {
@@ -33,10 +35,12 @@ function serialize(p: {
     id: p.id,
     name: p.name,
     shiftType: p.shiftType,
-    stationNumber: p.stationNumber,
     startTime: p.startTime,
     endTime: p.endTime,
     breakMinutes: p.breakMinutes,
+    startTime2: p.startTime2,
+    endTime2: p.endTime2,
+    breakMinutes2: p.breakMinutes2,
     isActive: p.isActive,
     createdAt: p.createdAt.toISOString(),
   };
@@ -56,7 +60,7 @@ export async function GET(request: NextRequest) {
 
   const profiles = await prisma.shiftProfile.findMany({
     where,
-    orderBy: [{ stationNumber: "asc" }, { name: "asc" }],
+    orderBy: [{ name: "asc" }],
   });
   return NextResponse.json({
     shiftProfiles: profiles.map(serialize),
@@ -72,17 +76,18 @@ export async function POST(request: NextRequest) {
   if (!parsed.ok) return parsed.response;
 
   const data = parsed.data;
-  const name = autoProfileName(data.shiftType as ShiftType, data.stationNumber);
   try {
     const profile = await prisma.shiftProfile.create({
       data: {
         facilityId: session!.user.facilityId,
-        name,
+        name: data.name,
         shiftType: data.shiftType as ShiftType,
-        stationNumber: data.stationNumber,
         startTime: data.startTime,
         endTime: data.endTime,
         breakMinutes: data.breakMinutes ?? 0,
+        startTime2: data.startTime2 ?? null,
+        endTime2: data.endTime2 ?? null,
+        breakMinutes2: data.breakMinutes2 ?? null,
         isActive: data.isActive ?? true,
       },
     });
@@ -90,7 +95,7 @@ export async function POST(request: NextRequest) {
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
       return NextResponse.json(
-        { error: "Für diesen Schichttyp und Station existiert bereits ein Profil." },
+        { error: "Ein Schichtprofil mit diesem Namen existiert bereits." },
         { status: 409 },
       );
     }

@@ -9,8 +9,10 @@ import { prisma } from "@/lib/db/prisma";
 const patchSchema = z
   .object({
     shiftType: shiftTypeZ.optional(),
-    stationNumber: z.number().int().min(1).max(3).optional(),
+    stationNumber: z.number().int().min(0).max(3).optional(),
     minTotalCount: z.number().int().min(0).optional(),
+    maxTotalCount: z.number().int().min(0).optional().nullable(),
+    isFacilityWide: z.boolean().optional(),
   })
   .refine((o) => Object.keys(o).length > 0, {
     message: "Mindestens ein Feld zum Aktualisieren angeben",
@@ -21,6 +23,8 @@ function serialize(r: {
   shiftType: ShiftType;
   stationNumber: number;
   minTotalCount: number;
+  maxTotalCount: number | null;
+  isFacilityWide: boolean;
   qualificationRequirements: { id: string; qualificationTag: string; minCount: number }[];
   createdAt: Date;
 }) {
@@ -29,6 +33,8 @@ function serialize(r: {
     shiftType: r.shiftType,
     stationNumber: r.stationNumber,
     minTotalCount: r.minTotalCount,
+    maxTotalCount: r.maxTotalCount,
+    isFacilityWide: r.isFacilityWide,
     qualificationRequirements: r.qualificationRequirements.map((q) => ({
       id: q.id,
       qualificationTag: q.qualificationTag,
@@ -64,6 +70,8 @@ export async function PATCH(request: NextRequest, context: RouteCtx) {
         ...(data.shiftType !== undefined && { shiftType: data.shiftType as ShiftType }),
         ...(data.stationNumber !== undefined && { stationNumber: data.stationNumber }),
         ...(data.minTotalCount !== undefined && { minTotalCount: data.minTotalCount }),
+        ...(data.maxTotalCount !== undefined && { maxTotalCount: data.maxTotalCount }),
+        ...(data.isFacilityWide !== undefined && { isFacilityWide: data.isFacilityWide }),
       },
       include: { qualificationRequirements: true },
     });

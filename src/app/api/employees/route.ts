@@ -6,7 +6,11 @@ import { parseJsonBody, plannerJsonErrors } from "@/lib/api/validation";
 import { requirePlanner } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 
-const employeeInclude = { workProfile: true } as const;
+const employeeInclude = {
+  workProfile: true,
+  qualifications: true,
+  allowedShiftProfiles: true,
+} as const;
 
 export async function GET(request: NextRequest) {
   const { session, error } = await requirePlanner();
@@ -83,6 +87,7 @@ export async function POST(request: NextRequest) {
         firstName: data.firstName.trim(),
         lastName: data.lastName.trim(),
         contractType: block.contractType,
+        status: data.status ?? undefined,
         targetHours: block.targetHours ?? undefined,
         targetHoursPeriod: block.targetHoursPeriod ?? undefined,
         miniJobMaxMonthlyHours: block.miniJobMaxMonthlyHours ?? undefined,
@@ -91,6 +96,12 @@ export async function POST(request: NextRequest) {
         assignedStationNumber: data.assignedStationNumber ?? null,
         qualificationTags: data.qualificationTags ?? [],
         preferredShiftTypes: data.preferredShiftTypes ?? [],
+        ...(data.qualificationIds && data.qualificationIds.length > 0
+          ? { qualifications: { connect: data.qualificationIds.map((id: string) => ({ id })) } }
+          : {}),
+        ...(data.allowedShiftProfileIds && data.allowedShiftProfileIds.length > 0
+          ? { allowedShiftProfiles: { connect: data.allowedShiftProfileIds.map((id: string) => ({ id })) } }
+          : {}),
       },
       include: employeeInclude,
     });

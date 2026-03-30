@@ -8,7 +8,11 @@ import { parseJsonBody, plannerJsonErrors } from "@/lib/api/validation";
 import { requirePlanner } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 
-const employeeInclude = { workProfile: true } as const;
+const employeeInclude = {
+  workProfile: true,
+  qualifications: true,
+  allowedShiftProfiles: true,
+} as const;
 
 type RouteCtx = { params: Promise<{ id: string }> };
 
@@ -59,6 +63,19 @@ export async function PATCH(request: NextRequest, context: RouteCtx) {
   }
   if (data.assignedStationNumber !== undefined) {
     updateData.assignedStationNumber = data.assignedStationNumber;
+  }
+  if (data.status !== undefined) {
+    updateData.status = data.status;
+  }
+  if (data.qualificationIds !== undefined) {
+    updateData.qualifications = {
+      set: data.qualificationIds.map((qid: string) => ({ id: qid })),
+    };
+  }
+  if (data.allowedShiftProfileIds !== undefined) {
+    updateData.allowedShiftProfiles = {
+      set: data.allowedShiftProfileIds.map((pid: string) => ({ id: pid })),
+    };
   }
 
   const contractRes = await resolveContractForPatch(

@@ -45,7 +45,6 @@ function buildEmployeeInput(e: {
 function buildProfileInput(p: {
   id: string;
   shiftType: ShiftProfileInput["shiftType"];
-  stationNumber: number;
   startTime: string;
   endTime: string;
   breakMinutes: number;
@@ -53,7 +52,6 @@ function buildProfileInput(p: {
   return {
     id: p.id,
     shiftType: p.shiftType,
-    stationNumber: p.stationNumber,
     startTime: p.startTime,
     endTime: p.endTime,
     breakMinutes: p.breakMinutes,
@@ -127,6 +125,8 @@ export async function validateScheduleAssignments(
     shiftType: r.shiftType,
     stationNumber: r.stationNumber,
     minTotalCount: r.minTotalCount,
+    maxTotalCount: r.maxTotalCount,
+    isFacilityWide: r.isFacilityWide,
     qualificationRequirements: r.qualificationRequirements.map((q) => ({
       qualificationTag: q.qualificationTag,
       minCount: q.minCount,

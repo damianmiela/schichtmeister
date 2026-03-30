@@ -35,7 +35,6 @@ type ShiftProfile = {
   id: string;
   name: string;
   shiftType: ShiftType;
-  stationNumber: number;
   startTime: string;
   endTime: string;
   breakMinutes: number;
@@ -48,15 +47,13 @@ const TYPE_BORDER: Record<string, string> = {
   NIGHT: "#9c27b0",
 };
 
-const SHIFT_PREFIX: Record<ShiftType, string> = {
-  EARLY: "F",
-  LATE: "S",
-  NIGHT: "N",
+const SHIFT_TYPE_GROUP_LABELS: Record<ShiftType, string> = {
+  EARLY: "Früh",
+  LATE: "Spät",
+  NIGHT: "Nacht",
 };
 
-function autoName(type: ShiftType, station: number): string {
-  return `${SHIFT_PREFIX[type]}${station}`;
-}
+const SHIFT_TYPE_ORDER: ShiftType[] = ["EARLY", "LATE", "NIGHT"];
 
 export default function ShiftProfilesPage() {
   const [profiles, setProfiles] = useState<ShiftProfile[]>([]);
@@ -68,7 +65,7 @@ export default function ShiftProfilesPage() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [shiftType, setShiftType] = useState<ShiftType>("EARLY");
-  const [stationNumber, setStationNumber] = useState(1);
+  const [name, setName] = useState("");
   const [startTime, setStartTime] = useState("06:00");
   const [endTime, setEndTime] = useState("14:30");
   const [breakMinutes, setBreakMinutes] = useState("30");
@@ -108,7 +105,7 @@ export default function ShiftProfilesPage() {
     setFormError(null);
     setEditingId(null);
     setShiftType("EARLY");
-    setStationNumber(1);
+    setName("");
     setStartTime("06:00");
     setEndTime("14:30");
     setBreakMinutes("30");
@@ -124,7 +121,7 @@ export default function ShiftProfilesPage() {
     setFormError(null);
     setEditingId(p.id);
     setShiftType(p.shiftType);
-    setStationNumber(p.stationNumber);
+    setName(p.name);
     setStartTime(p.startTime);
     setEndTime(p.endTime);
     setBreakMinutes(String(p.breakMinutes));
@@ -142,8 +139,8 @@ export default function ShiftProfilesPage() {
     }
 
     const body = {
+      name: name.trim(),
       shiftType,
-      stationNumber,
       startTime,
       endTime,
       breakMinutes: bm,
@@ -225,9 +222,12 @@ export default function ShiftProfilesPage() {
     }
   };
 
-  const grouped = [1, 2, 3].map((st) => ({
-    station: st,
-    items: profiles.filter((p) => p.stationNumber === st),
+  const grouped = SHIFT_TYPE_ORDER.map((st) => ({
+    shiftType: st,
+    label: SHIFT_TYPE_GROUP_LABELS[st],
+    items: profiles
+      .filter((p) => p.shiftType === st)
+      .sort((a, b) => a.name.localeCompare(b.name)),
   }));
 
   return (
@@ -255,13 +255,13 @@ export default function ShiftProfilesPage() {
         </Typography>
       ) : (
         grouped.map((g) => (
-          <Box key={g.station} sx={{ mb: 4 }}>
+          <Box key={g.shiftType} sx={{ mb: 4 }}>
             <Typography variant="h6" sx={{ mb: 2 }}>
-              Station {g.station}
+              {g.label}
             </Typography>
             {g.items.length === 0 ? (
               <Typography color="text.secondary" sx={{ mb: 2 }}>
-                Keine Profile für Station {g.station}.
+                Keine Profile für {g.label}.
               </Typography>
             ) : (
               <Grid container spacing={3}>
@@ -293,11 +293,6 @@ export default function ShiftProfilesPage() {
                                   bgcolor: TYPE_BORDER[profile.shiftType] ?? "grey.500",
                                   color: "white",
                                 }}
-                              />
-                              <Chip
-                                label={`St. ${profile.stationNumber}`}
-                                size="small"
-                                variant="outlined"
                               />
                             </Box>
                           </Box>
@@ -367,6 +362,14 @@ export default function ShiftProfilesPage() {
 
           <Box sx={{ display: "flex", gap: 2 }}>
             <TextField
+              label="Name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              fullWidth
+              disabled={saving}
+              placeholder="z.B. F1, Spät-A, ..."
+            />
+            <TextField
               select
               label="Schichttyp"
               value={shiftType}
@@ -378,23 +381,7 @@ export default function ShiftProfilesPage() {
               <MenuItem value="LATE">Spät</MenuItem>
               <MenuItem value="NIGHT">Nacht</MenuItem>
             </TextField>
-            <TextField
-              select
-              label="Station"
-              value={stationNumber}
-              onChange={(e) => setStationNumber(Number(e.target.value))}
-              fullWidth
-              disabled={saving}
-            >
-              <MenuItem value={1}>Station 1</MenuItem>
-              <MenuItem value={2}>Station 2</MenuItem>
-              <MenuItem value={3}>Station 3</MenuItem>
-            </TextField>
           </Box>
-
-          <Typography variant="body2" color="text.secondary">
-            Profilname: <strong>{autoName(shiftType, stationNumber)}</strong> (automatisch generiert)
-          </Typography>
 
           <Box sx={{ display: "flex", gap: 2 }}>
             <TextField

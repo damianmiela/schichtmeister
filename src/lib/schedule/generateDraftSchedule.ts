@@ -232,17 +232,15 @@ export function buildDefaultProfileByShiftType(
 
 export const STATION_NUMBERS = [1, 2, 3] as const;
 
-/** Build a map from `"EARLY:1"` → profile for station-aware generation. */
-export function buildProfileByTypeStation(
+/** Build a map from ShiftType → first active profile (alphabetical) for generation. */
+export function buildDefaultProfileByType(
   profiles: ShiftProfile[],
-): Map<string, ShiftProfile> {
-  const out = new Map<string, ShiftProfile>();
-  for (const p of profiles) {
-    if (!p.isActive) continue;
-    const key = staffingKey(p.shiftType, p.stationNumber);
-    const existing = out.get(key);
-    if (!existing || p.name.localeCompare(existing.name, "de") < 0) {
-      out.set(key, p);
+): Map<ShiftType, ShiftProfile> {
+  const out = new Map<ShiftType, ShiftProfile>();
+  const sorted = [...profiles].filter((p) => p.isActive).sort((a, b) => a.name.localeCompare(b.name, "de"));
+  for (const p of sorted) {
+    if (!out.has(p.shiftType)) {
+      out.set(p.shiftType, p);
     }
   }
   return out;
@@ -483,7 +481,6 @@ export function rebalanceAssignments(
       {
         id: p.id,
         shiftType: p.shiftType,
-        stationNumber: p.stationNumber,
         startTime: p.startTime,
         endTime: p.endTime,
         breakMinutes: p.breakMinutes,
@@ -543,8 +540,8 @@ export function rebalanceAssignments(
         const profile = profilesById.get(assignment.shiftProfileId);
         if (!profile) continue;
         const dateIso = toIsoDateOnly(assignment.date);
-        const stKey = staffingKey(profile.shiftType, profile.stationNumber);
-        const staffReq = mergedStaffing.get(stKey);
+        const staffReqEntries = [...mergedStaffing.entries()].filter(([k]) => k.startsWith(profile.shiftType + ":"));
+        const staffReq = staffReqEntries.length > 0 ? staffReqEntries[0]![1] : undefined;
 
         for (const [underEmpId, underUtil] of underList) {
           if (underEmpId === overEmpId) continue;
@@ -553,7 +550,12 @@ export function rebalanceAssignments(
           const underEmp = empById.get(underEmpId);
           if (!underEmp) continue;
           if (underEmp.unavailableDateSet.has(dateIso)) continue;
-          if (underEmp.assignedStationNumber != null && underEmp.assignedStationNumber !== profile.stationNumber) continue;
+          if (underEmp.assignedStationNumber != null || overEmp.assignedStationNumber != null) {
+            const overSt = overEmp.assignedStationNumber;
+            const underSt = underEmp.assignedStationNumber;
+            if (overSt != null && underSt != null && overSt !== underSt) continue;
+            if (underSt != null && overSt == null) continue;
+          }
 
           const alreadyOnSameType = proposed.some(
             (a2) =>
@@ -659,7 +661,7 @@ export async function runGreedyScheduleGeneration(
   const seed = hashString(schedule.id) ^ Date.now();
   const rng = mulberry32(seed);
 
-  const profileByTS = buildProfileByTypeStation(ctx.profiles);
+  const defaultProfileByType = buildDefaultProfileByType(ctx.profiles);
   const profilesById = new Map(ctx.profiles.map((p) => [p.id, p]));
 
   const dates = eachUtcDateInPeriod(schedule.periodStart, schedule.periodEnd);
@@ -690,11 +692,10 @@ export async function runGreedyScheduleGeneration(
         warnings.push(`Manuelle Zuweisung: Mitarbeiter ${mp.employeeId} nicht gefunden — übersprungen.`);
         continue;
       }
-      const key = staffingKey(mp.shiftType as ShiftType, mp.stationNumber);
-      const profile = profileByTS.get(key);
+      const profile = defaultProfileByType.get(mp.shiftType as ShiftType);
       if (!profile) {
         const label = SHIFT_LABEL_DE[mp.shiftType] ?? mp.shiftType;
-        warnings.push(`Manuelle Zuweisung: Kein Profil für ${label} Station ${mp.stationNumber} — übersprungen.`);
+        warnings.push(`Manuelle Zuweisung: Kein Profil für ${label} — übersprungen.`);
         continue;
       }
       const [y, m, d] = mp.date.split("-").map(Number);
@@ -713,12 +714,12 @@ export async function runGreedyScheduleGeneration(
     }
   }
 
-  for (const [key] of profileByTS) {
-    if (!ctx.mergedStaffing.has(key)) {
-      const [st, sn] = key.split(":");
-      const label = SHIFT_LABEL_DE[st!] ?? st;
+  for (const [shiftType] of defaultProfileByType) {
+    const hasStaffing = [...ctx.mergedStaffing.keys()].some((k) => k.startsWith(shiftType + ":"));
+    if (!hasStaffing) {
+      const label = SHIFT_LABEL_DE[shiftType] ?? shiftType;
       warnings.push(
-        `${label} Station ${sn}: Schichtprofil aktiv, aber kein Personalbedarf konfiguriert — wird übersprungen. Bitte unter Einstellungen > Mindestbesetzung anlegen.`,
+        `${label}: Schichtprofil aktiv, aber kein Personalbedarf konfiguriert — wird übersprungen. Bitte unter Einstellungen > Mindestbesetzung anlegen.`,
       );
     }
   }
@@ -744,7 +745,7 @@ export async function runGreedyScheduleGeneration(
         const req = ctx.mergedStaffing.get(key);
         if (!req) continue;
 
-        const profile = profileByTS.get(key) ?? null;
+        const profile = defaultProfileByType.get(shiftType) ?? null;
         if (!profile) {
           warnings.push(`Kein aktives Schichtprofil für ${SHIFT_LABEL_DE[shiftType] ?? shiftType} Station ${station} am ${formatDateDE(date)}.`);
           unmet.push({ date: toIsoDateOnly(date), shiftType, requested: req.minTotalCount, assigned: 0 });
@@ -843,12 +844,16 @@ export async function runGreedyScheduleGeneration(
         const req = ctx.mergedStaffing.get(key);
         if (!req || req.qualificationRequirements.length === 0) continue;
 
-        const profile = profileByTS.get(key);
+        const profile = defaultProfileByType.get(shiftType);
         if (!profile) continue;
 
         const dateIso = toIsoDateOnly(date);
         const slotAssignments = proposed.filter(
-          (a) => toIsoDateOnly(a.date) === dateIso && a.shiftProfileId === profile.id,
+          (a) => {
+            if (toIsoDateOnly(a.date) !== dateIso) return false;
+            const p = profilesById.get(a.shiftProfileId);
+            return p != null && p.shiftType === shiftType;
+          },
         );
 
         for (const qr of req.qualificationRequirements) {

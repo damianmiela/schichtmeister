@@ -8,8 +8,10 @@ import { prisma } from "@/lib/db/prisma";
 
 const createSchema = z.object({
   shiftType: shiftTypeZ,
-  stationNumber: z.number().int().min(1).max(3),
+  stationNumber: z.number().int().min(0).max(3),
   minTotalCount: z.number().int().min(0),
+  maxTotalCount: z.number().int().min(0).optional().nullable(),
+  isFacilityWide: z.boolean().optional(),
 });
 
 function serialize(r: {
@@ -17,6 +19,8 @@ function serialize(r: {
   shiftType: ShiftType;
   stationNumber: number;
   minTotalCount: number;
+  maxTotalCount: number | null;
+  isFacilityWide: boolean;
   qualificationRequirements: { id: string; qualificationTag: string; minCount: number }[];
   createdAt: Date;
 }) {
@@ -25,6 +29,8 @@ function serialize(r: {
     shiftType: r.shiftType,
     stationNumber: r.stationNumber,
     minTotalCount: r.minTotalCount,
+    maxTotalCount: r.maxTotalCount,
+    isFacilityWide: r.isFacilityWide,
     qualificationRequirements: r.qualificationRequirements.map((q) => ({
       id: q.id,
       qualificationTag: q.qualificationTag,
@@ -42,7 +48,7 @@ export async function GET() {
   const rows = await prisma.staffingRequirement.findMany({
     where: { facilityId: session!.user.facilityId },
     include: { qualificationRequirements: true },
-    orderBy: [{ stationNumber: "asc" }, { shiftType: "asc" }],
+    orderBy: [{ isFacilityWide: "asc" }, { stationNumber: "asc" }, { shiftType: "asc" }],
   });
   return NextResponse.json({
     staffingRequirements: rows.map(serialize),
@@ -65,6 +71,8 @@ export async function POST(request: NextRequest) {
         shiftType: data.shiftType as ShiftType,
         stationNumber: data.stationNumber,
         minTotalCount: data.minTotalCount,
+        maxTotalCount: data.maxTotalCount ?? null,
+        isFacilityWide: data.isFacilityWide ?? false,
       },
       include: { qualificationRequirements: true },
     });

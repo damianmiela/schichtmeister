@@ -1,8 +1,20 @@
-import type { ContractType, ShiftType, TargetHoursPeriod } from "@prisma/client";
+import type { ContractType, EmployeeStatus, ShiftType, TargetHoursPeriod } from "@prisma/client";
 
 export type EmployeeWorkProfilePayload = {
   id: string;
   name: string;
+};
+
+export type QualificationPayload = {
+  id: string;
+  name: string;
+  abbreviation: string;
+};
+
+export type AllowedShiftProfilePayload = {
+  id: string;
+  name: string;
+  shiftType: ShiftType;
 };
 
 export type EmployeeRowPayload = {
@@ -10,6 +22,7 @@ export type EmployeeRowPayload = {
   firstName: string;
   lastName: string;
   contractType: ContractType;
+  status: EmployeeStatus;
   targetHours: number | null;
   targetHoursPeriod: TargetHoursPeriod | null;
   miniJobMaxMonthlyHours: number | null;
@@ -17,6 +30,8 @@ export type EmployeeRowPayload = {
   assignedStationNumber: number | null;
   workProfile: EmployeeWorkProfilePayload | null;
   qualificationTags: string[];
+  qualifications: QualificationPayload[];
+  allowedShiftProfiles: AllowedShiftProfilePayload[];
   preferredShiftTypes: ShiftType[];
   createdAt: string;
 };
@@ -26,18 +41,24 @@ type WorkProfileSlice = {
   name: string;
 };
 
+type QualificationSlice = { id: string; name: string; abbreviation: string };
+type AllowedProfileSlice = { id: string; name: string; shiftType: ShiftType };
+
 export function serializeEmployee(
   e: {
     id: string;
     firstName: string;
     lastName: string;
     contractType: ContractType;
+    status: EmployeeStatus;
     targetHours: { toString(): string } | null;
     targetHoursPeriod: TargetHoursPeriod | null;
     miniJobMaxMonthlyHours: { toString(): string } | null;
     targetHoursPercent: { toString(): string } | null | number | undefined;
     assignedStationNumber?: number | null;
     qualificationTags: string[];
+    qualifications?: QualificationSlice[];
+    allowedShiftProfiles?: AllowedProfileSlice[];
     preferredShiftTypes: ShiftType[];
     createdAt: Date;
     workProfile?: WorkProfileSlice | null;
@@ -48,6 +69,7 @@ export function serializeEmployee(
     firstName: e.firstName,
     lastName: e.lastName,
     contractType: e.contractType,
+    status: e.status,
     targetHours: e.targetHours != null ? Number(e.targetHours) : null,
     targetHoursPeriod: e.targetHoursPeriod,
     miniJobMaxMonthlyHours:
@@ -62,6 +84,16 @@ export function serializeEmployee(
         ? { id: e.workProfile.id, name: e.workProfile.name }
         : null,
     qualificationTags: e.qualificationTags,
+    qualifications: (e.qualifications ?? []).map((q) => ({
+      id: q.id,
+      name: q.name,
+      abbreviation: q.abbreviation,
+    })),
+    allowedShiftProfiles: (e.allowedShiftProfiles ?? []).map((p) => ({
+      id: p.id,
+      name: p.name,
+      shiftType: p.shiftType,
+    })),
     preferredShiftTypes: e.preferredShiftTypes,
     createdAt: e.createdAt.toISOString(),
   };

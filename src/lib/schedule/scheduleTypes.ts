@@ -19,13 +19,19 @@ export type AssignmentJson = {
   date: string;
   shiftProfileId: string;
   employeeId: string;
+  stationNumber?: number | null;
+  markingRow2?: string | null;
+  markingRow3?: string | null;
+  dayStatus?: string | null;
 };
 
 export type EmployeeJson = {
   id: string;
   firstName: string;
   lastName: string;
+  status?: string;
   qualificationTags?: string[];
+  qualifications?: { id: string; abbreviation: string; name: string }[];
   targetHours?: number | null;
   targetHoursPeriod?: string | null;
   targetHoursPercent?: number | null;
@@ -37,10 +43,12 @@ export type ShiftProfileJson = {
   id: string;
   name: string;
   shiftType: string;
-  stationNumber: number;
   startTime: string;
   endTime: string;
   breakMinutes: number;
+  startTime2?: string | null;
+  endTime2?: string | null;
+  breakMinutes2?: number | null;
   isActive: boolean;
 };
 
@@ -49,5 +57,7 @@ export type StaffingJson = {
   shiftType: string;
   stationNumber: number;
   minTotalCount: number;
+  maxTotalCount?: number | null;
+  isFacilityWide?: boolean;
   qualificationRequirements: { id: string; qualificationTag: string; minCount: number }[];
 };

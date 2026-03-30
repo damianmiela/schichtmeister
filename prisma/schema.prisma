@@ -27,6 +27,21 @@ enum ShiftType {
   EARLY
   LATE
   NIGHT
+  BL
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  KRANK
+  LANGZEITKRANK
+  MUTTERSCHUTZ
+  URLAUB
+  KUR
+}
+
+enum AbsenceType {
+  KRANK
+  URLAUB
 }
 
 enum ScheduleStatus {
@@ -78,6 +93,7 @@ model Facility {
   employeeWorkProfiles   EmployeeWorkProfile[]
   staffingRequirements   StaffingRequirement[]
   schedules              Schedule[]
+  qualifications         Qualification[]
 }
 
 model User {
@@ -110,18 +126,22 @@ model Employee {
   targetHoursPercent       Decimal?            @db.Decimal(6, 2)
   workProfileId            String?
   assignedStationNumber    Int?
+  status                   EmployeeStatus      @default(ACTIVE)
   qualificationTags        String[]            @default([])
   preferredShiftTypes      ShiftType[]         @default([])
   createdAt                DateTime            @default(now())
   updatedAt                DateTime            @updatedAt
 
-  facility    Facility             @relation(fields: [facilityId], references: [id], onDelete: Cascade)
-  workProfile EmployeeWorkProfile? @relation(fields: [workProfileId], references: [id], onDelete: SetNull)
-  user User?
-  availability EmployeeAvailability[]
-  assignments  Assignment[]
-  wishes       Wish[]
-  swapsTo      SwapRequest[] @relation("SwapToEmployee")
+  facility             Facility             @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  workProfile          EmployeeWorkProfile? @relation(fields: [workProfileId], references: [id], onDelete: SetNull)
+  user                 User?
+  availability         EmployeeAvailability[]
+  assignments          Assignment[]
+  wishes               Wish[]
+  swapsTo              SwapRequest[] @relation("SwapToEmployee")
+  qualifications       Qualification[] @relation("EmployeeQualifications")
+  allowedShiftProfiles ShiftProfile[]  @relation("EmployeeAllowedShiftProfiles")
+  absences             EmployeeAbsence[]
 }
 
 model EmployeeAvailability {
@@ -157,34 +177,39 @@ model ShiftProfile {
   facilityId    String
   name          String
   shiftType     ShiftType
-  stationNumber Int       @default(1)
   startTime     String
   endTime       String
   breakMinutes  Int       @default(0)
+  startTime2    String?
+  endTime2      String?
+  breakMinutes2 Int?
   isActive      Boolean   @default(true)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  facility    Facility     @relation(fields: [facilityId], references: [id], onDelete: Cascade)
-  assignments Assignment[]
-  wishes      Wish[]
+  facility           Facility     @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  assignments        Assignment[]
+  wishes             Wish[]
+  allowedByEmployees Employee[]   @relation("EmployeeAllowedShiftProfiles")
 
-  @@unique([facilityId, shiftType, stationNumber])
+  @@unique([facilityId, name])
 }
 
 model StaffingRequirement {
-  id            String    @id @default(cuid())
-  facilityId    String
-  shiftType     ShiftType
-  stationNumber Int       @default(1)
-  minTotalCount Int
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id              String    @id @default(cuid())
+  facilityId      String
+  shiftType       ShiftType
+  stationNumber   Int       @default(1)
+  minTotalCount   Int
+  maxTotalCount   Int?
+  isFacilityWide  Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   facility                  Facility                  @relation(fields: [facilityId], references: [id], onDelete: Cascade)
   qualificationRequirements QualificationRequirement[]
 
-  @@unique([facilityId, shiftType, stationNumber])
+  @@unique([facilityId, shiftType, stationNumber, isFacilityWide])
 }
 
 model QualificationRequirement {
@@ -225,6 +250,10 @@ model Assignment {
   shiftProfileId  String
   employeeId      String
   createdByUserId String
+  stationNumber   Int?
+  markingRow2     String?
+  markingRow3     String?
+  dayStatus       String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -288,4 +317,36 @@ model AuditLog {
 
   @@index([entityType, entityId])
   @@index([createdAt])
+}
+
+model Qualification {
+  id           String   @id @default(cuid())
+  facilityId   String
+  name         String
+  abbreviation String
+  isActive     Boolean  @default(true)
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  facility  Facility   @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  employees Employee[] @relation("EmployeeQualifications")
+
+  @@unique([facilityId, name])
+  @@unique([facilityId, abbreviation])
+}
+
+model EmployeeAbsence {
+  id         String      @id @default(cuid())
+  employeeId String
+  type       AbsenceType
+  startDate  DateTime    @db.Date
+  endDate    DateTime    @db.Date
+  note       String?
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId, startDate, endDate])
 }

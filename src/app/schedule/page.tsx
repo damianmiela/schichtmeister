@@ -864,7 +864,7 @@ export default function SchedulePage() {
           const ta = typeOrder.indexOf(a.shiftType);
           const tb = typeOrder.indexOf(b.shiftType);
           if (ta !== tb) return ta - tb;
-          return a.stationNumber - b.stationNumber;
+          return a.name.localeCompare(b.name);
         }),
     [profilesById],
   );

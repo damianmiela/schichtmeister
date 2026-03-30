@@ -17,7 +17,10 @@ export function qualificationCoverageRule(ctx: RuleContext): RuleResult {
         if (!sameUtcCalendarDay(a.date, d)) continue;
         const profile = ctx.profilesById.get(a.shiftProfileId);
         if (!profile || profile.shiftType !== req.shiftType) continue;
-        if (profile.stationNumber !== req.stationNumber) continue;
+        if (!req.isFacilityWide) {
+          const aStation = (a as { stationNumber?: number }).stationNumber;
+          if (aStation != null && aStation !== req.stationNumber) continue;
+        }
         onShiftEmpIds.push(a.employeeId);
       }
       for (const qr of req.qualificationRequirements) {

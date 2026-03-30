@@ -245,10 +245,12 @@ describe("rebalanceAssignments", () => {
     facilityId: "f",
     name: "F1",
     shiftType: ShiftType.EARLY,
-    stationNumber: 1,
     startTime: "06:00",
     endTime: "14:00",
     breakMinutes: 0,
+    startTime2: null,
+    endTime2: null,
+    breakMinutes2: null,
     isActive: true,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -408,7 +410,7 @@ describe("rebalanceAssignments", () => {
   });
 
   it("blocks swap when under-utilized employee is assigned to a different station", () => {
-    const empOver = makeEmp("over", 40);
+    const empOver = makeEmp("over", 40, [], 1);
     const empUnderSt2 = makeEmp("under_st2", 40, [], 2);
     const employees = [empOver, empUnderSt2];
 
@@ -432,7 +434,7 @@ describe("rebalanceAssignments", () => {
   });
 
   it("allows swap when under-utilized employee is assigned to the same station", () => {
-    const empOver = makeEmp("over", 40);
+    const empOver = makeEmp("over", 40, [], 1);
     const empUnderSt1 = makeEmp("under_st1", 40, [], 1);
     const employees = [empOver, empUnderSt1];
 

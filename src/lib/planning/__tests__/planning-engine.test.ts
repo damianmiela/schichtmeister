@@ -162,7 +162,6 @@ describe("phase 04 — planning rules", () => {
           {
             id: "p1",
             shiftType: ShiftType.EARLY,
-            stationNumber: 1,
             startTime: "06:00",
             endTime: "14:00",
             breakMinutes: 0,
@@ -188,7 +187,6 @@ describe("phase 04 — planning rules", () => {
           {
             id: "early",
             shiftType: ShiftType.EARLY,
-            stationNumber: 1,
             startTime: "06:00",
             endTime: "14:00",
             breakMinutes: 0,
@@ -199,7 +197,6 @@ describe("phase 04 — planning rules", () => {
           {
             id: "late",
             shiftType: ShiftType.LATE,
-            stationNumber: 1,
             startTime: "14:00",
             endTime: "22:00",
             breakMinutes: 0,
@@ -232,7 +229,6 @@ describe("phase 04 — planning rules", () => {
           {
             id: "a",
             shiftType: ShiftType.EARLY,
-            stationNumber: 1,
             startTime: "06:00",
             endTime: "08:00",
             breakMinutes: 0,
@@ -243,7 +239,6 @@ describe("phase 04 — planning rules", () => {
           {
             id: "b",
             shiftType: ShiftType.LATE,
-            stationNumber: 1,
             startTime: "18:00",
             endTime: "22:00",
             breakMinutes: 0,
@@ -275,7 +270,6 @@ describe("phase 04 — planning rules", () => {
           {
             id: "a",
             shiftType: ShiftType.EARLY,
-            stationNumber: 1,
             startTime: "06:00",
             endTime: "14:30",
             breakMinutes: 0,
@@ -309,7 +303,6 @@ describe("phase 04 — planning rules", () => {
           {
             id: "p",
             shiftType: ShiftType.EARLY,
-            stationNumber: 1,
             startTime: "06:00",
             endTime: "10:00",
             breakMinutes: 0,
@@ -358,7 +351,6 @@ describe("phase 04 — planning rules", () => {
           {
             id: "early",
             shiftType: ShiftType.EARLY,
-            stationNumber: 1,
             startTime: "06:00",
             endTime: "14:00",
             breakMinutes: 0,
@@ -398,7 +390,6 @@ describe("phase 04 — planning rules", () => {
           {
             id: "night",
             shiftType: ShiftType.NIGHT,
-            stationNumber: 1,
             startTime: "22:00",
             endTime: "06:00",
             breakMinutes: 0,
@@ -453,7 +444,6 @@ describe("phase 04 — planning rules", () => {
           {
             id: "night",
             shiftType: ShiftType.NIGHT,
-            stationNumber: 1,
             startTime: "22:00",
             endTime: "06:00",
             breakMinutes: 0,
@@ -504,7 +494,6 @@ describe("phase 04 — planning rules", () => {
           {
             id: "early",
             shiftType: ShiftType.EARLY,
-            stationNumber: 1,
             startTime: "06:00",
             endTime: "14:00",
             breakMinutes: 0,
@@ -642,7 +631,6 @@ describe("phase 04 — planning rules", () => {
           {
             id: "early",
             shiftType: ShiftType.EARLY,
-            stationNumber: 1,
             startTime: "06:00",
             endTime: "14:00",
             breakMinutes: 0,
@@ -686,7 +674,6 @@ describe("phase 04 — planning rules", () => {
           {
             id: "p1",
             shiftType: ShiftType.EARLY,
-            stationNumber: 1,
             startTime: "06:00",
             endTime: "14:00",
             breakMinutes: 0,
@@ -725,7 +712,6 @@ describe("phase 04 — planning rules", () => {
         {
           id: "night",
           shiftType: ShiftType.NIGHT,
-          stationNumber: 1,
           startTime: "22:00",
           endTime: "06:00",
           breakMinutes: 0,
@@ -843,7 +829,6 @@ describe("phase 04 — planning rules", () => {
         {
           id: "early",
           shiftType: ShiftType.EARLY,
-          stationNumber: 1,
           startTime: "06:00",
           endTime: "14:00",
           breakMinutes: 0,

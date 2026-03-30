@@ -20,11 +20,14 @@ async function main() {
   await prisma.wish.deleteMany();
   await prisma.assignment.deleteMany();
   await prisma.schedule.deleteMany();
+  await prisma.qualificationRequirement.deleteMany();
   await prisma.staffingRequirement.deleteMany();
+  await prisma.employeeAbsence.deleteMany();
   await prisma.shiftProfile.deleteMany();
   await prisma.employeeAvailability.deleteMany();
   await prisma.user.deleteMany();
   await prisma.employee.deleteMany();
+  await prisma.qualification.deleteMany();
   await prisma.facility.deleteMany();
 
   const facility = await prisma.facility.create({
@@ -34,6 +37,24 @@ async function main() {
       miniJobMaxMonthlyHours: 520,
     },
   });
+
+  // ── Qualifications ──
+  const qualDefs = [
+    { name: "Pflegedienstleitung", abbreviation: "PDL", sortOrder: 1 },
+    { name: "Wohnbereichsleitung", abbreviation: "WBL", sortOrder: 2 },
+    { name: "Pflegefachkraft", abbreviation: "PFK", sortOrder: 3 },
+    { name: "Altenpflegehelfer", abbreviation: "APH", sortOrder: 4 },
+    { name: "Krankenpflegehelfer", abbreviation: "KPH", sortOrder: 5 },
+    { name: "Pflegehilfskraft", abbreviation: "PH", sortOrder: 6 },
+    { name: "Einarbeitung", abbreviation: "EA", sortOrder: 7 },
+  ];
+  const qualMap: Record<string, string> = {};
+  for (const q of qualDefs) {
+    const created = await prisma.qualification.create({
+      data: { facilityId: facility.id, ...q },
+    });
+    qualMap[q.abbreviation] = created.id;
+  }
 
   const passwordHash = bcrypt.hashSync(seedPassword, 10);
 
@@ -55,8 +76,9 @@ async function main() {
       targetHours: 173.33,
       targetHoursPeriod: TargetHoursPeriod.MONTHLY,
       targetHoursPercent: 100,
-      qualificationTags: ["NurseQualified"],
+      qualificationTags: ["PFK"],
       preferredShiftTypes: [ShiftType.EARLY],
+      qualifications: { connect: [{ id: qualMap["PFK"]! }] },
     },
   });
 
@@ -69,7 +91,8 @@ async function main() {
       targetHours: 130,
       targetHoursPeriod: TargetHoursPeriod.MONTHLY,
       targetHoursPercent: 75,
-      qualificationTags: ["Hilfskraft"],
+      qualificationTags: ["APH"],
+      qualifications: { connect: [{ id: qualMap["APH"]! }] },
     },
   });
 
@@ -83,7 +106,8 @@ async function main() {
       targetHoursPeriod: TargetHoursPeriod.MONTHLY,
       targetHoursPercent: 50,
       miniJobMaxMonthlyHours: 80,
-      qualificationTags: ["Hilfskraft"],
+      qualificationTags: ["PH"],
+      qualifications: { connect: [{ id: qualMap["PH"]! }] },
     },
   });
 
@@ -97,75 +121,85 @@ async function main() {
     },
   });
 
-  const shiftTypePrefix: Record<ShiftType, string> = {
-    [ShiftType.EARLY]: "F",
-    [ShiftType.LATE]: "S",
-    [ShiftType.NIGHT]: "N",
-  };
-  const shiftTimings: Record<ShiftType, { startTime: string; endTime: string; breakMinutes: number }> = {
-    [ShiftType.EARLY]: { startTime: "06:00", endTime: "14:30", breakMinutes: 30 },
-    [ShiftType.LATE]: { startTime: "14:00", endTime: "22:00", breakMinutes: 30 },
-    [ShiftType.NIGHT]: { startTime: "21:30", endTime: "06:30", breakMinutes: 30 },
-  };
+  // ── Shift Profiles (14 official profiles) ──
+  const profileDefs: {
+    name: string; shiftType: ShiftType; startTime: string; endTime: string;
+    breakMinutes: number; startTime2?: string; endTime2?: string; breakMinutes2?: number;
+  }[] = [
+    { name: "F1", shiftType: ShiftType.EARLY, startTime: "06:00", endTime: "13:30", breakMinutes: 30 },
+    { name: "F2", shiftType: ShiftType.EARLY, startTime: "06:00", endTime: "14:30", breakMinutes: 30 },
+    { name: "F3", shiftType: ShiftType.EARLY, startTime: "06:00", endTime: "13:00", breakMinutes: 30 },
+    { name: "F4", shiftType: ShiftType.EARLY, startTime: "08:00", endTime: "12:00", breakMinutes: 0 },
+    { name: "F5", shiftType: ShiftType.EARLY, startTime: "08:00", endTime: "14:00", breakMinutes: 30 },
+    { name: "F6", shiftType: ShiftType.EARLY, startTime: "06:00", endTime: "09:00", breakMinutes: 0, startTime2: "15:00", endTime2: "20:00", breakMinutes2: 0 },
+    { name: "F7", shiftType: ShiftType.EARLY, startTime: "06:00", endTime: "15:00", breakMinutes: 30 },
+    { name: "S1", shiftType: ShiftType.LATE, startTime: "13:00", endTime: "21:30", breakMinutes: 30 },
+    { name: "S2", shiftType: ShiftType.LATE, startTime: "14:30", endTime: "21:30", breakMinutes: 30 },
+    { name: "S3", shiftType: ShiftType.LATE, startTime: "16:00", endTime: "20:00", breakMinutes: 0 },
+    { name: "S4", shiftType: ShiftType.LATE, startTime: "11:00", endTime: "20:00", breakMinutes: 30 },
+    { name: "N",  shiftType: ShiftType.NIGHT, startTime: "21:00", endTime: "06:30", breakMinutes: 30 },
+    { name: "N1", shiftType: ShiftType.NIGHT, startTime: "21:00", endTime: "06:00", breakMinutes: 30 },
+    { name: "BL", shiftType: ShiftType.BL,    startTime: "08:00", endTime: "16:30", breakMinutes: 30 },
+  ];
 
   const profiles: Record<string, { id: string }> = {};
-  for (const shiftType of Object.values(ShiftType)) {
-    for (const station of [1, 2, 3]) {
-      const name = `${shiftTypePrefix[shiftType]}${station}`;
-      const p = await prisma.shiftProfile.create({
-        data: {
-          facilityId: facility.id,
-          name,
-          shiftType,
-          stationNumber: station,
-          ...shiftTimings[shiftType],
-        },
-      });
-      profiles[name] = p;
-    }
+  for (const pd of profileDefs) {
+    const p = await prisma.shiftProfile.create({
+      data: {
+        facilityId: facility.id,
+        name: pd.name,
+        shiftType: pd.shiftType,
+        startTime: pd.startTime,
+        endTime: pd.endTime,
+        breakMinutes: pd.breakMinutes,
+        startTime2: pd.startTime2 ?? null,
+        endTime2: pd.endTime2 ?? null,
+        breakMinutes2: pd.breakMinutes2 ?? null,
+      },
+    });
+    profiles[pd.name] = p;
   }
-  const early = profiles["F1"];
 
-  type StationStaffing = {
-    minTotalCount: number;
+  // ── Staffing Requirements (from real facility specs) ──
+  type StaffingDef = {
+    shiftType: ShiftType; stationNumber: number;
+    minTotalCount: number; maxTotalCount: number | null; isFacilityWide: boolean;
     qualifications: { tag: string; minCount: number }[];
   };
-  const perShiftStation: Record<ShiftType, StationStaffing[]> = {
-    [ShiftType.EARLY]: [
-      { minTotalCount: 3, qualifications: [{ tag: "NurseQualified", minCount: 1 }] },
-      { minTotalCount: 3, qualifications: [{ tag: "NurseQualified", minCount: 1 }] },
-      { minTotalCount: 2, qualifications: [{ tag: "NurseQualified", minCount: 1 }] },
-    ],
-    [ShiftType.LATE]: [
-      { minTotalCount: 2, qualifications: [] },
-      { minTotalCount: 2, qualifications: [] },
-      { minTotalCount: 2, qualifications: [] },
-    ],
-    [ShiftType.NIGHT]: [
-      { minTotalCount: 1, qualifications: [{ tag: "NurseQualified", minCount: 1 }] },
-      { minTotalCount: 1, qualifications: [] },
-      { minTotalCount: 1, qualifications: [] },
-    ],
-  };
+  const staffingDefs: StaffingDef[] = [
+    { shiftType: ShiftType.EARLY, stationNumber: 1, minTotalCount: 3, maxTotalCount: 5, isFacilityWide: false,
+      qualifications: [{ tag: "PFK", minCount: 1 }] },
+    { shiftType: ShiftType.LATE, stationNumber: 1, minTotalCount: 2, maxTotalCount: 2, isFacilityWide: false,
+      qualifications: [{ tag: "PFK", minCount: 1 }] },
+    { shiftType: ShiftType.EARLY, stationNumber: 2, minTotalCount: 1, maxTotalCount: 1, isFacilityWide: false,
+      qualifications: [] },
+    { shiftType: ShiftType.LATE, stationNumber: 2, minTotalCount: 1, maxTotalCount: 1, isFacilityWide: false,
+      qualifications: [] },
+    { shiftType: ShiftType.EARLY, stationNumber: 3, minTotalCount: 3, maxTotalCount: 5, isFacilityWide: false,
+      qualifications: [{ tag: "PFK", minCount: 1 }] },
+    { shiftType: ShiftType.LATE, stationNumber: 3, minTotalCount: 2, maxTotalCount: 3, isFacilityWide: false,
+      qualifications: [{ tag: "PFK", minCount: 1 }] },
+    { shiftType: ShiftType.NIGHT, stationNumber: 0, minTotalCount: 2, maxTotalCount: 2, isFacilityWide: true,
+      qualifications: [{ tag: "PFK", minCount: 1 }] },
+  ];
 
-  for (const shiftType of Object.values(ShiftType)) {
-    for (const station of [1, 2, 3]) {
-      const cfg = perShiftStation[shiftType][station - 1];
-      await prisma.staffingRequirement.create({
-        data: {
-          facilityId: facility.id,
-          shiftType,
-          stationNumber: station,
-          minTotalCount: cfg.minTotalCount,
-          qualificationRequirements: {
-            create: cfg.qualifications.map((q) => ({
-              qualificationTag: q.tag,
-              minCount: q.minCount,
-            })),
-          },
+  for (const sd of staffingDefs) {
+    await prisma.staffingRequirement.create({
+      data: {
+        facilityId: facility.id,
+        shiftType: sd.shiftType,
+        stationNumber: sd.stationNumber,
+        minTotalCount: sd.minTotalCount,
+        maxTotalCount: sd.maxTotalCount,
+        isFacilityWide: sd.isFacilityWide,
+        qualificationRequirements: {
+          create: sd.qualifications.map((q) => ({
+            qualificationTag: q.tag,
+            minCount: q.minCount,
+          })),
         },
-      });
-    }
+      },
+    });
   }
 
   const now = new Date();
@@ -185,7 +219,7 @@ async function main() {
     data: {
       scheduleId: schedule.id,
       date: periodStart,
-      shiftProfileId: early.id,
+      shiftProfileId: profiles["F1"]!.id,
       employeeId: empBen.id,
       createdByUserId: planner.id,
     },
@@ -193,6 +227,8 @@ async function main() {
 
   console.log("Seed OK:", {
     facilityId: facility.id,
+    qualifications: qualDefs.map((q) => q.abbreviation).join(", "),
+    shiftProfiles: profileDefs.map((p) => p.name).join(", "),
     logins: ["planner@schichtmeister.local", "employee@schichtmeister.local"],
     passwordNote:
       seedPassword === "admin"

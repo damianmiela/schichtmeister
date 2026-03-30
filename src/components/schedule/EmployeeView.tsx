@@ -455,7 +455,7 @@ export default function EmployeeView({
                     </TableCell>
                     <TableCell align="center">
                       <Chip
-                        label={`St. ${prof?.stationNumber ?? "?"}`}
+                        label={`St. ${employee.assignedStationNumber ?? "?"}`}
                         size="small"
                         variant="outlined"
                         sx={{ height: 20, fontSize: "0.7rem" }}
