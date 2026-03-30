@@ -855,6 +855,7 @@ export async function runGreedyScheduleGeneration(
   }
 
   // WBL-BL pre-assignment: give WBL employees one BL shift per calendar week BEFORE main filling
+  // Each WBL must get a DIFFERENT day to avoid stacking all BL shifts on Monday.
   const wblEmployees = ctx.employees.filter(e =>
     e.qualificationTags.includes("WBL") || e.qualificationAbbreviations.includes("WBL")
   );
@@ -867,24 +868,33 @@ export async function runGreedyScheduleGeneration(
       weekDatesMap.set(wk, arr);
     }
 
-    for (const emp of wblEmployees) {
-      for (const [weekKey, weekDates] of weekDatesMap) {
-        const alreadyHasBl = proposed.some(a => {
+    for (const [weekKey, weekDates] of weekDatesMap) {
+      const blDaysUsed = new Set<string>();
+
+      const needsBl = wblEmployees.filter(emp => {
+        return !proposed.some(a => {
           if (a.employeeId !== emp.id) return false;
           const p = profilesById.get(a.shiftProfileId);
           if (!p || p.shiftType !== ShiftType.BL) return false;
           return weekDates.some(d => toIsoDateOnly(d) === toIsoDateOnly(a.date));
         });
-        if (alreadyHasBl) continue;
+      });
 
+      for (const emp of needsBl) {
         const blProfile = selectProfileForEmployee(emp, ShiftType.BL, ctx.profiles);
         if (!blProfile) {
           log(`WBL-BL: ${emp.id} has no BL profile allowed, skipping ${weekKey}`);
           continue;
         }
 
+        const sortedDates = [...weekDates].sort((a, b) => {
+          const aUsed = blDaysUsed.has(toIsoDateOnly(a)) ? 1 : 0;
+          const bUsed = blDaysUsed.has(toIsoDateOnly(b)) ? 1 : 0;
+          return aUsed - bUsed;
+        });
+
         let added = false;
-        for (const date of weekDates) {
+        for (const date of sortedDates) {
           const dateIso = toIsoDateOnly(date);
           if (emp.unavailableDateSet.has(dateIso)) continue;
           const alreadyOnDate = proposed.some(a =>
@@ -898,6 +908,7 @@ export async function runGreedyScheduleGeneration(
           if (assignment) {
             proposed.push(assignment);
             lockedIds.add(assignment.id);
+            blDaysUsed.add(dateIso);
             log(`WBL-BL: PLACED ${emp.id} -> BL on ${dateIso} (${weekKey})`);
             added = true;
             break;

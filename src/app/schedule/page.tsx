@@ -670,12 +670,13 @@ export default function SchedulePage() {
   const currentMonthKey = `${viewState.year}-${String(viewState.month + 1).padStart(2, "0")}`;
 
   const onViewLogs = async () => {
+    if (!schedule) return;
     setLogLoading(true);
     setLogContent(null);
     setLogDialogOpen(true);
     try {
       const res = await fetchJson<{ content: string | null }>(
-        `/api/generate-logs?month=${currentMonthKey}`,
+        `/api/generate-logs?scheduleId=${schedule.id}`,
       );
       setLogContent(res.content);
     } catch {
