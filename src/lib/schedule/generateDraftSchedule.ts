@@ -854,6 +854,63 @@ export async function runGreedyScheduleGeneration(
     }
   }
 
+  // WBL-BL pre-assignment: give WBL employees one BL shift per calendar week BEFORE main filling
+  const wblEmployees = ctx.employees.filter(e =>
+    e.qualificationTags.includes("WBL") || e.qualificationAbbreviations.includes("WBL")
+  );
+  if (wblEmployees.length > 0) {
+    const weekDatesMap = new Map<string, Date[]>();
+    for (const date of dates) {
+      const wk = isoWeekKey(date);
+      const arr = weekDatesMap.get(wk) ?? [];
+      arr.push(date);
+      weekDatesMap.set(wk, arr);
+    }
+
+    for (const emp of wblEmployees) {
+      for (const [weekKey, weekDates] of weekDatesMap) {
+        const alreadyHasBl = proposed.some(a => {
+          if (a.employeeId !== emp.id) return false;
+          const p = profilesById.get(a.shiftProfileId);
+          if (!p || p.shiftType !== ShiftType.BL) return false;
+          return weekDates.some(d => toIsoDateOnly(d) === toIsoDateOnly(a.date));
+        });
+        if (alreadyHasBl) continue;
+
+        const blProfile = selectProfileForEmployee(emp, ShiftType.BL, ctx.profiles);
+        if (!blProfile) {
+          log(`WBL-BL: ${emp.id} has no BL profile allowed, skipping ${weekKey}`);
+          continue;
+        }
+
+        let added = false;
+        for (const date of weekDates) {
+          const dateIso = toIsoDateOnly(date);
+          if (emp.unavailableDateSet.has(dateIso)) continue;
+          const alreadyOnDate = proposed.some(a =>
+            a.employeeId === emp.id && toIsoDateOnly(a.date) === dateIso
+          );
+          if (alreadyOnDate) continue;
+
+          const assignment = await tryPlaceEmployee(
+            emp, date, blProfile.id, proposed, tx, facilityId, schedule, idSeq,
+          );
+          if (assignment) {
+            proposed.push(assignment);
+            lockedIds.add(assignment.id);
+            log(`WBL-BL: PLACED ${emp.id} -> BL on ${dateIso} (${weekKey})`);
+            added = true;
+            break;
+          }
+        }
+        if (!added) {
+          log(`WBL-BL: could not place BL for ${emp.id} in ${weekKey}`);
+          warnings.push(`WBL: Mitarbeiter ${emp.id} hat in ${weekKey} keinen BL-Dienst.`);
+        }
+      }
+    }
+  }
+
   for (const [shiftType] of defaultProfileByType) {
     const hasStaffing = [...ctx.mergedStaffing.keys()].some((k) => k.startsWith(shiftType + ":"));
     if (!hasStaffing) {
@@ -1137,57 +1194,6 @@ export async function runGreedyScheduleGeneration(
     }
   }
 
-  // WBL-BL check: ensure WBL employees have at least 1 BL per calendar week
-  const wblEmployees = ctx.employees.filter(e =>
-    e.qualificationTags.includes("WBL") || e.qualificationAbbreviations.includes("WBL")
-  );
-  if (wblEmployees.length > 0) {
-    const weekDatesMap = new Map<string, Date[]>();
-    for (const date of dates) {
-      const wk = isoWeekKey(date);
-      const arr = weekDatesMap.get(wk) ?? [];
-      arr.push(date);
-      weekDatesMap.set(wk, arr);
-    }
-
-    for (const emp of wblEmployees) {
-      for (const [weekKey, weekDates] of weekDatesMap) {
-        const hasBl = proposed.some(a => {
-          if (a.employeeId !== emp.id) return false;
-          const p = profilesById.get(a.shiftProfileId);
-          if (!p || p.shiftType !== ShiftType.BL) return false;
-          return weekDates.some(d => toIsoDateOnly(d) === toIsoDateOnly(a.date));
-        });
-        if (hasBl) continue;
-
-        let added = false;
-        for (const date of weekDates) {
-          const dateIso = toIsoDateOnly(date);
-          if (emp.unavailableDateSet.has(dateIso)) continue;
-          const alreadyOnDate = proposed.some(a =>
-            a.employeeId === emp.id && toIsoDateOnly(a.date) === dateIso
-          );
-          if (alreadyOnDate) continue;
-
-          const blProfile = selectProfileForEmployee(emp, ShiftType.BL, ctx.profiles);
-          if (!blProfile) continue;
-
-          const assignment = await tryPlaceEmployee(
-            emp, date, blProfile.id, proposed, tx, facilityId, schedule, idSeq,
-          );
-          if (assignment) {
-            proposed.push(assignment);
-            added = true;
-            break;
-          }
-        }
-        if (!added) {
-          warnings.push(`WBL: Mitarbeiter ${emp.id} hat in ${weekKey} keinen BL-Dienst.`);
-        }
-      }
-    }
-  }
-
   // Rebalancing pass: equalize Ist/Soll across employees
   if (proposed.length > 0) {
     const facility = await tx.facility.findUniqueOrThrow({ where: { id: facilityId } });
@@ -1202,67 +1208,6 @@ export async function runGreedyScheduleGeneration(
       lockedIds,
     );
     warnings.push(...rebalResult.warnings);
-  }
-
-  // Overtime warnings
-  {
-    const year = schedule.periodStart.getUTCFullYear();
-    const month = schedule.periodStart.getUTCMonth();
-    const wd = monthlyWorkingDays(year, month);
-    for (const emp of ctx.employees) {
-      const hours = sumPaidHoursForEmployeeInProposed(emp.id, proposed, profilesById);
-      const pct = emp.targetHoursPercent ?? 100;
-      const soll = monthlySollHours(wd, pct);
-      if (hours > soll + 8) {
-        const empName = emp.id;
-        warnings.push(`Überstunden: MA ${empName} hat ${hours.toFixed(1)}h geplant (Soll: ${soll.toFixed(1)}h, +${(hours - soll).toFixed(1)}h Überstunden).`);
-      }
-    }
-  }
-
-  // Check qualification coverage on FINAL assignments (after rebalancing)
-  const empTagsById = new Map(ctx.employees.map((e) => [e.id, e.qualificationTags]));
-  for (const date of dates) {
-    for (const shiftType of SHIFT_TYPE_ORDER) {
-      for (const station of STATION_NUMBERS) {
-        const key = staffingKey(shiftType, station);
-        const req = ctx.mergedStaffing.get(key);
-        if (!req || req.qualificationRequirements.length === 0) continue;
-
-        const profile = defaultProfileByType.get(shiftType);
-        if (!profile) continue;
-
-        const dateIso = toIsoDateOnly(date);
-        const slotAssignments = proposed.filter(
-          (a) => {
-            if (toIsoDateOnly(a.date) !== dateIso) return false;
-            const p = profilesById.get(a.shiftProfileId);
-            return p != null && p.shiftType === shiftType;
-          },
-        );
-
-        for (const qr of req.qualificationRequirements) {
-          const tags = qr.qualificationTag.split(",").map((t) => t.trim());
-          const withTag = slotAssignments.filter((a) => {
-            const empTags = empTagsById.get(a.employeeId);
-            return empTags && tags.some((t) => empTags.includes(t));
-          }).length;
-          if (withTag < qr.minCount) {
-            const shift = SHIFT_LABEL_DE[shiftType] ?? shiftType;
-            const dateDE = formatDateDE(date);
-            const totalFilled = slotAssignments.length;
-            const tagLabel = tags.join("/");
-            const suffix =
-              totalFilled >= req.minTotalCount
-                ? `Schicht ist mit ${totalFilled} MA besetzt, aber ohne die geforderte Qualifikation`
-                : `Schicht unterbesetzt: ${totalFilled}/${req.minTotalCount}`;
-            warnings.push(
-              `${shift} Station ${station} am ${dateDE}: ${withTag}/${qr.minCount} ${tagLabel} vorhanden – ${suffix}.`,
-            );
-          }
-        }
-      }
-    }
   }
 
   if (proposed.length > 0) {

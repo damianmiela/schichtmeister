@@ -2,8 +2,11 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { toIsoDateOnly } from "@/lib/api/dateOnly";
 import { plannerJsonErrors } from "@/lib/api/validation";
+import { validateScheduleAssignments } from "@/lib/api/planningScheduleValidation";
 import { requirePlanner } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
+import { formatRuleViolations } from "@/lib/schedule/formatRuleViolations";
+import type { AssignmentInput } from "@/lib/planning/types";
 import type { GenerateReport, ManualPlacementInput } from "@/lib/schedule/generateDraftSchedule";
 import {
   loadGenerateContext,
@@ -159,8 +162,45 @@ export async function POST(request: Request, context: RouteCtx) {
     );
   }
 
+  // Run the same rule engine + formatRuleViolations as the edit route
+  const rows = await prisma.assignment.findMany({
+    where: { scheduleId },
+    orderBy: [{ date: "asc" }, { id: "asc" }],
+  });
+
+  const assignmentInputs: AssignmentInput[] = rows.map((a) => ({
+    id: a.id,
+    date: a.date,
+    shiftProfileId: a.shiftProfileId,
+    employeeId: a.employeeId,
+  }));
+
+  let ruleWarnings: string[] = [];
+  const v = await validateScheduleAssignments(
+    prisma,
+    facilityId,
+    { periodStart: schedule.periodStart, periodEnd: schedule.periodEnd },
+    assignmentInputs,
+  );
+  if (v.ok) {
+    const allMessages = [...v.result.errors, ...v.result.warnings];
+    if (allMessages.length > 0) {
+      const emps = await prisma.employee.findMany({
+        where: { facilityId },
+        select: { id: true, firstName: true, lastName: true },
+      });
+      const empNames = new Map(emps.map((e) => [e.id, `${e.firstName} ${e.lastName}`]));
+      ruleWarnings = formatRuleViolations(allMessages, empNames);
+    }
+  }
+
+  // Generator-specific warnings (config issues, WBL, debug log) + formatted rule violations
+  const generatorOnlyWarnings = report.warnings.filter(w =>
+    !w.startsWith("Überstunden:") && !w.includes("vorhanden –")
+  );
   const allWarnings = [
-    ...report.warnings,
+    ...generatorOnlyWarnings,
+    ...ruleWarnings,
     ...(report.unmetStaffing.length > 0
       ? [`${report.unmetStaffing.length} Bedarfsslots nur teilweise oder gar nicht besetzt.`]
       : []),
@@ -180,7 +220,7 @@ export async function POST(request: Request, context: RouteCtx) {
   await prisma.schedule.update({
     where: { id: scheduleId },
     data: {
-      warningsJson: JSON.stringify(allWarnings),
+      warningsJson: allWarnings.length > 0 ? JSON.stringify(allWarnings) : null,
       preGenWishesJson:
         preGenWishes.shiftWishes.length > 0 || preGenWishes.freiDates.length > 0
           ? JSON.stringify(preGenWishes)
@@ -188,17 +228,12 @@ export async function POST(request: Request, context: RouteCtx) {
     },
   });
 
-  const rows = await prisma.assignment.findMany({
-    where: { scheduleId },
-    orderBy: [{ date: "asc" }, { id: "asc" }],
-  });
-
   return NextResponse.json({
     createdAssignments: report.createdAssignments,
     manualPlacementsApplied: report.manualPlacementsApplied,
     unmetStaffing: report.unmetStaffing,
     unfulfilledWishes: report.unfulfilledWishes,
-    warnings: report.warnings,
+    warnings: allWarnings,
     assignments: rows.map((a) => ({
       id: a.id,
       scheduleId: a.scheduleId,
