@@ -13,6 +13,9 @@ type IncomingAssignment = {
   employeeId: string;
   date: string;
   shiftProfileId: string;
+  markingRow2?: string | null;
+  markingRow3?: string | null;
+  dayStatus?: string | null;
 };
 
 type IncomingWishes = {
@@ -36,6 +39,9 @@ function parseAssignments(raw: unknown): IncomingAssignment[] {
         employeeId: item.employeeId,
         date: item.date,
         shiftProfileId: item.shiftProfileId,
+        markingRow2: typeof item.markingRow2 === "string" ? item.markingRow2 : null,
+        markingRow3: typeof item.markingRow3 === "string" ? item.markingRow3 : null,
+        dayStatus: typeof item.dayStatus === "string" ? item.dayStatus : null,
       });
     }
   }
@@ -77,15 +83,26 @@ export async function POST(request: Request, context: RouteCtx) {
   }
 
   const toCreate: IncomingAssignment[] = [];
-  const toUpdate: { id: string; shiftProfileId: string }[] = [];
+  const toUpdate: { id: string; shiftProfileId: string; markingRow2: string | null; markingRow3: string | null; dayStatus: string | null }[] = [];
   const toDeleteIds: string[] = [];
 
   for (const [key, inc] of incomingByKey) {
     const ex = existingByKey.get(key);
     if (!ex) {
       toCreate.push(inc);
-    } else if (ex.shiftProfileId !== inc.shiftProfileId) {
-      toUpdate.push({ id: ex.id, shiftProfileId: inc.shiftProfileId });
+    } else if (
+      ex.shiftProfileId !== inc.shiftProfileId ||
+      (ex.markingRow2 ?? null) !== (inc.markingRow2 ?? null) ||
+      (ex.markingRow3 ?? null) !== (inc.markingRow3 ?? null) ||
+      (ex.dayStatus ?? null) !== (inc.dayStatus ?? null)
+    ) {
+      toUpdate.push({
+        id: ex.id,
+        shiftProfileId: inc.shiftProfileId,
+        markingRow2: inc.markingRow2 ?? null,
+        markingRow3: inc.markingRow3 ?? null,
+        dayStatus: inc.dayStatus ?? null,
+      });
     }
   }
 
@@ -105,7 +122,12 @@ export async function POST(request: Request, context: RouteCtx) {
     for (const u of toUpdate) {
       await tx.assignment.update({
         where: { id: u.id },
-        data: { shiftProfileId: u.shiftProfileId },
+        data: {
+          shiftProfileId: u.shiftProfileId,
+          markingRow2: u.markingRow2,
+          markingRow3: u.markingRow3,
+          dayStatus: u.dayStatus,
+        },
       });
     }
 
@@ -116,6 +138,9 @@ export async function POST(request: Request, context: RouteCtx) {
           date: parseIsoDateOnly(a.date)!,
           shiftProfileId: a.shiftProfileId,
           employeeId: a.employeeId,
+          markingRow2: a.markingRow2 ?? null,
+          markingRow3: a.markingRow3 ?? null,
+          dayStatus: a.dayStatus ?? null,
           createdByUserId: userId,
         })),
       });

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import MainLayout from "@/components/layout/MainLayout";
 import MonthView from "@/components/schedule/MonthView";
-import MonthTableView from "@/components/schedule/MonthTableView";
+import MonthTableView, { type CellEdit } from "@/components/schedule/MonthTableView";
 import WeekView from "@/components/schedule/WeekView";
 import DayView from "@/components/schedule/DayView";
 import EmployeeView from "@/components/schedule/EmployeeView";
@@ -165,7 +165,7 @@ export default function SchedulePage() {
   const [preGenOpen, setPreGenOpen] = useState(false);
   const [preGenEntries, setPreGenEntries] = useState<PreGenEntry[]>([]);
   const [editMode, setEditMode] = useState(false);
-  const [editedAssignments, setEditedAssignments] = useState<Map<string, string | null>>(new Map());
+  const [editedCells, setEditedCells] = useState<Map<string, CellEdit>>(new Map());
   const [editedShiftWishSet, setEditedShiftWishSet] = useState<Set<string>>(new Set());
   const [editedFreiWishSet, setEditedFreiWishSet] = useState<Set<string>>(new Set());
   const [editSaving, setEditSaving] = useState(false);
@@ -729,7 +729,7 @@ export default function SchedulePage() {
   };
 
   const enterEditMode = () => {
-    setEditedAssignments(new Map());
+    setEditedCells(new Map());
     setEditedShiftWishSet(new Set(shiftWishSet));
     setEditedFreiWishSet(new Set(freiWishSet));
     setEditMode(true);
@@ -737,22 +737,15 @@ export default function SchedulePage() {
 
   const cancelEditMode = () => {
     setEditMode(false);
-    setEditedAssignments(new Map());
+    setEditedCells(new Map());
   };
 
-  const handleCellChange = (employeeId: string, date: string, shiftProfileId: string | null) => {
-    setEditedAssignments((prev) => {
+  const handleCellChange = (employeeId: string, date: string, edit: Partial<CellEdit>) => {
+    setEditedCells((prev) => {
       const next = new Map(prev);
       const key = `${employeeId}|${date}`;
-      const original = assignments.find(
-        (a) => a.employeeId === employeeId && a.date === date,
-      );
-      const originalPid = original?.shiftProfileId ?? null;
-      if (shiftProfileId === originalPid) {
-        next.delete(key);
-      } else {
-        next.set(key, shiftProfileId);
-      }
+      const existing = next.get(key) ?? {};
+      next.set(key, { ...existing, ...edit });
       return next;
     });
   };
@@ -791,20 +784,36 @@ export default function SchedulePage() {
     setActionDebugPayload(null);
     setActionAlertSeverity("info");
 
-    const merged: { employeeId: string; date: string; shiftProfileId: string }[] = [];
+    const merged: { employeeId: string; date: string; shiftProfileId: string; markingRow2?: string | null; markingRow3?: string | null; dayStatus?: string | null }[] = [];
     const seen = new Set<string>();
 
-    for (const [key, pid] of editedAssignments) {
+    for (const [key, cell] of editedCells) {
       seen.add(key);
+      const [eid, date] = key.split("|");
+      const original = assignments.find(a => a.employeeId === eid && a.date === date);
+      const pid = cell.shiftProfileId !== undefined ? cell.shiftProfileId : original?.shiftProfileId;
       if (pid) {
-        const [eid, date] = key.split("|");
-        merged.push({ employeeId: eid!, date: date!, shiftProfileId: pid });
+        merged.push({
+          employeeId: eid!,
+          date: date!,
+          shiftProfileId: pid,
+          markingRow2: cell.markingRow2 !== undefined ? cell.markingRow2 : (original?.markingRow2 ?? null),
+          markingRow3: cell.markingRow3 !== undefined ? cell.markingRow3 : (original?.markingRow3 ?? null),
+          dayStatus: cell.dayStatus !== undefined ? cell.dayStatus : (original?.dayStatus ?? null),
+        });
       }
     }
     for (const a of assignments) {
       const key = `${a.employeeId}|${a.date}`;
       if (!seen.has(key)) {
-        merged.push({ employeeId: a.employeeId, date: a.date, shiftProfileId: a.shiftProfileId });
+        merged.push({
+          employeeId: a.employeeId,
+          date: a.date,
+          shiftProfileId: a.shiftProfileId,
+          markingRow2: a.markingRow2 ?? null,
+          markingRow3: a.markingRow3 ?? null,
+          dayStatus: a.dayStatus ?? null,
+        });
       }
     }
 
@@ -829,7 +838,7 @@ export default function SchedulePage() {
       );
       await loadBundle({ preserveActionMessage: true });
       setEditMode(false);
-      setEditedAssignments(new Map());
+      setEditedCells(new Map());
       const warnCount = res.warnings?.length ?? 0;
       if (warnCount > 0) {
         setActionAlertSeverity("warning");
@@ -860,7 +869,7 @@ export default function SchedulePage() {
       Object.values(profilesById)
         .filter((p) => p.isActive)
         .sort((a, b) => {
-          const typeOrder = ["EARLY", "LATE", "NIGHT"];
+          const typeOrder = ["EARLY", "LATE", "NIGHT", "BL"];
           const ta = typeOrder.indexOf(a.shiftType);
           const tb = typeOrder.indexOf(b.shiftType);
           if (ta !== tb) return ta - tb;
@@ -1167,7 +1176,7 @@ export default function SchedulePage() {
               shiftWishSet={editMode ? editedShiftWishSet : shiftWishSet}
               freiWishSet={editMode ? editedFreiWishSet : freiWishSet}
               editMode={editMode}
-              editedAssignments={editedAssignments}
+              editedCells={editedCells}
               onCellChange={handleCellChange}
               shiftProfiles={allProfiles}
               onToggleWish={handleToggleWish}

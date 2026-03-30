@@ -65,6 +65,10 @@ function serializeAssignment(a: {
   date: Date;
   shiftProfileId: string;
   employeeId: string;
+  stationNumber: number | null;
+  markingRow2: string | null;
+  markingRow3: string | null;
+  dayStatus: string | null;
   createdAt: Date;
   updatedAt: Date;
 }) {
@@ -74,6 +78,10 @@ function serializeAssignment(a: {
     date: toIsoDateOnly(a.date),
     shiftProfileId: a.shiftProfileId,
     employeeId: a.employeeId,
+    stationNumber: a.stationNumber ?? null,
+    markingRow2: a.markingRow2 ?? null,
+    markingRow3: a.markingRow3 ?? null,
+    dayStatus: a.dayStatus ?? null,
     createdAt: a.createdAt.toISOString(),
     updatedAt: a.updatedAt.toISOString(),
   };

@@ -1,26 +1,37 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Box,
-  Menu,
-  MenuItem,
+  Divider,
   ListItemIcon,
   ListItemText,
+  ListSubheader,
+  Menu,
+  MenuItem,
   Table,
   TableBody,
   TableCell,
-  TableContainer,
   TableHead,
   TableRow,
   Tooltip,
   Typography,
-  Divider,
 } from "@mui/material";
 import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
 import { localIsoFromParts } from "@/lib/schedule/monthSchedule";
 import type { AssignmentJson, EmployeeJson, ShiftProfileJson } from "@/lib/schedule/scheduleTypes";
 import QualificationPills from "@/components/schedule/QualificationPills";
+
+/* ──────────────────────── exported type ──────────────────────── */
+
+export type CellEdit = {
+  shiftProfileId?: string | null;
+  dayStatus?: string | null;
+  markingRow2?: string | null;
+  markingRow3?: string | null;
+};
+
+/* ──────────────────────── props ──────────────────────── */
 
 interface MonthTableViewProps {
   year: number;
@@ -33,11 +44,13 @@ interface MonthTableViewProps {
   shiftWishSet?: Set<string>;
   freiWishSet?: Set<string>;
   editMode?: boolean;
-  editedAssignments?: Map<string, string | null>;
-  onCellChange?: (employeeId: string, date: string, shiftProfileId: string | null) => void;
+  editedCells?: Map<string, CellEdit>;
+  onCellChange?: (employeeId: string, date: string, edit: Partial<CellEdit>) => void;
   shiftProfiles?: ShiftProfileJson[];
   onToggleWish?: (employeeId: string, date: string, type: "shift" | "frei") => void;
 }
+
+/* ──────────────────────── helpers ──────────────────────── */
 
 function daysInMonth(year: number, monthIndex: number): number {
   return new Date(year, monthIndex + 1, 0).getDate();
@@ -46,7 +59,7 @@ function daysInMonth(year: number, monthIndex: number): number {
 function paidHoursForShift(profile: ShiftProfileJson): number {
   const [sh, sm] = profile.startTime.split(":").map(Number);
   const [eh, em] = profile.endTime.split(":").map(Number);
-  let startMin = sh * 60 + sm;
+  const startMin = sh * 60 + sm;
   let endMin = eh * 60 + em;
   if (endMin <= startMin) endMin += 24 * 60;
   return Math.max(0, (endMin - startMin - profile.breakMinutes) / 60);
@@ -85,9 +98,177 @@ function monthlyTargetForMonth(
   return employee.targetHours * (wd / AVG_WORKING_DAYS_PER_MONTH);
 }
 
+/* ──────────────────────── constants ──────────────────────── */
+
+const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
+  U: { bg: "#e3f2fd", color: "#1565c0" },
+  K: { bg: "#ffebee", color: "#c62828" },
+  LZ: { bg: "#fce4ec", color: "#ad1457" },
+  MS: { bg: "#f3e5f5", color: "#7b1fa2" },
+  KU: { bg: "#fff3e0", color: "#e65100" },
+  SCH: { bg: "#e8eaf6", color: "#283593" },
+  X: { bg: "#f5f5f5", color: "#9e9e9e" },
+};
+
 const WISH_SHIFT_BG = "#e8f5e9";
 const WISH_FREI_BG = "#e3f2fd";
 const EDIT_CHANGED_BORDER = "2px dashed #ff9800";
+const ROW_HEIGHT = 56;
+
+const MARKING_CODES = ["FO", "PA", "E", "BD"] as const;
+
+const STATUS_CODES = [
+  { code: "U", label: "Urlaub" },
+  { code: "K", label: "Krank" },
+  { code: "SCH", label: "Schule" },
+  { code: "MS", label: "Mutterschutz" },
+  { code: "LZ", label: "Langzeitkrank" },
+  { code: "KU", label: "Kur" },
+] as const;
+
+const SHIFT_TYPE_ORDER = ["EARLY", "LATE", "NIGHT"];
+const SHIFT_TYPE_LABELS: Record<string, string> = {
+  EARLY: "Früh",
+  LATE: "Spät",
+  NIGHT: "Nacht",
+};
+
+const EMP_STATUS_MAP: Record<string, string> = {
+  KRANK: "K",
+  LANGZEITKRANK: "LZ",
+  MUTTERSCHUTZ: "MS",
+  URLAUB: "U",
+  KUR: "KU",
+};
+
+/* ──────────────────────── grouping / sorting ──────────────────────── */
+
+function groupEmployeesByStation(employees: EmployeeJson[]): Record<number, EmployeeJson[]> {
+  const grouped: Record<number, EmployeeJson[]> = { 1: [], 2: [], 3: [] };
+  for (const emp of employees) {
+    const station = emp.assignedStationNumber ?? 0;
+    if (station >= 1 && station <= 3) {
+      grouped[station]!.push(emp);
+    }
+  }
+  return grouped;
+}
+
+function getNightEmployees(
+  employees: EmployeeJson[],
+  assignments: AssignmentJson[],
+  profilesById: Record<string, ShiftProfileJson>,
+): EmployeeJson[] {
+  const nightEmpIds = new Set<string>();
+  for (const a of assignments) {
+    const profile = profilesById[a.shiftProfileId];
+    if (profile?.shiftType === "NIGHT") {
+      nightEmpIds.add(a.employeeId);
+    }
+  }
+  return employees.filter((e) => nightEmpIds.has(e.id));
+}
+
+function sortEmployees(emps: EmployeeJson[]): EmployeeJson[] {
+  return [...emps].sort((a, b) => {
+    const ln = a.lastName.localeCompare(b.lastName, "de");
+    return ln !== 0 ? ln : a.firstName.localeCompare(b.firstName, "de");
+  });
+}
+
+/* ──────────────────────── cell display ──────────────────────── */
+
+type CellDisplay = {
+  row1: string;
+  row2: string;
+  row3: string;
+  isStatus: boolean;
+  statusCode?: string;
+};
+
+function getCellDisplay(
+  empId: string,
+  iso: string,
+  byEmpDay: Map<string, AssignmentJson>,
+  editedCells: Map<string, CellEdit> | undefined,
+  profilesById: Record<string, ShiftProfileJson>,
+  employeesById: Record<string, EmployeeJson>,
+): CellDisplay {
+  const emp = employeesById[empId];
+  if (emp?.status && emp.status !== "ACTIVE" && EMP_STATUS_MAP[emp.status]) {
+    const code = EMP_STATUS_MAP[emp.status]!;
+    return { row1: code, row2: "", row3: "", isStatus: true, statusCode: code };
+  }
+
+  const key = `${empId}|${iso}`;
+  const edit = editedCells?.get(key);
+
+  if (edit?.dayStatus) {
+    return {
+      row1: edit.dayStatus,
+      row2: edit.markingRow2 ?? "",
+      row3: edit.markingRow3 ?? "",
+      isStatus: true,
+      statusCode: edit.dayStatus,
+    };
+  }
+
+  const assignment = byEmpDay.get(key);
+  if (assignment) {
+    const effectiveProfileId =
+      edit?.shiftProfileId !== undefined
+        ? edit.shiftProfileId
+        : assignment.shiftProfileId;
+    const profileName = effectiveProfileId
+      ? (profilesById[effectiveProfileId]?.name ?? "?")
+      : "X";
+
+    if (assignment.dayStatus) {
+      return {
+        row1: assignment.dayStatus,
+        row2:
+          edit?.markingRow2 !== undefined
+            ? (edit.markingRow2 ?? "")
+            : (assignment.markingRow2 ?? ""),
+        row3:
+          edit?.markingRow3 !== undefined
+            ? (edit.markingRow3 ?? "")
+            : (assignment.markingRow3 ?? ""),
+        isStatus: true,
+        statusCode: assignment.dayStatus,
+      };
+    }
+
+    return {
+      row1: profileName,
+      row2:
+        edit?.markingRow2 !== undefined
+          ? (edit.markingRow2 ?? "")
+          : (assignment.markingRow2 ?? ""),
+      row3:
+        edit?.markingRow3 !== undefined
+          ? (edit.markingRow3 ?? "")
+          : (assignment.markingRow3 ?? ""),
+      isStatus: !effectiveProfileId,
+      statusCode: effectiveProfileId ? undefined : "X",
+    };
+  }
+
+  if (edit?.shiftProfileId) {
+    return {
+      row1: profilesById[edit.shiftProfileId]?.name ?? "?",
+      row2: edit.markingRow2 ?? "",
+      row3: edit.markingRow3 ?? "",
+      isStatus: false,
+    };
+  }
+
+  return { row1: "X", row2: "", row3: "", isStatus: true, statusCode: "X" };
+}
+
+/* ══════════════════════════════════════════════════════════════ */
+/*                        COMPONENT                              */
+/* ══════════════════════════════════════════════════════════════ */
 
 export default function MonthTableView({
   year,
@@ -100,324 +281,665 @@ export default function MonthTableView({
   shiftWishSet,
   freiWishSet,
   editMode,
-  editedAssignments,
+  editedCells,
   onCellChange,
   shiftProfiles,
   onToggleWish,
 }: MonthTableViewProps) {
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [menuCell, setMenuCell] = useState<{ empId: string; iso: string } | null>(null);
-  const [ctxAnchor, setCtxAnchor] = useState<{ el: HTMLElement; empId: string; iso: string } | null>(null);
+  const [menuRow, setMenuRow] = useState<1 | 2 | 3>(1);
+  const [ctxAnchor, setCtxAnchor] = useState<{
+    el: HTMLElement;
+    empId: string;
+    iso: string;
+  } | null>(null);
 
-  const days = daysInMonth(year, monthIndex);
   const workDays = workingDaysInMonth(year, monthIndex);
-  const dayCols = Array.from({ length: days }, (_, i) =>
-    localIsoFromParts(year, monthIndex, i + 1),
+
+  const dayCols = useMemo(() => {
+    const d = daysInMonth(year, monthIndex);
+    return Array.from({ length: d }, (_, i) =>
+      localIsoFromParts(year, monthIndex, i + 1),
+    );
+  }, [year, monthIndex]);
+
+  const byEmpDay = useMemo(() => {
+    const m = new Map<string, AssignmentJson>();
+    for (const a of assignments) m.set(`${a.employeeId}|${a.date}`, a);
+    return m;
+  }, [assignments]);
+
+  const employeesById = useMemo(
+    () => Object.fromEntries(employees.map((e) => [e.id, e])),
+    [employees],
   );
 
-  const byEmpDay = new Map<string, string>();
-  for (const a of assignments) {
-    byEmpDay.set(`${a.employeeId}|${a.date}`, a.shiftProfileId);
-  }
+  const stationGroups = useMemo(
+    () => groupEmployeesByStation(employees),
+    [employees],
+  );
 
-  const sortedEmps = [...employees].sort((a, b) => {
-    const ln = a.lastName.localeCompare(b.lastName, "de");
-    if (ln !== 0) return ln;
-    return a.firstName.localeCompare(b.firstName, "de");
-  });
+  const nightEmployees = useMemo(
+    () => getNightEmployees(employees, assignments, profilesById),
+    [employees, assignments, profilesById],
+  );
 
-  const effectivePid = (empId: string, iso: string): string | null => {
-    const key = `${empId}|${iso}`;
-    if (editMode && editedAssignments?.has(key)) {
-      return editedAssignments.get(key) ?? null;
+  const profilesByType = useMemo(() => {
+    const grouped = new Map<string, ShiftProfileJson[]>();
+    for (const p of shiftProfiles ?? []) {
+      const arr = grouped.get(p.shiftType) ?? [];
+      arr.push(p);
+      grouped.set(p.shiftType, arr);
     }
-    return byEmpDay.get(key) ?? null;
-  };
+    return grouped;
+  }, [shiftProfiles]);
 
-  const empPlannedHours = new Map<string, number>();
-  if (editMode && editedAssignments) {
-    const seen = new Set<string>();
-    for (const [key, pid] of editedAssignments) {
-      seen.add(key);
-      if (pid) {
-        const p = profilesById[pid];
-        if (p) {
-          const eid = key.split("|")[0]!;
-          empPlannedHours.set(eid, (empPlannedHours.get(eid) ?? 0) + paidHoursForShift(p));
+  const empPlannedHours = useMemo(() => {
+    const hours = new Map<string, number>();
+    const editedKeys = new Set<string>();
+
+    if (editMode && editedCells) {
+      for (const [key, edit] of editedCells) {
+        editedKeys.add(key);
+        if (edit.dayStatus) continue;
+        const eid = key.split("|")[0]!;
+        let pid: string | null = null;
+        if (edit.shiftProfileId !== undefined) {
+          pid = edit.shiftProfileId ?? null;
+        } else {
+          const assignment = byEmpDay.get(key);
+          if (assignment && !assignment.dayStatus) pid = assignment.shiftProfileId;
+        }
+        if (pid) {
+          const p = profilesById[pid];
+          if (p) hours.set(eid, (hours.get(eid) ?? 0) + paidHoursForShift(p));
         }
       }
     }
+
     for (const a of assignments) {
       const key = `${a.employeeId}|${a.date}`;
-      if (!seen.has(key)) {
-        const p = profilesById[a.shiftProfileId];
-        if (p) {
-          empPlannedHours.set(a.employeeId, (empPlannedHours.get(a.employeeId) ?? 0) + paidHoursForShift(p));
-        }
-      }
+      if (editedKeys.has(key)) continue;
+      if (a.dayStatus) continue;
+      const p = profilesById[a.shiftProfileId];
+      if (!p) continue;
+      hours.set(a.employeeId, (hours.get(a.employeeId) ?? 0) + paidHoursForShift(p));
     }
-  } else {
-    for (const a of assignments) {
-      const profile = profilesById[a.shiftProfileId];
-      if (!profile) continue;
-      const h = paidHoursForShift(profile);
-      empPlannedHours.set(a.employeeId, (empPlannedHours.get(a.employeeId) ?? 0) + h);
-    }
-  }
 
-  return (
-    <TableContainer sx={{ maxHeight: "70vh", border: 1, borderColor: "divider", borderRadius: 1 }}>
-      <Table size="small" stickyHeader>
-        <TableHead>
-          <TableRow>
-            <TableCell sx={{ minWidth: 160, fontWeight: 600, position: "sticky", left: 0, zIndex: 3, bgcolor: "background.paper" }}>
-              Mitarbeiter
-            </TableCell>
-            <TableCell
-              align="center"
-              sx={{ minWidth: 72, fontWeight: 600, position: "sticky", left: 160, zIndex: 3, bgcolor: "background.paper", borderRight: 1, borderColor: "divider" }}
-            >
-              <Tooltip title="Geplante Stunden / Soll-Stunden" arrow>
-                <span>Std</span>
-              </Tooltip>
-            </TableCell>
-            {dayCols.map((iso) => {
-              const [y, m, d] = iso.split("-").map(Number);
-              const wd = new Date(y, m - 1, d).toLocaleDateString("de-DE", {
-                weekday: "short",
-              });
-              return (
-                <TableCell
-                  key={iso}
-                  align="center"
-                  sx={{
-                    minWidth: 72,
-                    fontWeight: 600,
-                    cursor: "pointer",
-                    "&:hover": { bgcolor: "action.hover" },
-                  }}
-                  onClick={() => onDayClick(new Date(y, m - 1, d))}
-                >
-                  <Typography variant="caption" display="block" color="text.secondary">
-                    {wd}
-                  </Typography>
-                  {d}
-                </TableCell>
-              );
-            })}
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {sortedEmps.map((e) => {
-            const planned = empPlannedHours.get(e.id) ?? 0;
-            const target = monthlyTargetForMonth(e, year, monthIndex);
-            const tags = e.qualificationTags ?? [];
-            const pct = target != null && target > 0 ? Math.round((planned / target) * 100) : null;
+    return hours;
+  }, [assignments, editMode, editedCells, byEmpDay, profilesById]);
 
-            let hoursColor: string;
-            if (target == null) {
-              hoursColor = "text.secondary";
-            } else if (planned > target * 1.05) {
-              hoursColor = "error.main";
-            } else if (planned < target * 0.95) {
-              hoursColor = "warning.main";
-            } else {
-              hoursColor = "success.main";
-            }
+  /* ──── menu helpers ──── */
 
-            return (
-              <TableRow key={e.id} hover>
-                <TableCell sx={{ whiteSpace: "nowrap", position: "sticky", left: 0, bgcolor: "background.paper", zIndex: 1 }}>
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                    <Box
-                      component="span"
-                      onClick={(ev: React.MouseEvent) => {
-                        ev.stopPropagation();
-                        onEmployeeClick?.(e.id);
-                      }}
-                      sx={{
-                        cursor: onEmployeeClick ? "pointer" : "default",
-                        "&:hover": onEmployeeClick
-                          ? { textDecoration: "underline", color: "primary.main" }
-                          : undefined,
-                      }}
-                    >
-                      {e.firstName} {e.lastName}
-                    </Box>
-                    <QualificationPills qualifications={e.qualifications} tags={tags} compact />
-                  </Box>
-                </TableCell>
-                <TableCell
-                  align="center"
-                  sx={{
-                    position: "sticky",
-                    left: 160,
-                    bgcolor: "background.paper",
-                    zIndex: 1,
-                    borderRight: 1,
-                    borderColor: "divider",
-                    whiteSpace: "nowrap",
-                    fontSize: 11,
-                  }}
-                >
-                  <Tooltip
-                    title={
-                      target != null
-                        ? `Geplant: ${formatHours(planned)} h / Soll: ${formatHours(target)} h (${e.targetHoursPercent ?? 100}% × ${workDays} Arbeitstage × ${FULL_TIME_DAILY_HOURS} h)`
-                        : `Geplant: ${formatHours(planned)} h (kein Soll hinterlegt)`
-                    }
-                    arrow
+  const closeMenu = () => {
+    setMenuAnchor(null);
+    setMenuCell(null);
+  };
+  const closeCtx = () => setCtxAnchor(null);
+
+  /* ──── section renderer ──── */
+
+  const renderSection = (title: string, sectionEmployees: EmployeeJson[]) => {
+    if (sectionEmployees.length === 0) return null;
+    const sorted = sortEmployees(sectionEmployees);
+
+    return (
+      <Box key={title} sx={{ mb: 2 }}>
+        <Typography
+          variant="subtitle1"
+          sx={{
+            fontWeight: 700,
+            px: 2,
+            py: 1,
+            bgcolor: "grey.100",
+            borderBottom: 1,
+            borderColor: "divider",
+          }}
+        >
+          {title}
+        </Typography>
+
+        <Table size="small" stickyHeader>
+          <TableHead>
+            <TableRow>
+              <TableCell
+                sx={{
+                  minWidth: 180,
+                  fontWeight: 600,
+                  position: "sticky",
+                  left: 0,
+                  zIndex: 3,
+                  bgcolor: "background.paper",
+                }}
+              >
+                Mitarbeiter
+              </TableCell>
+              <TableCell
+                align="center"
+                sx={{
+                  minWidth: 72,
+                  fontWeight: 600,
+                  position: "sticky",
+                  left: 180,
+                  zIndex: 3,
+                  bgcolor: "background.paper",
+                  borderRight: 1,
+                  borderColor: "divider",
+                }}
+              >
+                <Tooltip title="Geplante Stunden / Soll-Stunden" arrow>
+                  <span>Std</span>
+                </Tooltip>
+              </TableCell>
+              {dayCols.map((iso) => {
+                const [y, m, d] = iso.split("-").map(Number);
+                const wd = new Date(y!, m! - 1, d!).toLocaleDateString("de-DE", {
+                  weekday: "short",
+                });
+                return (
+                  <TableCell
+                    key={iso}
+                    align="center"
+                    sx={{
+                      minWidth: 52,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      "&:hover": { bgcolor: "action.hover" },
+                    }}
+                    onClick={() => onDayClick(new Date(y!, m! - 1, d!))}
                   >
-                    <Box sx={{ lineHeight: 1.2 }}>
-                      <Typography
+                    <Typography variant="caption" display="block" color="text.secondary">
+                      {wd}
+                    </Typography>
+                    {d}
+                  </TableCell>
+                );
+              })}
+            </TableRow>
+          </TableHead>
+
+          <TableBody>
+            {sorted.map((emp) => {
+              const planned = empPlannedHours.get(emp.id) ?? 0;
+              const target = monthlyTargetForMonth(emp, year, monthIndex);
+              const tags = emp.qualificationTags ?? [];
+              const contractPct = emp.targetHoursPercent ?? 100;
+              const completionPct =
+                target != null && target > 0
+                  ? Math.round((planned / target) * 100)
+                  : null;
+
+              let hoursColor: string;
+              if (target == null) {
+                hoursColor = "text.secondary";
+              } else if (planned >= target - 4 && planned <= target + 8) {
+                hoursColor = "success.main";
+              } else if (planned > target + 8 && planned <= target + 16) {
+                hoursColor = "warning.main";
+              } else {
+                hoursColor = "error.main";
+              }
+
+              return (
+                <TableRow key={emp.id} hover>
+                  {/* ── employee name ── */}
+                  <TableCell
+                    sx={{
+                      whiteSpace: "nowrap",
+                      position: "sticky",
+                      left: 0,
+                      bgcolor: "background.paper",
+                      zIndex: 1,
+                    }}
+                  >
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                      <Box
                         component="span"
-                        variant="caption"
-                        sx={{ color: hoursColor, fontWeight: 600 }}
-                      >
-                        {formatHours(planned)}{target != null ? `/${formatHours(target)}` : ""}
-                      </Typography>
-                      {pct != null && (
-                        <Typography
-                          display="block"
-                          variant="caption"
-                          sx={{ color: hoursColor, fontSize: 9, fontWeight: 500, lineHeight: 1 }}
-                        >
-                          ({pct}%)
-                        </Typography>
-                      )}
-                    </Box>
-                  </Tooltip>
-                </TableCell>
-                {dayCols.map((iso) => {
-                  const key = `${e.id}|${iso}`;
-                  const pid = effectivePid(e.id, iso);
-                  const label = pid ? profilesById[pid]?.name ?? "?" : "";
-                  const isShiftWish = shiftWishSet?.has(key) && !!pid;
-                  const isFreiWish = freiWishSet?.has(key);
-                  const isChanged = editMode && editedAssignments?.has(key);
-                  return (
-                    <Tooltip
-                      key={iso}
-                      title={
-                        isShiftWish
-                          ? "Dienstwunsch"
-                          : isFreiWish
-                            ? "Frei-Wunsch"
-                            : ""
-                      }
-                      arrow
-                      disableHoverListener={!isShiftWish && !isFreiWish}
-                    >
-                      <TableCell
-                        align="center"
                         onClick={(ev) => {
-                          if (editMode) {
-                            setMenuCell({ empId: e.id, iso });
-                            setMenuAnchor(ev.currentTarget);
-                          } else {
-                            const [y, m, d] = iso.split("-").map(Number);
-                            onDayClick(new Date(y, m - 1, d));
-                          }
-                        }}
-                        onContextMenu={(ev) => {
-                          if (editMode && onToggleWish) {
-                            ev.preventDefault();
-                            setCtxAnchor({ el: ev.currentTarget, empId: e.id, iso });
-                          }
+                          ev.stopPropagation();
+                          onEmployeeClick?.(emp.id);
                         }}
                         sx={{
-                          cursor: "pointer",
-                          fontSize: 11,
-                          color: label ? "text.primary" : "text.disabled",
-                          "&:hover": { bgcolor: "action.hover" },
-                          ...(isShiftWish && {
-                            bgcolor: WISH_SHIFT_BG,
-                            fontWeight: 700,
-                          }),
-                          ...(isFreiWish && {
-                            bgcolor: WISH_FREI_BG,
-                            fontStyle: "italic",
-                          }),
-                          ...(isChanged && {
-                            border: EDIT_CHANGED_BORDER,
-                          }),
+                          cursor: onEmployeeClick ? "pointer" : "default",
+                          "&:hover": onEmployeeClick
+                            ? { textDecoration: "underline", color: "primary.main" }
+                            : undefined,
                         }}
                       >
-                        {isFreiWish && !pid ? "Frei" : label || "\u2014"}
-                      </TableCell>
-                    </Tooltip>
-                  );
-                })}
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
+                        {emp.lastName}, {emp.firstName} ({contractPct}%)
+                      </Box>
+                      <QualificationPills
+                        qualifications={emp.qualifications}
+                        tags={tags}
+                        compact
+                      />
+                    </Box>
+                  </TableCell>
 
-      {/* Shift selection menu (left-click in edit mode) */}
+                  {/* ── hours ── */}
+                  <TableCell
+                    align="center"
+                    sx={{
+                      position: "sticky",
+                      left: 180,
+                      bgcolor: "background.paper",
+                      zIndex: 1,
+                      borderRight: 1,
+                      borderColor: "divider",
+                      whiteSpace: "nowrap",
+                      fontSize: 11,
+                    }}
+                  >
+                    <Tooltip
+                      title={
+                        target != null
+                          ? `Geplant: ${formatHours(planned)} h / Soll: ${formatHours(target)} h (${contractPct}% × ${workDays} AT × ${FULL_TIME_DAILY_HOURS} h)`
+                          : `Geplant: ${formatHours(planned)} h (kein Soll hinterlegt)`
+                      }
+                      arrow
+                    >
+                      <Box sx={{ lineHeight: 1.2 }}>
+                        <Typography
+                          component="span"
+                          variant="caption"
+                          sx={{ color: hoursColor, fontWeight: 600 }}
+                        >
+                          {formatHours(planned)}
+                          {target != null ? `/${formatHours(target)}` : ""}
+                        </Typography>
+                        {completionPct != null && (
+                          <Typography
+                            display="block"
+                            variant="caption"
+                            sx={{
+                              color: hoursColor,
+                              fontSize: 9,
+                              fontWeight: 500,
+                              lineHeight: 1,
+                            }}
+                          >
+                            ({completionPct}%)
+                          </Typography>
+                        )}
+                      </Box>
+                    </Tooltip>
+                  </TableCell>
+
+                  {/* ── day cells ── */}
+                  {dayCols.map((iso) => {
+                    const cellKey = `${emp.id}|${iso}`;
+                    const display = getCellDisplay(
+                      emp.id,
+                      iso,
+                      byEmpDay,
+                      editedCells,
+                      profilesById,
+                      employeesById,
+                    );
+                    const isShiftWish =
+                      shiftWishSet?.has(cellKey) && !display.isStatus;
+                    const isFreiWish = freiWishSet?.has(cellKey);
+                    const isChanged = editMode && editedCells?.has(cellKey);
+                    const statusStyle =
+                      display.isStatus && display.statusCode
+                        ? STATUS_COLORS[display.statusCode]
+                        : null;
+
+                    let cellBg: string | undefined;
+                    let cellColor: string | undefined;
+                    if (statusStyle) {
+                      cellBg = statusStyle.bg;
+                      cellColor = statusStyle.color;
+                    } else if (isShiftWish) {
+                      cellBg = WISH_SHIFT_BG;
+                    } else if (isFreiWish) {
+                      cellBg = WISH_FREI_BG;
+                    }
+
+                    const displayRow1 =
+                      isFreiWish && display.row1 === "X"
+                        ? "Frei"
+                        : display.row1;
+
+                    return (
+                      <Tooltip
+                        key={iso}
+                        title={
+                          isShiftWish
+                            ? "Dienstwunsch"
+                            : isFreiWish
+                              ? "Frei-Wunsch"
+                              : ""
+                        }
+                        arrow
+                        disableHoverListener={!isShiftWish && !isFreiWish}
+                      >
+                        <TableCell
+                          align="center"
+                          onClick={() => {
+                            if (!editMode) {
+                              const [y, m, d] = iso.split("-").map(Number);
+                              onDayClick(new Date(y!, m! - 1, d!));
+                            }
+                          }}
+                          onContextMenu={(ev) => {
+                            if (editMode && onToggleWish) {
+                              ev.preventDefault();
+                              setCtxAnchor({
+                                el: ev.currentTarget,
+                                empId: emp.id,
+                                iso,
+                              });
+                            }
+                          }}
+                          sx={{
+                            p: 0,
+                            height: ROW_HEIGHT,
+                            minWidth: 52,
+                            cursor: "pointer",
+                            bgcolor: cellBg,
+                            color: cellColor,
+                            "&:hover": { opacity: 0.85 },
+                            ...(isShiftWish && { fontWeight: 700 }),
+                            ...(isFreiWish && { fontStyle: "italic" }),
+                            ...(isChanged && { border: EDIT_CHANGED_BORDER }),
+                          }}
+                        >
+                          <Box
+                            sx={{
+                              display: "flex",
+                              flexDirection: "column",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              height: "100%",
+                              px: 0.25,
+                            }}
+                          >
+                            {/* Row 1 – shift profile / status */}
+                            <Box
+                              onClick={(ev) => {
+                                if (editMode) {
+                                  ev.stopPropagation();
+                                  setMenuCell({ empId: emp.id, iso });
+                                  setMenuRow(1);
+                                  setMenuAnchor(ev.currentTarget as HTMLElement);
+                                }
+                              }}
+                              sx={{
+                                fontSize: 12,
+                                fontWeight: 600,
+                                lineHeight: 1.3,
+                                cursor: editMode ? "pointer" : "inherit",
+                                width: "100%",
+                                textAlign: "center",
+                                borderRadius: 0.5,
+                                "&:hover": editMode
+                                  ? { bgcolor: "action.hover" }
+                                  : undefined,
+                              }}
+                            >
+                              {displayRow1}
+                            </Box>
+
+                            {/* Row 2 – marking */}
+                            <Box
+                              onClick={(ev) => {
+                                if (editMode) {
+                                  ev.stopPropagation();
+                                  setMenuCell({ empId: emp.id, iso });
+                                  setMenuRow(2);
+                                  setMenuAnchor(ev.currentTarget as HTMLElement);
+                                }
+                              }}
+                              sx={{
+                                fontSize: "0.65rem",
+                                lineHeight: 1.2,
+                                color: cellColor ?? "text.secondary",
+                                cursor: editMode ? "pointer" : "inherit",
+                                width: "100%",
+                                textAlign: "center",
+                                minHeight: 12,
+                                borderRadius: 0.5,
+                                "&:hover": editMode
+                                  ? { bgcolor: "action.hover" }
+                                  : undefined,
+                              }}
+                            >
+                              {display.row2 || "\u00A0"}
+                            </Box>
+
+                            {/* Row 3 – marking */}
+                            <Box
+                              onClick={(ev) => {
+                                if (editMode) {
+                                  ev.stopPropagation();
+                                  setMenuCell({ empId: emp.id, iso });
+                                  setMenuRow(3);
+                                  setMenuAnchor(ev.currentTarget as HTMLElement);
+                                }
+                              }}
+                              sx={{
+                                fontSize: "0.65rem",
+                                lineHeight: 1.2,
+                                color: cellColor ?? "text.secondary",
+                                cursor: editMode ? "pointer" : "inherit",
+                                width: "100%",
+                                textAlign: "center",
+                                minHeight: 12,
+                                borderRadius: 0.5,
+                                "&:hover": editMode
+                                  ? { bgcolor: "action.hover" }
+                                  : undefined,
+                              }}
+                            >
+                              {display.row3 || "\u00A0"}
+                            </Box>
+                          </Box>
+                        </TableCell>
+                      </Tooltip>
+                    );
+                  })}
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </Box>
+    );
+  };
+
+  /* ──── render ──── */
+
+  return (
+    <Box
+      sx={{
+        maxHeight: "70vh",
+        overflow: "auto",
+        border: 1,
+        borderColor: "divider",
+        borderRadius: 1,
+      }}
+    >
+      {renderSection("Station 1", stationGroups[1]!)}
+      {renderSection("Station 2", stationGroups[2]!)}
+      {renderSection("Station 3", stationGroups[3]!)}
+      {renderSection("Nacht (gesamtes Gebäude)", nightEmployees)}
+
+      {/* ── Left-click menu (Row 1: profiles + status | Row 2/3: markings) ── */}
       <Menu
         anchorEl={menuAnchor}
         open={Boolean(menuAnchor) && Boolean(menuCell)}
-        onClose={() => { setMenuAnchor(null); setMenuCell(null); }}
-        slotProps={{ paper: { sx: { maxHeight: 320 } } }}
+        onClose={closeMenu}
+        slotProps={{ paper: { sx: { maxHeight: 400 } } }}
       >
-        {shiftProfiles?.map((p) => (
-          <MenuItem
-            key={p.id}
-            dense
-            selected={menuCell ? effectivePid(menuCell.empId, menuCell.iso) === p.id : false}
-            onClick={() => {
-              if (menuCell && onCellChange) onCellChange(menuCell.empId, menuCell.iso, p.id);
-              setMenuAnchor(null);
-              setMenuCell(null);
-            }}
-          >
-            {p.name}
-          </MenuItem>
-        ))}
-        <Divider />
-        <MenuItem
-          dense
-          onClick={() => {
-            if (menuCell && onCellChange) onCellChange(menuCell.empId, menuCell.iso, null);
-            setMenuAnchor(null);
-            setMenuCell(null);
-          }}
-        >
-          <ListItemIcon><RemoveCircleOutlineIcon fontSize="small" color="error" /></ListItemIcon>
-          <ListItemText>Entfernen</ListItemText>
-        </MenuItem>
+        {menuRow === 1
+          ? [
+              <ListSubheader key="hdr-profiles" sx={{ lineHeight: "32px" }}>
+                Schichtprofile
+              </ListSubheader>,
+
+              ...SHIFT_TYPE_ORDER.flatMap((type) => {
+                const profiles = profilesByType.get(type);
+                if (!profiles?.length) return [];
+                return [
+                  <ListSubheader
+                    key={`type-${type}`}
+                    sx={{ lineHeight: "28px", fontSize: 12 }}
+                  >
+                    {SHIFT_TYPE_LABELS[type] ?? type}
+                  </ListSubheader>,
+                  ...profiles.map((p) => (
+                    <MenuItem
+                      key={p.id}
+                      dense
+                      sx={{ pl: 4 }}
+                      onClick={() => {
+                        if (menuCell && onCellChange)
+                          onCellChange(menuCell.empId, menuCell.iso, {
+                            shiftProfileId: p.id,
+                            dayStatus: null,
+                          });
+                        closeMenu();
+                      }}
+                    >
+                      {p.name}
+                    </MenuItem>
+                  )),
+                ];
+              }),
+
+              <Divider key="div-status" />,
+
+              <ListSubheader key="hdr-status" sx={{ lineHeight: "32px" }}>
+                Status
+              </ListSubheader>,
+
+              ...STATUS_CODES.map(({ code, label }) => (
+                <MenuItem
+                  key={`st-${code}`}
+                  dense
+                  onClick={() => {
+                    if (menuCell && onCellChange)
+                      onCellChange(menuCell.empId, menuCell.iso, {
+                        dayStatus: code,
+                      });
+                    closeMenu();
+                  }}
+                >
+                  <Box
+                    component="span"
+                    sx={{
+                      display: "inline-block",
+                      width: 28,
+                      height: 20,
+                      lineHeight: "20px",
+                      textAlign: "center",
+                      borderRadius: 0.5,
+                      fontSize: 11,
+                      fontWeight: 700,
+                      mr: 1,
+                      bgcolor: STATUS_COLORS[code]?.bg,
+                      color: STATUS_COLORS[code]?.color,
+                    }}
+                  >
+                    {code}
+                  </Box>
+                  {label}
+                </MenuItem>
+              )),
+
+              <Divider key="div-remove" />,
+
+              <MenuItem
+                key="remove"
+                dense
+                onClick={() => {
+                  if (menuCell && onCellChange)
+                    onCellChange(menuCell.empId, menuCell.iso, {
+                      shiftProfileId: null,
+                      dayStatus: null,
+                    });
+                  closeMenu();
+                }}
+              >
+                <ListItemIcon>
+                  <RemoveCircleOutlineIcon fontSize="small" color="error" />
+                </ListItemIcon>
+                <ListItemText>Entfernen</ListItemText>
+              </MenuItem>,
+            ]
+          : [
+              ...MARKING_CODES.map((code) => (
+                <MenuItem
+                  key={code}
+                  dense
+                  onClick={() => {
+                    if (menuCell && onCellChange)
+                      onCellChange(menuCell.empId, menuCell.iso, {
+                        [menuRow === 2 ? "markingRow2" : "markingRow3"]: code,
+                      });
+                    closeMenu();
+                  }}
+                >
+                  {code}
+                </MenuItem>
+              )),
+
+              <Divider key="div-rm" />,
+
+              <MenuItem
+                key="remove-marking"
+                dense
+                onClick={() => {
+                  if (menuCell && onCellChange)
+                    onCellChange(menuCell.empId, menuCell.iso, {
+                      [menuRow === 2 ? "markingRow2" : "markingRow3"]: null,
+                    });
+                  closeMenu();
+                }}
+              >
+                <ListItemIcon>
+                  <RemoveCircleOutlineIcon fontSize="small" color="error" />
+                </ListItemIcon>
+                <ListItemText>Entfernen</ListItemText>
+              </MenuItem>,
+            ]}
       </Menu>
 
-      {/* Context menu for wish marking (right-click in edit mode) */}
+      {/* ── Right-click context menu (wish toggling) ── */}
       <Menu
         anchorEl={ctxAnchor?.el ?? null}
         open={Boolean(ctxAnchor)}
-        onClose={() => setCtxAnchor(null)}
+        onClose={closeCtx}
       >
         <MenuItem
           dense
           onClick={() => {
-            if (ctxAnchor && onToggleWish) onToggleWish(ctxAnchor.empId, ctxAnchor.iso, "shift");
-            setCtxAnchor(null);
+            if (ctxAnchor && onToggleWish)
+              onToggleWish(ctxAnchor.empId, ctxAnchor.iso, "shift");
+            closeCtx();
           }}
         >
-          {ctxAnchor && shiftWishSet?.has(`${ctxAnchor.empId}|${ctxAnchor.iso}`)
+          {ctxAnchor &&
+          shiftWishSet?.has(`${ctxAnchor.empId}|${ctxAnchor.iso}`)
             ? "Dienstwunsch entfernen"
             : "Als Dienstwunsch markieren"}
         </MenuItem>
         <MenuItem
           dense
           onClick={() => {
-            if (ctxAnchor && onToggleWish) onToggleWish(ctxAnchor.empId, ctxAnchor.iso, "frei");
-            setCtxAnchor(null);
+            if (ctxAnchor && onToggleWish)
+              onToggleWish(ctxAnchor.empId, ctxAnchor.iso, "frei");
+            closeCtx();
           }}
         >
-          {ctxAnchor && freiWishSet?.has(`${ctxAnchor.empId}|${ctxAnchor.iso}`)
+          {ctxAnchor &&
+          freiWishSet?.has(`${ctxAnchor.empId}|${ctxAnchor.iso}`)
             ? "Frei-Wunsch entfernen"
             : "Als Frei-Wunsch markieren"}
         </MenuItem>
       </Menu>
-    </TableContainer>
+    </Box>
   );
 }
