@@ -114,7 +114,8 @@ export async function GET(_request: Request, context: RouteCtx) {
 
   const ps = toIsoDateOnly(schedule.periodStart);
   const pe = toIsoDateOnly(schedule.periodEnd);
-  const filename = `Debug_${ps}_${pe}.json`;
+  const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  const filename = `Debug_${ps}_${pe}_${ts}.json`;
 
   return new NextResponse(JSON.stringify(result, null, 2), {
     status: 200,
