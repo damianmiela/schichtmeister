@@ -19,9 +19,9 @@ SCALE = 100
 # Tier 1 — Staffing coverage: fill all required slots first
 W_STAFFING_MIN = 50_000
 W_QUALIFICATION = 40_000
-# Tier 2 — Employee utilization: every employee should get at least some shifts
+# Tier 2 — Employee utilization & contractual obligations
 W_MIN_UTIL = 30_000
-W_WBL_BL = 20_000
+W_WBL_BL = 60_000
 # Tier 3 — Hours accuracy & distribution
 W_SOLL_DEV = 100
 W_OVERTIME = 200

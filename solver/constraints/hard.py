@@ -111,7 +111,13 @@ def add_staffing_minimum(
                 model.Add(sum(covering) >= sr.minTotalCount)
 
 
-# ── H7: Staffing maximum (modeled as hard for now) ─────────────────────────
+# ── H7: Staffing maximum ───────────────────────────────────────────────────
+#
+# Station-specific max constraints only count employees explicitly assigned to
+# that station.  Floaters (no assigned stations) are excluded to avoid the
+# "double-counting" problem where one floater simultaneously consumes capacity
+# on every station.  Instead, an aggregate per-shift-type max (sum of all
+# station maxes) limits the total headcount including floaters.
 
 def add_staffing_maximum(
     model: cp_model.CpModel,
@@ -120,6 +126,8 @@ def add_staffing_maximum(
 ):
     dates = _dates(req)
     emp_stations = _emp_station_map(req)
+
+    # Per-station caps: only employees explicitly assigned to that station
     for sr in req.staffingRequirements:
         if sr.maxTotalCount is None:
             continue
@@ -127,8 +135,14 @@ def add_staffing_maximum(
             ds = d.isoformat()
             covering: list[cp_model.IntVar] = []
             for emp in req.employees:
-                if not _emp_can_cover_station(emp_stations[emp.id], sr.stationNumber, sr.isFacilityWide):
-                    continue
+                if sr.isFacilityWide:
+                    pass  # FW: everyone counts
+                else:
+                    es = emp_stations[emp.id]
+                    if not es:
+                        continue  # floaters skip station-specific max
+                    if sr.stationNumber is not None and sr.stationNumber not in es:
+                        continue
                 for p in req.shiftProfiles:
                     if p.shiftType != sr.shiftType:
                         continue
@@ -137,6 +151,27 @@ def add_staffing_maximum(
                         covering.append(shift[key])
             if covering:
                 model.Add(sum(covering) <= sr.maxTotalCount)
+
+    # Aggregate per-shift-type cap: sum of station maxes, counting everyone
+    type_agg_max: dict[str, int] = {}
+    for sr in req.staffingRequirements:
+        if sr.maxTotalCount is None or sr.isFacilityWide:
+            continue
+        type_agg_max[sr.shiftType] = type_agg_max.get(sr.shiftType, 0) + sr.maxTotalCount
+
+    for stype, agg_max in type_agg_max.items():
+        for d in dates:
+            ds = d.isoformat()
+            all_vars: list[cp_model.IntVar] = []
+            for emp in req.employees:
+                for p in req.shiftProfiles:
+                    if p.shiftType != stype:
+                        continue
+                    key = (emp.id, ds, p.id)
+                    if key in shift:
+                        all_vars.append(shift[key])
+            if all_vars:
+                model.Add(sum(all_vars) <= agg_max)
 
 
 # ── H8: Qualification coverage (OR-logic tags) ─────────────────────────────
