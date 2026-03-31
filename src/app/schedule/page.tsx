@@ -1280,6 +1280,7 @@ export default function SchedulePage() {
               assignments={assignments}
               employeesById={employeesById}
               profilesById={profilesById}
+              staffing={staffing}
               onEmployeeClick={handleEmployeeClick}
               shiftWishSet={shiftWishSet}
               freiWishSet={freiWishSet}

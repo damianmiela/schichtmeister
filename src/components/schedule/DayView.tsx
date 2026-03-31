@@ -10,18 +10,15 @@ import {
   useTheme,
   ToggleButtonGroup,
   ToggleButton,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
 } from "@mui/material";
 import ViewColumnIcon from "@mui/icons-material/ViewColumn";
 import TimelineIcon from "@mui/icons-material/Timeline";
+import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import type {
   AssignmentJson,
   EmployeeJson,
   ShiftProfileJson,
+  StaffingJson,
 } from "@/lib/schedule/scheduleTypes";
 import { localIsoDate } from "@/lib/schedule/monthSchedule";
 import QualificationPills from "@/components/schedule/QualificationPills";
@@ -31,6 +28,7 @@ interface DayViewProps {
   assignments: AssignmentJson[];
   employeesById: Record<string, EmployeeJson>;
   profilesById: Record<string, ShiftProfileJson>;
+  staffing?: StaffingJson[];
   onEmployeeClick?: (employeeId: string) => void;
   shiftWishSet?: Set<string>;
   freiWishSet?: Set<string>;
@@ -63,7 +61,7 @@ const SHIFT_TYPE_COLORS: Record<string, string> = {
   BL: "#66bb6a",
 };
 
-const SHIFT_TYPE_LABELS: Record<string, string> = {
+const SHIFT_LABELS: Record<string, string> = {
   EARLY: "Frueh",
   LATE: "Spaet",
   NIGHT: "Nacht",
@@ -71,18 +69,57 @@ const SHIFT_TYPE_LABELS: Record<string, string> = {
 };
 
 // ══════════════════════════════════════════════════════════
-//  COLUMN VIEW (new default) - rows with shift + qualification pills
+//  COLUMN VIEW (default) – requirement slots
 // ══════════════════════════════════════════════════════════
+
+type QualReq = { qualificationTag: string; minCount: number };
+
+/** Match employees to qualification-requirement slots for a shift group */
+function matchSlots(
+  rows: EmpRow[],
+  qualReqs: QualReq[],
+) {
+  // Build slots: one per required qualification x minCount
+  type Slot = { tag: string; filled: EmpRow | null };
+  const slots: Slot[] = [];
+  for (const qr of qualReqs) {
+    for (let i = 0; i < qr.minCount; i++) {
+      slots.push({ tag: qr.qualificationTag, filled: null });
+    }
+  }
+
+  const used = new Set<string>(); // assignment ids already slotted
+
+  // Greedily fill slots
+  for (const slot of slots) {
+    const match = rows.find(
+      (r) =>
+        !used.has(r.assignment.id) &&
+        (r.employee?.qualificationTags?.includes(slot.tag) ?? false),
+    );
+    if (match) {
+      slot.filled = match;
+      used.add(match.assignment.id);
+    }
+  }
+
+  // Remaining employees (not slotted into a qual requirement)
+  const extra = rows.filter((r) => !used.has(r.assignment.id));
+
+  return { slots, extra };
+}
 
 function ColumnView({
   dayAssignments,
   employeesById,
   profilesById,
+  staffing,
   onEmployeeClick,
 }: {
   dayAssignments: AssignmentJson[];
   employeesById: Record<string, EmployeeJson>;
   profilesById: Record<string, ShiftProfileJson>;
+  staffing?: StaffingJson[];
   onEmployeeClick?: (employeeId: string) => void;
 }) {
   // Group by station and shift type
@@ -111,13 +148,9 @@ function ColumnView({
       } else {
         const st = a.stationNumber ?? employee?.assignedStations?.[0] ?? 1;
         const bucket = stations[st] ?? stations[1];
-        if (profile.shiftType === "EARLY") {
-          bucket!.early.push(row);
-        } else if (profile.shiftType === "LATE") {
-          bucket!.late.push(row);
-        } else if (profile.shiftType === "BL") {
-          bucket!.bl.push(row);
-        }
+        if (profile.shiftType === "EARLY") bucket!.early.push(row);
+        else if (profile.shiftType === "LATE") bucket!.late.push(row);
+        else if (profile.shiftType === "BL") bucket!.bl.push(row);
       }
     }
 
@@ -126,7 +159,6 @@ function ColumnView({
       const bn = b.employee ? `${b.employee.lastName} ${b.employee.firstName}` : "";
       return an.localeCompare(bn, "de");
     };
-
     for (const st of Object.values(stations)) {
       st.early.sort(sortFn);
       st.late.sort(sortFn);
@@ -137,98 +169,191 @@ function ColumnView({
     return { stationData: stations, nightRows: nights };
   }, [dayAssignments, employeesById, profilesById]);
 
-  const renderEmployeeRow = (row: EmpRow) => {
+  // Build lookup: staffing requirements keyed by "shiftType:stationNumber" or "shiftType:fw"
+  const reqMap = useMemo(() => {
+    const m = new Map<string, StaffingJson>();
+    for (const s of staffing ?? []) {
+      const key = s.isFacilityWide ? `${s.shiftType}:fw` : `${s.shiftType}:${s.stationNumber}`;
+      m.set(key, s);
+    }
+    return m;
+  }, [staffing]);
+
+  // ── Render a single employee row ──
+  const renderEmpRow = (row: EmpRow, highlight?: "ok" | "warn") => {
     const name = row.employee
       ? `${row.employee.lastName}, ${row.employee.firstName}`
       : row.employeeId.slice(0, 8);
     const tags = row.employee?.qualificationTags ?? [];
 
     return (
-      <TableRow
+      <Box
         key={row.assignment.id}
-        hover
-        sx={{ "&:last-child td": { borderBottom: 0 } }}
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          gap: 1,
+          py: 0.5,
+          px: 1.5,
+          borderLeft: highlight === "warn" ? "3px solid" : "3px solid",
+          borderColor: highlight === "warn" ? "error.main" : "transparent",
+          "&:hover": { bgcolor: "action.hover" },
+        }}
       >
-        <TableCell sx={{ py: 0.75, pl: 2 }}>
-          <Typography
-            variant="body2"
-            sx={{
-              fontWeight: 500,
-              fontSize: 13,
-              cursor: onEmployeeClick ? "pointer" : "default",
-              "&:hover": onEmployeeClick
-                ? { textDecoration: "underline", color: "primary.main" }
-                : undefined,
-            }}
-            onClick={onEmployeeClick ? () => onEmployeeClick(row.employeeId) : undefined}
-          >
-            {name}
-          </Typography>
-        </TableCell>
-        <TableCell sx={{ py: 0.75 }}>
-          <Chip
-            label={row.profile.name}
-            size="small"
-            sx={{
-              height: 22,
-              fontSize: 11,
-              fontWeight: 600,
-              bgcolor: alpha(SHIFT_TYPE_COLORS[row.profile.shiftType] ?? "#78909c", 0.15),
-              color: SHIFT_TYPE_COLORS[row.profile.shiftType] ?? "#78909c",
-              "& .MuiChip-label": { px: 0.75 },
-            }}
-          />
-        </TableCell>
-        <TableCell sx={{ py: 0.75 }}>
-          <QualificationPills
-            qualifications={row.employee?.qualifications}
-            tags={tags}
-            compact
-          />
-        </TableCell>
-      </TableRow>
+        <Typography
+          variant="body2"
+          sx={{
+            fontWeight: 500,
+            fontSize: 13,
+            minWidth: 140,
+            cursor: onEmployeeClick ? "pointer" : "default",
+            "&:hover": onEmployeeClick
+              ? { textDecoration: "underline", color: "primary.main" }
+              : undefined,
+          }}
+          onClick={onEmployeeClick ? () => onEmployeeClick(row.employeeId) : undefined}
+        >
+          {name}
+        </Typography>
+        <Chip
+          label={row.profile.name}
+          size="small"
+          sx={{
+            height: 22,
+            fontSize: 11,
+            fontWeight: 600,
+            bgcolor: alpha(SHIFT_TYPE_COLORS[row.profile.shiftType] ?? "#78909c", 0.15),
+            color: SHIFT_TYPE_COLORS[row.profile.shiftType] ?? "#78909c",
+            "& .MuiChip-label": { px: 0.75 },
+          }}
+        />
+        <QualificationPills
+          qualifications={row.employee?.qualifications}
+          tags={tags}
+          compact
+        />
+      </Box>
     );
   };
 
-  const renderShiftGroup = (label: string, rows: EmpRow[], color: string) => {
-    if (rows.length === 0) return null;
+  // ── Render an empty (unfilled) slot ──
+  const renderEmptySlot = (tag: string, idx: number) => (
+    <Box
+      key={`empty-${tag}-${idx}`}
+      sx={{
+        display: "flex",
+        alignItems: "center",
+        gap: 1,
+        py: 0.5,
+        px: 1.5,
+        borderLeft: "3px solid",
+        borderColor: "error.main",
+      }}
+    >
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          gap: 0.5,
+          flex: 1,
+          py: 0.25,
+          px: 1,
+          border: "1.5px dashed",
+          borderColor: "error.300",
+          borderRadius: 1,
+          bgcolor: alpha("#d32f2f", 0.04),
+          minHeight: 28,
+        }}
+      >
+        <WarningAmberIcon sx={{ fontSize: 16, color: "error.main" }} />
+        <Typography variant="body2" sx={{ color: "error.main", fontWeight: 600, fontSize: 12 }}>
+          {tag} fehlt
+        </Typography>
+      </Box>
+    </Box>
+  );
+
+  // ── Render a shift group (Frueh / Spaet / BL) with requirement slots ──
+  const renderShiftGroup = (
+    label: string,
+    shiftType: string,
+    rows: EmpRow[],
+    stationNum: number | "fw",
+  ) => {
+    const color = SHIFT_TYPE_COLORS[shiftType] ?? "#78909c";
+    const reqKey = stationNum === "fw" ? `${shiftType}:fw` : `${shiftType}:${stationNum}`;
+    const req = reqMap.get(reqKey);
+    const qualReqs = req?.qualificationRequirements ?? [];
+
+    const { slots, extra } = matchSlots(rows, qualReqs);
+    const unfilledCount = slots.filter((s) => !s.filled).length;
+    const totalRequired = req?.minTotalCount ?? 0;
+    const totalAssigned = rows.length;
+    const totalMet = totalAssigned >= totalRequired;
+
     return (
-      <>
-        <TableRow>
-          <TableCell
-            colSpan={3}
+      <Box key={shiftType} sx={{ mb: 1 }}>
+        {/* Shift type header */}
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            gap: 1,
+            px: 1.5,
+            py: 0.5,
+            bgcolor: alpha(color, 0.06),
+            borderBottom: `1px solid ${alpha(color, 0.15)}`,
+          }}
+        >
+          <Box sx={{ width: 3, height: 14, bgcolor: color, borderRadius: 1 }} />
+          <Typography
+            variant="caption"
             sx={{
-              py: 0.5,
-              px: 1.5,
-              bgcolor: alpha(color, 0.06),
-              borderBottom: `1px solid ${alpha(color, 0.2)}`,
+              fontWeight: 700,
+              textTransform: "uppercase",
+              letterSpacing: 0.5,
+              color: "text.secondary",
+              fontSize: 11,
             }}
           >
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              <Box sx={{ width: 3, height: 14, bgcolor: color, borderRadius: 1 }} />
-              <Typography
-                variant="caption"
-                sx={{
-                  fontWeight: 700,
-                  textTransform: "uppercase",
-                  letterSpacing: 0.5,
-                  color: "text.secondary",
-                  fontSize: 11,
-                }}
-              >
-                {label}
-              </Typography>
-              <Typography variant="caption" sx={{ color: "text.disabled", fontSize: 11 }}>
-                ({rows.length})
-              </Typography>
-            </Box>
-          </TableCell>
-        </TableRow>
-        {rows.map(renderEmployeeRow)}
-      </>
+            {label}
+          </Typography>
+          <Typography variant="caption" sx={{ fontSize: 11, color: totalMet ? "success.main" : "error.main", fontWeight: 600 }}>
+            {totalAssigned}/{totalRequired}
+          </Typography>
+          {unfilledCount > 0 && (
+            <Tooltip title={`${unfilledCount} Qualifikationsanforderung(en) nicht erfuellt`} arrow>
+              <WarningAmberIcon sx={{ fontSize: 15, color: "error.main", ml: "auto" }} />
+            </Tooltip>
+          )}
+        </Box>
+
+        {/* Requirement slots (filled + empty) */}
+        {slots.map((slot, i) =>
+          slot.filled ? renderEmpRow(slot.filled, "ok") : renderEmptySlot(slot.tag, i),
+        )}
+
+        {/* Extra people beyond requirements */}
+        {extra.length > 0 && (
+          <>
+            {slots.length > 0 && extra.length > 0 && (
+              <Box sx={{ borderTop: "1px dashed", borderColor: "divider", mx: 1.5, my: 0.25 }} />
+            )}
+            {extra.map((r) => renderEmpRow(r))}
+          </>
+        )}
+
+        {/* Nothing at all */}
+        {rows.length === 0 && slots.length === 0 && (
+          <Typography variant="body2" color="text.disabled" sx={{ px: 2, py: 0.5, fontSize: 12, fontStyle: "italic" }}>
+            Keine Zuweisungen
+          </Typography>
+        )}
+      </Box>
     );
   };
 
+  // ── Station column ──
   const renderStationColumn = (stationNum: number) => {
     const data = stationData[stationNum];
     if (!data) return null;
@@ -246,7 +371,6 @@ function ColumnView({
           overflow: "hidden",
         }}
       >
-        {/* Station header */}
         <Box
           sx={{
             px: 2,
@@ -274,7 +398,11 @@ function ColumnView({
           />
         </Box>
 
-        {total === 0 ? (
+        {renderShiftGroup(SHIFT_LABELS.EARLY, "EARLY", data.early, stationNum)}
+        {renderShiftGroup(SHIFT_LABELS.LATE, "LATE", data.late, stationNum)}
+        {data.bl.length > 0 && renderShiftGroup(SHIFT_LABELS.BL, "BL", data.bl, stationNum)}
+
+        {total === 0 && (
           <Typography
             variant="body2"
             color="text.secondary"
@@ -282,21 +410,6 @@ function ColumnView({
           >
             Keine Schichten
           </Typography>
-        ) : (
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell sx={{ fontWeight: 600, fontSize: 12, py: 0.5, pl: 2 }}>Name</TableCell>
-                <TableCell sx={{ fontWeight: 600, fontSize: 12, py: 0.5, width: 80 }}>Schicht</TableCell>
-                <TableCell sx={{ fontWeight: 600, fontSize: 12, py: 0.5, width: 120 }}>Qualifikation</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {renderShiftGroup("Frueh", data.early, SHIFT_TYPE_COLORS.EARLY)}
-              {renderShiftGroup("Spaet", data.late, SHIFT_TYPE_COLORS.LATE)}
-              {renderShiftGroup("BL", data.bl, SHIFT_TYPE_COLORS.BL)}
-            </TableBody>
-          </Table>
         )}
       </Box>
     );
@@ -304,7 +417,6 @@ function ColumnView({
 
   return (
     <Box>
-      {/* Station columns */}
       <Box sx={{ display: "flex", gap: 2, mb: 2 }}>
         {renderStationColumn(1)}
         {renderStationColumn(2)}
@@ -346,28 +458,7 @@ function ColumnView({
             }}
           />
         </Box>
-        {nightRows.length > 0 ? (
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell sx={{ fontWeight: 600, fontSize: 12, py: 0.5, pl: 2 }}>Name</TableCell>
-                <TableCell sx={{ fontWeight: 600, fontSize: 12, py: 0.5, width: 80 }}>Schicht</TableCell>
-                <TableCell sx={{ fontWeight: 600, fontSize: 12, py: 0.5, width: 120 }}>Qualifikation</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {nightRows.map(renderEmployeeRow)}
-            </TableBody>
-          </Table>
-        ) : (
-          <Typography
-            variant="body2"
-            color="text.secondary"
-            sx={{ textAlign: "center", py: 3, fontStyle: "italic" }}
-          >
-            Keine Nachtschichten
-          </Typography>
-        )}
+        {renderShiftGroup(SHIFT_LABELS.NIGHT, "NIGHT", nightRows, "fw")}
       </Box>
     </Box>
   );
@@ -657,6 +748,7 @@ export default function DayView({
   assignments,
   employeesById,
   profilesById,
+  staffing,
   onEmployeeClick,
   shiftWishSet,
 }: DayViewProps) {
@@ -709,6 +801,7 @@ export default function DayView({
           dayAssignments={dayAssignments}
           employeesById={employeesById}
           profilesById={profilesById}
+          staffing={staffing}
           onEmployeeClick={onEmployeeClick}
         />
       ) : (
