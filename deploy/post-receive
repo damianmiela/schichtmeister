@@ -63,8 +63,8 @@ if [[ "$LAST_REF" == "refs/heads/main" ]] || [[ "$LAST_REF" == "refs/heads/maste
     node:20-alpine \
     sh -lc 'apk add --no-cache openssl libc6-compat >/dev/null && npx -y prisma@5.22.0 migrate deploy --schema=./schema.prisma'
 
-  echo ">>> Building and starting app..."
-  docker compose -f "$COMPOSE_FILE" build app
+  echo ">>> Building and starting app + solver..."
+  docker compose -f "$COMPOSE_FILE" build app schichtmeister-solver
   docker compose -f "$COMPOSE_FILE" up -d
 
   echo ">>> Deploy done: $(date)"

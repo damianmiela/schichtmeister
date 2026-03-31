@@ -10,12 +10,34 @@ services:
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@schichtmeister-postgres:5432/${POSTGRES_DB}
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
       - NEXTAUTH_URL=${NEXTAUTH_URL}
+      - SOLVER_URL=http://schichtmeister-solver:8000
     depends_on:
       schichtmeister-postgres:
+        condition: service_healthy
+      schichtmeister-solver:
         condition: service_healthy
     networks:
       - schichtmeister_network
     restart: unless-stopped
+
+  schichtmeister-solver:
+    build:
+      context: ./solver
+      dockerfile: Dockerfile
+    container_name: schichtmeister-solver
+    networks:
+      - schichtmeister_network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 2G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
   schichtmeister-postgres:
     image: postgres:16-alpine
