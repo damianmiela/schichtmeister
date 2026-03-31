@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from datetime import date
 
 from ortools.sat.python import cp_model
+
+log = logging.getLogger(__name__)
 
 from models import (
     SolveRequest, SolveResponse, AssignmentOutput,
@@ -15,18 +18,17 @@ from utils import dates_in_range, paid_hours
 from constraints.hard import (
     add_one_shift_per_day,
     add_unavailability,
-    add_staffing_minimum,
     add_staffing_maximum,
-    add_qualification_coverage,
     add_min_rest,
     add_max_consecutive_nights,
     add_max_consecutive_days,
     add_manual_placements,
-    add_wbl_bl_weekly,
-    add_wbl_bl_spread,
     add_mini_job_cap,
 )
 from constraints.soft import (
+    add_staffing_minimum_soft,
+    add_qualification_coverage_soft,
+    add_wbl_bl_soft,
     add_soll_deviation,
     add_overtime_penalty,
     add_undercut_penalty,
@@ -99,6 +101,10 @@ def solve(request: SolveRequest) -> SolveResponse:
     model = cp_model.CpModel()
     shift, works_day = _build_variables(model, request)
 
+    log.info("Model: %d shift vars, %d works_day vars, %d employees, %d profiles, %d dates",
+             len(shift), len(works_day), len(request.employees), len(request.shiftProfiles),
+             len(dates_in_range(request.periodStart, request.periodEnd)))
+
     if not shift:
         return SolveResponse(
             status="INFEASIBLE",
@@ -106,22 +112,21 @@ def solve(request: SolveRequest) -> SolveResponse:
             reason="Keine gültigen Zuweisungsmöglichkeiten (keine Variablen erstellt).",
         )
 
-    # ── Hard constraints ────────────────────────────────────────────────
+    # ── Hard constraints (physically impossible to violate) ─────────────
     add_one_shift_per_day(model, shift, works_day, request)
     add_unavailability(model, shift, request)
-    add_staffing_minimum(model, shift, request)
     add_staffing_maximum(model, shift, request)
-    add_qualification_coverage(model, shift, request)
     add_min_rest(model, shift, request)
     add_max_consecutive_nights(model, shift, request)
     add_max_consecutive_days(model, works_day, request)
     add_manual_placements(model, shift, request)
-    add_wbl_bl_weekly(model, shift, request)
-    add_wbl_bl_spread(model, shift, request)
     add_mini_job_cap(model, shift, request)
 
-    # ── Soft objectives ─────────────────────────────────────────────────
+    # ── Soft objectives (penalized, but relaxable) ───────────────────
     objective_terms: list[tuple[cp_model.IntVar, int]] = []
+    objective_terms.extend(add_staffing_minimum_soft(model, shift, request))
+    objective_terms.extend(add_qualification_coverage_soft(model, shift, request))
+    objective_terms.extend(add_wbl_bl_soft(model, shift, request))
     objective_terms.extend(add_soll_deviation(model, shift, request))
     objective_terms.extend(add_overtime_penalty(model, shift, request))
     objective_terms.extend(add_undercut_penalty(model, shift, request))
@@ -137,8 +142,11 @@ def solve(request: SolveRequest) -> SolveResponse:
     solver.parameters.max_time_in_seconds = request.maxSolveTimeSeconds
     solver.parameters.num_workers = 4
 
+    log.info("Solving with %d objective terms, max_time=%ds...",
+             len(objective_terms), request.maxSolveTimeSeconds)
     status_code = solver.Solve(model)
     wall_ms = (time.perf_counter() - wall_start) * 1000
+    log.info("Solve done: status=%s, wall=%.1fms", status_code, wall_ms)
 
     status_map = {
         cp_model.OPTIMAL: "OPTIMAL",
