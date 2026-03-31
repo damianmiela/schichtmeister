@@ -16,9 +16,11 @@ ShiftVar = dict[tuple[str, str, str], cp_model.IntVar]
 SCALE = 100
 
 # ── Weight hierarchy ──────────────────────────────────────────────────
-# Tier 1 — Staffing coverage: fill all required slots first
+# Tier 1 — Qualification coverage MUST outweigh staffing minimum so the
+#          solver leaves a slot empty rather than filling it with an
+#          unqualified person.
 W_STAFFING_MIN = 50_000
-W_QUALIFICATION = 40_000
+W_QUALIFICATION = 500_000
 # Tier 2 — Employee utilization & contractual obligations
 W_MIN_UTIL = 30_000
 W_WBL_BL = 60_000
@@ -112,19 +114,14 @@ def add_staffing_minimum_soft(
                     covering.extend(emp_shift_vars)
                 elif sr.stationNumber is None:
                     covering.extend(emp_shift_vars)
-                elif len(es) == 0:
-                    # Floater: don't count for station-specific requirements
-                    # (their actual station is uncertain)
-                    continue
                 elif len(es) == 1:
                     # Single-station: count only if they match the required station
                     if sr.stationNumber in es:
                         covering.extend(emp_shift_vars)
                 else:
-                    # Multi-station: use station_assign to avoid double-counting
+                    # Multi-station OR floater: use station_assign
                     sa_key = (emp.id, ds, sr.stationNumber)
                     if station_assign and sa_key in station_assign:
-                        # works_type = employee works this shift type today
                         wt_key = (emp.id, ds, sr.shiftType)
                         if wt_key not in works_type_cache:
                             wt = model.NewBoolVar(f"wt_{emp.id}_{ds}_{sr.shiftType}")
@@ -132,7 +129,6 @@ def add_staffing_minimum_soft(
                             model.Add(sum(emp_shift_vars) == 0).OnlyEnforceIf(wt.Not())
                             works_type_cache[wt_key] = wt
                         wt_var = works_type_cache[wt_key]
-                        # both = works_this_type AND assigned_to_this_station
                         both = _make_both_var(
                             model, wt_var, station_assign[sa_key],
                             f"cov_{emp.id}_{ds}_{sr.shiftType}_{sr.stationNumber}",
@@ -201,14 +197,11 @@ def add_qualification_coverage_soft(
                         qualified_vars.extend(emp_shift_vars)
                     elif sr.stationNumber is None:
                         qualified_vars.extend(emp_shift_vars)
-                    elif len(es) == 0:
-                        # Floater: don't count for station-specific
-                        continue
                     elif len(es) == 1:
                         if sr.stationNumber in es:
                             qualified_vars.extend(emp_shift_vars)
                     else:
-                        # Multi-station: use station_assign
+                        # Multi-station OR floater: use station_assign
                         sa_key = (emp.id, ds, sr.stationNumber)
                         if station_assign and sa_key in station_assign:
                             wt_key = (emp.id, ds, sr.shiftType)

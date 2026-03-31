@@ -20,12 +20,14 @@ from constraints.hard import (
     add_one_shift_per_day,
     add_unavailability,
     add_staffing_maximum,
+    add_qualification_coverage,
     add_min_rest,
     add_max_consecutive_nights,
     add_max_consecutive_days,
     add_manual_placements,
     add_mini_job_cap,
     add_wbl_bl_max_one_per_week,
+    add_wbl_bl_weekly,
     add_alternating_weekends,
     add_wbl_weekend_limit,
     add_station_assignment,
@@ -104,17 +106,31 @@ def _build_variables(
             if day_has_var:
                 works_day[(emp.id, ds)] = model.NewBoolVar(f"wd_{emp.id}_{ds}")
 
-    # ── Station-assignment variables for multi-station employees ─────
+    # ── Station-assignment variables ──────────────────────────────────
+    # For multi-station employees: choose among their assigned stations.
+    # For floaters (no assigned stations): choose among all demand stations.
+    # Single-station employees don't need assignment vars (always at their station).
+    all_demand_stations: set[int] = set()
+    for sr in req.staffingRequirements:
+        if sr.stationNumber is not None and not sr.isFacilityWide:
+            all_demand_stations.add(sr.stationNumber)
+
     station_assign: dict[tuple[str, str, int], cp_model.IntVar] = {}
     for emp in req.employees:
         stations = emp_stations[emp.id]
-        if len(stations) <= 1:
-            continue  # single-station or floater — no choice needed
+        if len(stations) == 1:
+            continue  # single-station: always at their one station
+
+        # Multi-station: their assigned stations; Floater: all demand stations
+        assign_stations = stations if stations else all_demand_stations
+        if not assign_stations:
+            continue
+
         for d in dates:
             ds = d.isoformat()
             if (emp.id, ds) not in works_day:
                 continue
-            for st in stations:
+            for st in assign_stations:
                 station_assign[(emp.id, ds, st)] = model.NewBoolVar(
                     f"sa_{emp.id}_{ds}_{st}"
                 )
@@ -269,6 +285,7 @@ def solve(request: SolveRequest) -> SolveResponse:
     add_alternating_weekends(model, works_day, request)
     add_wbl_weekend_limit(model, works_day, request)
     add_station_assignment(model, shift, works_day, station_assign, request)
+    add_wbl_bl_weekly(model, shift, request)
 
     # ── Soft objectives (penalized, but relaxable) ───────────────────
     objective_terms: list[tuple[cp_model.IntVar, int]] = []

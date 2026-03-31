@@ -155,9 +155,10 @@ def add_staffing_maximum(
                             covering.append(shift[key])
                     continue
 
-                if not es:
-                    continue  # floaters skip station-specific max
-                if sr.stationNumber is not None and sr.stationNumber not in es:
+                # Station-specific: skip employees not eligible for this station
+                if len(es) == 1 and sr.stationNumber is not None and sr.stationNumber not in es:
+                    continue
+                if len(es) > 1 and sr.stationNumber is not None and sr.stationNumber not in es:
                     continue
 
                 # Collect shift vars for matching type
@@ -176,7 +177,7 @@ def add_staffing_maximum(
                     # Single-station: count directly
                     covering.extend(emp_shift_vars)
                 elif sr.stationNumber is not None and station_assign:
-                    # Multi-station: only count if assigned to this station
+                    # Multi-station OR floater: use station_assign
                     sa_key = (emp.id, ds, sr.stationNumber)
                     if sa_key in station_assign:
                         wt_key = (emp.id, ds, sr.shiftType)
@@ -227,12 +228,25 @@ def add_qualification_coverage(
     model: cp_model.CpModel,
     shift: ShiftVar,
     req: SolveRequest,
+    station_assign: StationAssign | None = None,
 ):
+    """Hard qualification coverage: if enough qualified employees are available
+    on a given day, enforce the qualification minimum.  Otherwise skip the day
+    (the soft constraint still penalizes the gap, but we don't force the model
+    to be infeasible).
+
+    Uses station_assign for multi-station employees to avoid double-counting.
+    BL profiles are excluded — BL workers don't fill patient-care positions.
+    """
     dates = _dates(req)
     emp_tags: dict[str, set[str]] = {
         e.id: set(e.qualificationTags) for e in req.employees
     }
     emp_st = _emp_station_map(req)
+    bl_profile_ids = {p.id for p in req.shiftProfiles if p.shiftType == "BL"}
+
+    works_type_cache: dict[tuple[str, str, str], cp_model.IntVar] = {}
+
     for sr in req.staffingRequirements:
         for qr in sr.qualificationRequirements:
             tags = [t.strip() for t in ",".join(qr.tags).split(",")]
@@ -242,17 +256,49 @@ def add_qualification_coverage(
                 ds = d.isoformat()
                 qualified_vars: list[cp_model.IntVar] = []
                 for emp in req.employees:
-                    if not _emp_can_cover_station(emp_st[emp.id], sr.stationNumber, sr.isFacilityWide):
-                        continue
                     if not any(t in emp_tags.get(emp.id, set()) for t in tags):
                         continue
+
+                    es = emp_st[emp.id]
+
+                    # Collect shift vars for matching type (excluding BL)
+                    emp_shift_vars: list[cp_model.IntVar] = []
                     for p in req.shiftProfiles:
-                        if p.shiftType != sr.shiftType:
+                        if p.shiftType != sr.shiftType or p.id in bl_profile_ids:
                             continue
                         key = (emp.id, ds, p.id)
                         if key in shift:
-                            qualified_vars.append(shift[key])
-                if qualified_vars:
+                            emp_shift_vars.append(shift[key])
+
+                    if not emp_shift_vars:
+                        continue
+
+                    if sr.isFacilityWide:
+                        qualified_vars.extend(emp_shift_vars)
+                    elif sr.stationNumber is None:
+                        qualified_vars.extend(emp_shift_vars)
+                    elif len(es) == 1:
+                        if sr.stationNumber in es:
+                            qualified_vars.extend(emp_shift_vars)
+                    else:
+                        # Multi-station OR floater: use station_assign
+                        sa_key = (emp.id, ds, sr.stationNumber)
+                        if station_assign and sa_key in station_assign:
+                            wt_key = (emp.id, ds, sr.shiftType)
+                            if wt_key not in works_type_cache:
+                                wt = model.NewBoolVar(f"hq_wt_{emp.id}_{ds}_{sr.shiftType}")
+                                model.Add(sum(emp_shift_vars) >= 1).OnlyEnforceIf(wt)
+                                model.Add(sum(emp_shift_vars) == 0).OnlyEnforceIf(wt.Not())
+                                works_type_cache[wt_key] = wt
+                            wt_var = works_type_cache[wt_key]
+                            both = model.NewBoolVar(
+                                f"hq_cov_{emp.id}_{ds}_{sr.shiftType}_{sr.stationNumber}")
+                            model.AddBoolAnd([wt_var, station_assign[sa_key]]).OnlyEnforceIf(both)
+                            model.AddBoolOr([wt_var.Not(), station_assign[sa_key].Not()]).OnlyEnforceIf(both.Not())
+                            qualified_vars.append(both)
+
+                # Only enforce if theoretically satisfiable (enough vars exist)
+                if len(qualified_vars) >= qr.minCount:
                     model.Add(sum(qualified_vars) >= qr.minCount)
 
 
@@ -472,24 +518,36 @@ def add_station_assignment(
     station_assign: StationAssign,
     req: SolveRequest,
 ):
-    """Multi-station employees must be assigned to exactly one station per working day.
+    """Multi-station employees and floaters must be assigned to exactly one
+    station per working day.
 
     If an employee works a non-BL shift on a given day, exactly one of their
     station_assign variables must be 1.  If they don't work (or work BL only),
     all station_assign variables must be 0.
+
+    Single-station employees are excluded (they are always at their station).
     """
     bl_profile_ids = {p.id for p in req.shiftProfiles if p.shiftType == "BL"}
     dates = _dates(req)
 
+    # Collect all demand stations for floaters
+    all_demand_stations: set[int] = set()
+    for sr in req.staffingRequirements:
+        if sr.stationNumber is not None and not sr.isFacilityWide:
+            all_demand_stations.add(sr.stationNumber)
+
     for emp in req.employees:
         stations = set(emp.assignedStations) if emp.assignedStations else set()
-        if len(stations) <= 1:
-            continue  # single-station employees don't need assignment vars
+        if len(stations) == 1:
+            continue  # single-station: always at their station
+
+        # Multi-station: their stations; Floater: all demand stations
+        assign_stations = stations if stations else all_demand_stations
 
         for d in dates:
             ds = d.isoformat()
             sa_vars = [station_assign[(emp.id, ds, s)]
-                       for s in stations
+                       for s in assign_stations
                        if (emp.id, ds, s) in station_assign]
             if not sa_vars:
                 continue
