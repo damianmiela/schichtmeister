@@ -62,3 +62,6 @@ _LOCAL_DOCS/
 
 # Generator debug logs (root-level only, not src/app/api/generate-logs)
 /generate-logs/
+
+# Solver debug data (exported JSONs, scoring scripts, analysis)
+/debug/
