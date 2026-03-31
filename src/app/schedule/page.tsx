@@ -90,11 +90,20 @@ type PreGenEntry = {
   dateTo: string;
 };
 
-const GENERATE_STAGES = [
+const GREEDY_STAGES = [
   { label: "Lade Mitarbeiterdaten...", pct: 5 },
   { label: "Erstelle Schichtzuweisungen...", pct: 25 },
   { label: "Optimiere Stundenverteilung...", pct: 60 },
   { label: "Prüfe Ergebnisse...", pct: 80 },
+  { label: "Speichere Dienstplan...", pct: 92 },
+] as const;
+
+const CPSAT_STAGES = [
+  { label: "Lade Mitarbeiterdaten...", pct: 5 },
+  { label: "Sende an CP-SAT Solver...", pct: 15 },
+  { label: "Berechne optimalen Plan...", pct: 35 },
+  { label: "Optimierung läuft (bis 30 Sek.)...", pct: 60 },
+  { label: "Ergebnisse werden verarbeitet...", pct: 80 },
   { label: "Speichere Dienstplan...", pct: 92 },
 ] as const;
 
@@ -158,6 +167,8 @@ export default function SchedulePage() {
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [preGenOpen, setPreGenOpen] = useState(false);
   const [preGenEntries, setPreGenEntries] = useState<PreGenEntry[]>([]);
+  const [genEngine, setGenEngine] = useState<"greedy" | "cpsat">("greedy");
+  const GENERATE_STAGES = genEngine === "cpsat" ? CPSAT_STAGES : GREEDY_STAGES;
   const [editMode, setEditMode] = useState(false);
   const [editedCells, setEditedCells] = useState<Map<string, CellEdit>>(new Map());
   const [editedShiftWishSet, setEditedShiftWishSet] = useState<Set<string>>(new Set());
@@ -565,7 +576,10 @@ export default function SchedulePage() {
     setActionDebugPayload(null);
     setActionAlertSeverity("info");
 
-    const stageTimers = [1200, 3000, 6000, 9000].map((ms, i) =>
+    const timings = genEngine === "cpsat"
+      ? [800, 2000, 5000, 15000, 25000]
+      : [1200, 3000, 6000, 9000];
+    const stageTimers = timings.map((ms, i) =>
       setTimeout(() => setGenStageIdx(i + 1), ms),
     );
 
@@ -585,9 +599,10 @@ export default function SchedulePage() {
       .filter((e) => e.type === "frei")
       .flatMap((e) => expandDateRange(e.employeeId, e.dateFrom, e.dateTo));
     const payload: {
+      engine: "greedy" | "cpsat";
       manualPlacements?: ManualPlacement[];
       blockedDates?: { employeeId: string; date: string }[];
-    } = {};
+    } = { engine: genEngine };
     if (manualPlacements.length > 0) payload.manualPlacements = manualPlacements;
     if (blockedDates.length > 0) payload.blockedDates = blockedDates;
 
@@ -1296,6 +1311,43 @@ export default function SchedulePage() {
             werden als feste Vorgaben behandelt — der Generator plant den Rest
             um diese Vorgaben herum.
           </Typography>
+
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 2,
+              mb: 2,
+              p: 1.5,
+              borderRadius: 1,
+              bgcolor: genEngine === "cpsat" ? "primary.50" : "action.hover",
+              border: "1px solid",
+              borderColor: genEngine === "cpsat" ? "primary.200" : "divider",
+            }}
+          >
+            <Typography variant="subtitle2" sx={{ minWidth: 60 }}>
+              Engine:
+            </Typography>
+            <ToggleButtonGroup
+              size="small"
+              exclusive
+              value={genEngine}
+              onChange={(_, v) => v && setGenEngine(v)}
+            >
+              <ToggleButton value="greedy">
+                Schnell (Heuristik)
+              </ToggleButton>
+              <ToggleButton value="cpsat">
+                Optimal (CP-SAT)
+              </ToggleButton>
+            </ToggleButtonGroup>
+            <Typography variant="caption" color="text.secondary" sx={{ flex: 1 }}>
+              {genEngine === "cpsat"
+                ? "Findet die bestmögliche Lösung (ca. 10–30 Sek.)"
+                : "Schnelle Heuristik (< 5 Sek.)"}
+            </Typography>
+          </Box>
+
           <Divider sx={{ mb: 2 }} />
 
           {preGenEntries.length > 0 && (
