@@ -13,7 +13,6 @@ import {
   runGreedyScheduleGeneration,
 } from "@/lib/schedule/generateDraftSchedule";
 import { runCpsatGeneration, SolverError, callScorer, buildSolverPayload, type CpsatGenerateResult } from "@/lib/schedule/solverClient";
-import type { FacilityRulesSlice } from "@/lib/planning/merge";
 
 /**
  * Replaces the roster: **deletes all assignments** on this schedule (Entwurf or veröffentlicht), then
@@ -307,12 +306,10 @@ export async function POST(request: Request, context: RouteCtx) {
 
     let solverPayload: Record<string, unknown> | null = null;
     try {
-      const facilitySlice: FacilityRulesSlice = engine === "cpsat"
-        ? (await prisma.facility.findUniqueOrThrow({
-            where: { id: facilityId },
-            select: { minRestHours: true, miniJobMaxMonthlyHours: true, ruleOverridesJson: true },
-          }))
-        : { minRestHours: 11, miniJobMaxMonthlyHours: null, ruleOverridesJson: null };
+      const facilitySlice = await prisma.facility.findUniqueOrThrow({
+        where: { id: facilityId },
+        select: { minRestHours: true, miniJobMaxMonthlyHours: true, ruleOverridesJson: true },
+      });
       solverPayload = buildSolverPayload(
         scheduleId,
         schedule.periodStart,
