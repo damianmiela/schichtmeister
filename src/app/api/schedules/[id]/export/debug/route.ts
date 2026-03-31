@@ -55,13 +55,14 @@ export async function GET(_request: Request, context: RouteCtx) {
     profileShiftTypes[p.id] = p.shiftType;
   }
 
+  const facilitySlice: FacilityRulesSlice = {
+    minRestHours: facility.minRestHours,
+    miniJobMaxMonthlyHours: facility.miniJobMaxMonthlyHours,
+    ruleOverridesJson: facility.ruleOverridesJson,
+  };
+
   let solverPayload: SolverPayload | null = null;
   try {
-    const facilitySlice: FacilityRulesSlice = {
-      minRestHours: facility.minRestHours != null ? Number(facility.minRestHours) : null,
-      miniJobMaxMonthlyHours: facility.miniJobMaxMonthlyHours != null ? Number(facility.miniJobMaxMonthlyHours) : null,
-      ruleOverridesJson: facility.ruleOverridesJson as Record<string, unknown> | null,
-    };
     solverPayload = buildSolverPayload(
       scheduleId,
       schedule.periodStart,
@@ -75,14 +76,7 @@ export async function GET(_request: Request, context: RouteCtx) {
     solverPayload = null;
   }
 
-  const snapshot = mergePlanningRules(
-    {
-      minRestHours: facility.minRestHours != null ? Number(facility.minRestHours) : null,
-      miniJobMaxMonthlyHours: facility.miniJobMaxMonthlyHours != null ? Number(facility.miniJobMaxMonthlyHours) : null,
-      ruleOverridesJson: facility.ruleOverridesJson as Record<string, unknown> | null,
-    },
-    defaultPlanningRulesConfig,
-  );
+  const snapshot = mergePlanningRules(facilitySlice, defaultPlanningRulesConfig);
 
   const staffingRequirements = [...genCtx.mergedStaffing.entries()].map(([key, entry]) => ({
     key,
