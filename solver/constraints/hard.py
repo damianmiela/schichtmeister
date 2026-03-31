@@ -15,6 +15,7 @@ from utils import dates_in_range, iso_week_key, rest_violated
 
 ShiftVar = dict[tuple[str, str, str], cp_model.IntVar]
 WorksDay = dict[tuple[str, str], cp_model.IntVar]
+StationAssign = dict[tuple[str, str, int], cp_model.IntVar]
 
 
 def _profile_map(req: SolveRequest) -> dict[str, ShiftProfileInput]:
@@ -123,13 +124,18 @@ def add_staffing_maximum(
     model: cp_model.CpModel,
     shift: ShiftVar,
     req: SolveRequest,
+    station_assign: StationAssign | None = None,
 ):
     dates = _dates(req)
     emp_stations = _emp_station_map(req)
 
     # Per-station caps: only employees explicitly assigned to that station
     # BL profiles are excluded — BL workers don't fill station positions
+    # Multi-station employees: only count if station_assign says they're at this station
     bl_profile_ids = {p.id for p in req.shiftProfiles if p.shiftType == "BL"}
+
+    works_type_cache: dict[tuple[str, str, str], cp_model.IntVar] = {}
+
     for sr in req.staffingRequirements:
         if sr.maxTotalCount is None:
             continue
@@ -137,22 +143,57 @@ def add_staffing_maximum(
             ds = d.isoformat()
             covering: list[cp_model.IntVar] = []
             for emp in req.employees:
+                es = emp_stations[emp.id]
+
                 if sr.isFacilityWide:
-                    pass  # FW: everyone counts
-                else:
-                    es = emp_stations[emp.id]
-                    if not es:
-                        continue  # floaters skip station-specific max
-                    if sr.stationNumber is not None and sr.stationNumber not in es:
-                        continue
+                    # FW: everyone counts directly
+                    for p in req.shiftProfiles:
+                        if p.shiftType != sr.shiftType or p.id in bl_profile_ids:
+                            continue
+                        key = (emp.id, ds, p.id)
+                        if key in shift:
+                            covering.append(shift[key])
+                    continue
+
+                if not es:
+                    continue  # floaters skip station-specific max
+                if sr.stationNumber is not None and sr.stationNumber not in es:
+                    continue
+
+                # Collect shift vars for matching type
+                emp_shift_vars: list[cp_model.IntVar] = []
                 for p in req.shiftProfiles:
-                    if p.shiftType != sr.shiftType:
-                        continue
-                    if p.id in bl_profile_ids:
+                    if p.shiftType != sr.shiftType or p.id in bl_profile_ids:
                         continue
                     key = (emp.id, ds, p.id)
                     if key in shift:
-                        covering.append(shift[key])
+                        emp_shift_vars.append(shift[key])
+
+                if not emp_shift_vars:
+                    continue
+
+                if len(es) == 1:
+                    # Single-station: count directly
+                    covering.extend(emp_shift_vars)
+                elif sr.stationNumber is not None and station_assign:
+                    # Multi-station: only count if assigned to this station
+                    sa_key = (emp.id, ds, sr.stationNumber)
+                    if sa_key in station_assign:
+                        wt_key = (emp.id, ds, sr.shiftType)
+                        if wt_key not in works_type_cache:
+                            wt = model.NewBoolVar(f"mx_wt_{emp.id}_{ds}_{sr.shiftType}")
+                            model.Add(sum(emp_shift_vars) >= 1).OnlyEnforceIf(wt)
+                            model.Add(sum(emp_shift_vars) == 0).OnlyEnforceIf(wt.Not())
+                            works_type_cache[wt_key] = wt
+                        wt_var = works_type_cache[wt_key]
+                        both = model.NewBoolVar(f"mx_cov_{emp.id}_{ds}_{sr.shiftType}_{sr.stationNumber}")
+                        model.AddBoolAnd([wt_var, station_assign[sa_key]]).OnlyEnforceIf(both)
+                        model.AddBoolOr([wt_var.Not(), station_assign[sa_key].Not()]).OnlyEnforceIf(both.Not())
+                        covering.append(both)
+                else:
+                    # Fallback: count directly (conservative)
+                    covering.extend(emp_shift_vars)
+
             if covering:
                 model.Add(sum(covering) <= sr.maxTotalCount)
 
@@ -417,6 +458,60 @@ def add_wbl_bl_spread(
                         day_bl_vars.append(shift[key])
             if len(day_bl_vars) > 1:
                 model.Add(sum(day_bl_vars) <= 1)
+
+
+# ── H13b: Station assignment for multi-station employees ──────────────────
+
+StationAssign = dict[tuple[str, str, int], cp_model.IntVar]
+
+
+def add_station_assignment(
+    model: cp_model.CpModel,
+    shift: ShiftVar,
+    works_day: WorksDay,
+    station_assign: StationAssign,
+    req: SolveRequest,
+):
+    """Multi-station employees must be assigned to exactly one station per working day.
+
+    If an employee works a non-BL shift on a given day, exactly one of their
+    station_assign variables must be 1.  If they don't work (or work BL only),
+    all station_assign variables must be 0.
+    """
+    bl_profile_ids = {p.id for p in req.shiftProfiles if p.shiftType == "BL"}
+    dates = _dates(req)
+
+    for emp in req.employees:
+        stations = set(emp.assignedStations) if emp.assignedStations else set()
+        if len(stations) <= 1:
+            continue  # single-station employees don't need assignment vars
+
+        for d in dates:
+            ds = d.isoformat()
+            sa_vars = [station_assign[(emp.id, ds, s)]
+                       for s in stations
+                       if (emp.id, ds, s) in station_assign]
+            if not sa_vars:
+                continue
+
+            # Collect non-BL shift variables for this emp+day
+            non_bl_vars = [shift[(emp.id, ds, p.id)]
+                           for p in req.shiftProfiles
+                           if p.id not in bl_profile_ids
+                           and (emp.id, ds, p.id) in shift]
+
+            if non_bl_vars:
+                works_non_bl = model.NewBoolVar(f"wnbl_{emp.id}_{ds}")
+                model.Add(sum(non_bl_vars) >= 1).OnlyEnforceIf(works_non_bl)
+                model.Add(sum(non_bl_vars) == 0).OnlyEnforceIf(works_non_bl.Not())
+
+                # Working non-BL → pick exactly one station
+                model.Add(sum(sa_vars) == 1).OnlyEnforceIf(works_non_bl)
+                model.Add(sum(sa_vars) == 0).OnlyEnforceIf(works_non_bl.Not())
+            else:
+                # No non-BL shift vars exist → no station assignment
+                for sa in sa_vars:
+                    model.Add(sa == 0)
 
 
 # ── H14: Manual placements (pre-gen shift wishes) ──────────────────────────

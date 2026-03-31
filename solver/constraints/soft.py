@@ -50,17 +50,42 @@ def _emp_can_cover_station(emp_stations: set[int], station: int | None, is_fw: b
     return station in emp_stations
 
 
+StationAssign = dict[tuple[str, str, int], cp_model.IntVar]
+
+
+def _make_both_var(
+    model: cp_model.CpModel,
+    a: cp_model.IntVar,
+    b: cp_model.IntVar,
+    name: str,
+) -> cp_model.IntVar:
+    """Create a boolean variable that equals a AND b."""
+    both = model.NewBoolVar(name)
+    model.AddBoolAnd([a, b]).OnlyEnforceIf(both)
+    model.AddBoolOr([a.Not(), b.Not()]).OnlyEnforceIf(both.Not())
+    return both
+
+
 def add_staffing_minimum_soft(
     model: cp_model.CpModel,
     shift: ShiftVar,
     req: SolveRequest,
+    station_assign: StationAssign | None = None,
 ) -> list[tuple[cp_model.IntVar, int]]:
     """Penalize understaffing — each missing person per day per requirement costs W_STAFFING_MIN.
-    BL profiles are excluded from station headcount — BL workers don't fill station positions."""
+
+    BL profiles are excluded from station headcount.
+    Multi-station employees only count toward the station they are assigned to
+    (via station_assign variables), preventing double-counting.
+    """
     terms: list[tuple[cp_model.IntVar, int]] = []
     dates = dates_in_range(req.periodStart, req.periodEnd)
     emp_stations = _emp_station_map(req)
     bl_profile_ids = {p.id for p in req.shiftProfiles if p.shiftType == "BL"}
+
+    # Precompute works_type[emp_id, ds, shiftType] indicator vars (cached)
+    works_type_cache: dict[tuple[str, str, str], cp_model.IntVar] = {}
+
     for sr in req.staffingRequirements:
         if sr.minTotalCount <= 0:
             continue
@@ -68,16 +93,52 @@ def add_staffing_minimum_soft(
             ds = d.isoformat()
             covering: list[cp_model.IntVar] = []
             for emp in req.employees:
-                if not _emp_can_cover_station(emp_stations[emp.id], sr.stationNumber, sr.isFacilityWide):
-                    continue
+                es = emp_stations[emp.id]
+
+                # Collect shift vars for this employee + day + matching shiftType
+                emp_shift_vars: list[cp_model.IntVar] = []
                 for p in req.shiftProfiles:
-                    if p.shiftType != sr.shiftType:
-                        continue
-                    if p.id in bl_profile_ids:
+                    if p.shiftType != sr.shiftType or p.id in bl_profile_ids:
                         continue
                     key = (emp.id, ds, p.id)
                     if key in shift:
-                        covering.append(shift[key])
+                        emp_shift_vars.append(shift[key])
+
+                if not emp_shift_vars:
+                    continue
+
+                if sr.isFacilityWide:
+                    # Facility-wide: everyone counts directly
+                    covering.extend(emp_shift_vars)
+                elif sr.stationNumber is None:
+                    covering.extend(emp_shift_vars)
+                elif len(es) == 0:
+                    # Floater: don't count for station-specific requirements
+                    # (their actual station is uncertain)
+                    continue
+                elif len(es) == 1:
+                    # Single-station: count only if they match the required station
+                    if sr.stationNumber in es:
+                        covering.extend(emp_shift_vars)
+                else:
+                    # Multi-station: use station_assign to avoid double-counting
+                    sa_key = (emp.id, ds, sr.stationNumber)
+                    if station_assign and sa_key in station_assign:
+                        # works_type = employee works this shift type today
+                        wt_key = (emp.id, ds, sr.shiftType)
+                        if wt_key not in works_type_cache:
+                            wt = model.NewBoolVar(f"wt_{emp.id}_{ds}_{sr.shiftType}")
+                            model.Add(sum(emp_shift_vars) >= 1).OnlyEnforceIf(wt)
+                            model.Add(sum(emp_shift_vars) == 0).OnlyEnforceIf(wt.Not())
+                            works_type_cache[wt_key] = wt
+                        wt_var = works_type_cache[wt_key]
+                        # both = works_this_type AND assigned_to_this_station
+                        both = _make_both_var(
+                            model, wt_var, station_assign[sa_key],
+                            f"cov_{emp.id}_{ds}_{sr.shiftType}_{sr.stationNumber}",
+                        )
+                        covering.append(both)
+
             if not covering:
                 continue
             total_assigned = model.NewIntVar(0, len(covering), f"staff_{sr.shiftType}_{sr.stationNumber}_{ds}")
@@ -92,8 +153,13 @@ def add_qualification_coverage_soft(
     model: cp_model.CpModel,
     shift: ShiftVar,
     req: SolveRequest,
+    station_assign: StationAssign | None = None,
 ) -> list[tuple[cp_model.IntVar, int]]:
-    """Penalize missing qualification coverage per day. BL profiles excluded."""
+    """Penalize missing qualification coverage per day.
+
+    BL profiles excluded.  Multi-station employees only count toward
+    the station they are assigned to (via station_assign).
+    """
     terms: list[tuple[cp_model.IntVar, int]] = []
     dates = dates_in_range(req.periodStart, req.periodEnd)
     emp_tags: dict[str, set[str]] = {
@@ -101,6 +167,10 @@ def add_qualification_coverage_soft(
     }
     emp_stations = _emp_station_map(req)
     bl_profile_ids = {p.id for p in req.shiftProfiles if p.shiftType == "BL"}
+
+    # Reuse works_type cache across iterations
+    works_type_cache: dict[tuple[str, str, str], cp_model.IntVar] = {}
+
     for sr in req.staffingRequirements:
         for qr in sr.qualificationRequirements:
             tags = [t.strip() for t in ",".join(qr.tags).split(",")]
@@ -110,18 +180,50 @@ def add_qualification_coverage_soft(
                 ds = d.isoformat()
                 qualified_vars: list[cp_model.IntVar] = []
                 for emp in req.employees:
-                    if not _emp_can_cover_station(emp_stations[emp.id], sr.stationNumber, sr.isFacilityWide):
-                        continue
                     if not any(t in emp_tags.get(emp.id, set()) for t in tags):
                         continue
+
+                    es = emp_stations[emp.id]
+
+                    # Collect shift vars for matching shiftType (excluding BL)
+                    emp_shift_vars: list[cp_model.IntVar] = []
                     for p in req.shiftProfiles:
-                        if p.shiftType != sr.shiftType:
-                            continue
-                        if p.id in bl_profile_ids:
+                        if p.shiftType != sr.shiftType or p.id in bl_profile_ids:
                             continue
                         key = (emp.id, ds, p.id)
                         if key in shift:
-                            qualified_vars.append(shift[key])
+                            emp_shift_vars.append(shift[key])
+
+                    if not emp_shift_vars:
+                        continue
+
+                    if sr.isFacilityWide:
+                        qualified_vars.extend(emp_shift_vars)
+                    elif sr.stationNumber is None:
+                        qualified_vars.extend(emp_shift_vars)
+                    elif len(es) == 0:
+                        # Floater: don't count for station-specific
+                        continue
+                    elif len(es) == 1:
+                        if sr.stationNumber in es:
+                            qualified_vars.extend(emp_shift_vars)
+                    else:
+                        # Multi-station: use station_assign
+                        sa_key = (emp.id, ds, sr.stationNumber)
+                        if station_assign and sa_key in station_assign:
+                            wt_key = (emp.id, ds, sr.shiftType)
+                            if wt_key not in works_type_cache:
+                                wt = model.NewBoolVar(f"wt_{emp.id}_{ds}_{sr.shiftType}")
+                                model.Add(sum(emp_shift_vars) >= 1).OnlyEnforceIf(wt)
+                                model.Add(sum(emp_shift_vars) == 0).OnlyEnforceIf(wt.Not())
+                                works_type_cache[wt_key] = wt
+                            wt_var = works_type_cache[wt_key]
+                            both = _make_both_var(
+                                model, wt_var, station_assign[sa_key],
+                                f"qcov_{emp.id}_{ds}_{sr.shiftType}_{sr.stationNumber}_{'_'.join(tags[:1])}",
+                            )
+                            qualified_vars.append(both)
+
                 if not qualified_vars:
                     continue
                 total_qualified = model.NewIntVar(0, len(qualified_vars), f"qual_{sr.shiftType}_{sr.stationNumber}_{ds}_{'_'.join(tags[:2])}")

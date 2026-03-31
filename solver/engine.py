@@ -28,6 +28,7 @@ from constraints.hard import (
     add_wbl_bl_max_one_per_week,
     add_alternating_weekends,
     add_wbl_weekend_limit,
+    add_station_assignment,
 )
 from constraints.soft import (
     add_staffing_minimum_soft,
@@ -50,6 +51,7 @@ def _build_variables(
 ) -> tuple[
     dict[tuple[str, str, str], cp_model.IntVar],
     dict[tuple[str, str], cp_model.IntVar],
+    dict[tuple[str, str, int], cp_model.IntVar],
 ]:
     """Create boolean variables for shift assignments and works_day indicators.
 
@@ -102,33 +104,51 @@ def _build_variables(
             if day_has_var:
                 works_day[(emp.id, ds)] = model.NewBoolVar(f"wd_{emp.id}_{ds}")
 
-    return shift, works_day
+    # ── Station-assignment variables for multi-station employees ─────
+    station_assign: dict[tuple[str, str, int], cp_model.IntVar] = {}
+    for emp in req.employees:
+        stations = emp_stations[emp.id]
+        if len(stations) <= 1:
+            continue  # single-station or floater — no choice needed
+        for d in dates:
+            ds = d.isoformat()
+            if (emp.id, ds) not in works_day:
+                continue
+            for st in stations:
+                station_assign[(emp.id, ds, st)] = model.NewBoolVar(
+                    f"sa_{emp.id}_{ds}_{st}"
+                )
+
+    return shift, works_day, station_assign
 
 
 def _resolve_stations(
     assignments: list[AssignmentOutput],
     request: SolveRequest,
 ) -> list[AssignmentOutput]:
-    """Assign a stationNumber to each assignment based on staffing requirements.
+    """Assign a stationNumber to assignments that don't already have one.
 
-    Strategy:
+    Assignments with a stationNumber set by the solver (multi-station employees)
+    are kept as-is.  Remaining assignments (single-station employees, floaters)
+    are placed via:
     1. Group assignments by (date, shiftType).
     2. Build per-station demand from non-facility-wide staffing requirements.
-    3. Place single-station employees first (they can only go to one station).
-    4. Place multi-station employees greedily to the station with the largest
-       remaining gap (demand minus already-placed count).
-    5. Employees with no station (floaters) or facility-wide-only shift types
-       keep stationNumber = None.
+    3. Subtract already-placed (solver-assigned) counts from demand.
+    4. Place single-station employees (they can only go to one station).
+    5. Place floaters greedily to the station with the largest remaining gap.
     """
     prof_map = {p.id: p for p in request.shiftProfiles}
     emp_map = {e.id: e for e in request.employees}
 
-    # Build station demands per shift type: {shiftType: {station: minTotalCount}}
+    # Build station demands and caps per shift type
     station_demand: dict[str, dict[int, int]] = collections.defaultdict(dict)
+    station_max: dict[str, dict[int, int]] = collections.defaultdict(dict)
     for sr in request.staffingRequirements:
         if sr.isFacilityWide or sr.stationNumber is None:
             continue
         station_demand[sr.shiftType][sr.stationNumber] = sr.minTotalCount
+        if sr.maxTotalCount is not None:
+            station_max[sr.shiftType][sr.stationNumber] = sr.maxTotalCount
 
     # Group assignments by (date, shiftType)
     groups: dict[tuple[str, str], list[int]] = collections.defaultdict(list)
@@ -145,30 +165,34 @@ def _resolve_stations(
             # No station-specific requirements for this shift type (e.g., BL, NIGHT fw-only)
             continue
 
-        # Track how many still needed per station
+        # Track how many still needed per station AND current counts vs max
         remaining = dict(demands)  # {station: remaining_needed}
+        caps = station_max.get(shift_type, {})
+        current_count: dict[int, int] = {s: 0 for s in demands}
         placed: dict[int, int | None] = {}  # assignment index -> station
 
-        # Separate employees into single-station and multi-station buckets
+        # Pass 0: account for solver-assigned stations (multi-station employees)
         single_station_indices: list[int] = []
-        multi_station_indices: list[int] = []
+        floater_indices: list[int] = []
 
         for idx in indices:
             a = assignments[idx]
+            if a.stationNumber is not None:
+                # Already assigned by solver — subtract from remaining, add to count
+                remaining[a.stationNumber] = remaining.get(a.stationNumber, 0) - 1
+                current_count[a.stationNumber] = current_count.get(a.stationNumber, 0) + 1
+                continue
+
             emp = emp_map.get(a.employeeId)
             if not emp:
                 continue
             emp_stations = set(emp.assignedStations)
-            # Filter to only stations that have demand for this shift type
             eligible = emp_stations & set(demands.keys())
 
             if len(eligible) == 1:
                 single_station_indices.append(idx)
-            elif len(eligible) > 1:
-                multi_station_indices.append(idx)
             elif len(emp_stations) == 0:
-                # Floater — no assigned stations; will be placed in pass 2
-                multi_station_indices.append(idx)
+                floater_indices.append(idx)
 
         # Pass 1: place single-station employees
         for idx in single_station_indices:
@@ -181,15 +205,20 @@ def _resolve_stations(
                 station = next(iter(eligible))
                 placed[idx] = station
                 remaining[station] = remaining.get(station, 0) - 1
+                current_count[station] = current_count.get(station, 0) + 1
 
-        # Pass 2: place multi-station employees to station with biggest gap
-        for idx in multi_station_indices:
+        # Pass 2: place floaters to station with biggest gap, respecting max
+        for idx in floater_indices:
             a = assignments[idx]
             emp = emp_map.get(a.employeeId)
             if not emp:
                 continue
-            emp_stations = set(emp.assignedStations)
-            eligible = emp_stations & set(demands.keys()) if emp_stations else set(demands.keys())
+            # Floaters can go to any station that has demand
+            eligible = set(demands.keys())
+
+            # Filter out stations already at max capacity
+            eligible = {s for s in eligible
+                        if s not in caps or current_count.get(s, 0) < caps[s]}
 
             if not eligible:
                 continue
@@ -198,6 +227,7 @@ def _resolve_stations(
             best_station = max(eligible, key=lambda s: remaining.get(s, 0))
             placed[idx] = best_station
             remaining[best_station] = remaining.get(best_station, 0) - 1
+            current_count[best_station] = current_count.get(best_station, 0) + 1
 
         # Write station numbers back
         for idx, station in placed.items():
@@ -212,10 +242,11 @@ def solve(request: SolveRequest) -> SolveResponse:
     wall_start = time.perf_counter()
 
     model = cp_model.CpModel()
-    shift, works_day = _build_variables(model, request)
+    shift, works_day, station_assign = _build_variables(model, request)
 
-    log.info("Model: %d shift vars, %d works_day vars, %d employees, %d profiles, %d dates",
-             len(shift), len(works_day), len(request.employees), len(request.shiftProfiles),
+    log.info("Model: %d shift vars, %d works_day vars, %d station_assign vars, %d employees, %d profiles, %d dates",
+             len(shift), len(works_day), len(station_assign),
+             len(request.employees), len(request.shiftProfiles),
              len(dates_in_range(request.periodStart, request.periodEnd)))
 
     if not shift:
@@ -228,7 +259,7 @@ def solve(request: SolveRequest) -> SolveResponse:
     # ── Hard constraints (physically impossible to violate) ─────────────
     add_one_shift_per_day(model, shift, works_day, request)
     add_unavailability(model, shift, request)
-    add_staffing_maximum(model, shift, request)
+    add_staffing_maximum(model, shift, request, station_assign)
     add_min_rest(model, shift, request)
     add_max_consecutive_nights(model, shift, request)
     add_max_consecutive_days(model, works_day, request)
@@ -237,11 +268,12 @@ def solve(request: SolveRequest) -> SolveResponse:
     add_wbl_bl_max_one_per_week(model, shift, request)
     add_alternating_weekends(model, works_day, request)
     add_wbl_weekend_limit(model, works_day, request)
+    add_station_assignment(model, shift, works_day, station_assign, request)
 
     # ── Soft objectives (penalized, but relaxable) ───────────────────
     objective_terms: list[tuple[cp_model.IntVar, int]] = []
-    objective_terms.extend(add_staffing_minimum_soft(model, shift, request))
-    objective_terms.extend(add_qualification_coverage_soft(model, shift, request))
+    objective_terms.extend(add_staffing_minimum_soft(model, shift, request, station_assign))
+    objective_terms.extend(add_qualification_coverage_soft(model, shift, request, station_assign))
     objective_terms.extend(add_wbl_bl_soft(model, shift, request))
     objective_terms.extend(add_min_utilization_soft(model, shift, request))
     objective_terms.extend(add_soll_deviation(model, shift, request))
@@ -287,17 +319,27 @@ def solve(request: SolveRequest) -> SolveResponse:
         )
 
     # ── Extract assignments ─────────────────────────────────────────────
+    # First, extract station assignments from the solver for multi-station employees
+    solved_stations: dict[tuple[str, str], int] = {}  # (emp_id, date) -> station
+    for (emp_id, ds, station), var in station_assign.items():
+        if solver.Value(var) == 1:
+            solved_stations[(emp_id, ds)] = station
+
     assignments: list[AssignmentOutput] = []
     for (emp_id, ds, pid), var in shift.items():
         if solver.Value(var) == 1:
+            sn = solved_stations.get((emp_id, ds))
             assignments.append(AssignmentOutput(
                 employeeId=emp_id, date=ds, shiftProfileId=pid,
+                stationNumber=sn,
             ))
 
-    log.info("Extracted %d assignments for %d employees",
-             len(assignments), len({a.employeeId for a in assignments}))
+    log.info("Extracted %d assignments (%d with solver-assigned station) for %d employees",
+             len(assignments),
+             sum(1 for a in assignments if a.stationNumber is not None),
+             len({a.employeeId for a in assignments}))
 
-    # ── Post-solve: resolve station numbers ────────────────────────────
+    # ── Post-solve: resolve station numbers for single-station & floaters ─
     assignments = _resolve_stations(assignments, request)
 
     # ── Diagnostics ─────────────────────────────────────────────────────
