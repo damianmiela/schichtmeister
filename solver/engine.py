@@ -24,6 +24,8 @@ from constraints.hard import (
     add_max_consecutive_days,
     add_manual_placements,
     add_mini_job_cap,
+    add_wbl_bl_max_one_per_week,
+    add_wbl_bl_spread,
 )
 from constraints.soft import (
     add_staffing_minimum_soft,
@@ -48,7 +50,8 @@ def _build_variables(
     """Create boolean variables for shift assignments and works_day indicators.
 
     Variable reduction: skip (employee, date, profile) combos that are
-    impossible by construction (wrong station, not in allowed profiles, inactive).
+    impossible by construction (wrong station, not in allowed profiles, inactive,
+    BL for non-WBL employees).
     """
     dates = dates_in_range(req.periodStart, req.periodEnd)
     active_profiles = [p for p in req.shiftProfiles if p.isActive]
@@ -56,10 +59,12 @@ def _build_variables(
     emp_allowed: dict[str, set[str]] = {}
     emp_stations: dict[str, set[int]] = {}
     emp_unavail: dict[str, set[str]] = {}
+    emp_is_wbl: dict[str, bool] = {}
     for e in req.employees:
         emp_allowed[e.id] = set(e.allowedShiftProfileIds) if e.allowedShiftProfileIds else set()
         emp_stations[e.id] = set(e.assignedStations) if e.assignedStations else set()
         emp_unavail[e.id] = set(e.unavailableDates)
+        emp_is_wbl[e.id] = e.isWbl
 
     blocked_dates: dict[str, set[str]] = {}
     for bd in req.blockedDates:
@@ -72,6 +77,7 @@ def _build_variables(
         allowed = emp_allowed[emp.id]
         stations = emp_stations[emp.id]
         unavail = emp_unavail[emp.id] | blocked_dates.get(emp.id, set())
+        is_wbl = emp_is_wbl[emp.id]
 
         for d in dates:
             ds = d.isoformat()
@@ -82,7 +88,8 @@ def _build_variables(
             for p in active_profiles:
                 if allowed and p.id not in allowed:
                     continue
-                if stations and p.stationNumber is not None and p.stationNumber not in stations:
+                # BL profiles are exclusively for WBL employees
+                if p.shiftType == "BL" and not is_wbl:
                     continue
                 var = model.NewBoolVar(f"s_{emp.id}_{ds}_{p.id}")
                 shift[(emp.id, ds, p.id)] = var
@@ -121,6 +128,8 @@ def solve(request: SolveRequest) -> SolveResponse:
     add_max_consecutive_days(model, works_day, request)
     add_manual_placements(model, shift, request)
     add_mini_job_cap(model, shift, request)
+    add_wbl_bl_max_one_per_week(model, shift, request)
+    add_wbl_bl_spread(model, shift, request)
 
     # ── Soft objectives (penalized, but relaxable) ───────────────────
     objective_terms: list[tuple[cp_model.IntVar, int]] = []
@@ -170,6 +179,9 @@ def solve(request: SolveRequest) -> SolveResponse:
             assignments.append(AssignmentOutput(
                 employeeId=emp_id, date=ds, shiftProfileId=pid,
             ))
+
+    log.info("Extracted %d assignments for %d employees",
+             len(assignments), len({a.employeeId for a in assignments}))
 
     # ── Diagnostics ─────────────────────────────────────────────────────
     profile_hours = {p.id: p.paidHours for p in request.shiftProfiles}

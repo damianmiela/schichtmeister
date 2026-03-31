@@ -25,6 +25,20 @@ def _dates(req: SolveRequest) -> list[date]:
     return dates_in_range(req.periodStart, req.periodEnd)
 
 
+def _emp_station_map(req: SolveRequest) -> dict[str, set[int]]:
+    return {e.id: set(e.assignedStations) if e.assignedStations else set() for e in req.employees}
+
+
+def _emp_can_cover_station(emp_stations: set[int], station: int | None, is_fw: bool) -> bool:
+    if is_fw:
+        return True
+    if station is None:
+        return True
+    if not emp_stations:
+        return True
+    return station in emp_stations
+
+
 # ── H1: At most one shift per employee per day ─────────────────────────────
 
 def add_one_shift_per_day(
@@ -76,8 +90,8 @@ def add_staffing_minimum(
     shift: ShiftVar,
     req: SolveRequest,
 ):
-    profiles = _profile_map(req)
     dates = _dates(req)
+    emp_st = _emp_station_map(req)
     for sr in req.staffingRequirements:
         if sr.minTotalCount <= 0:
             continue
@@ -85,12 +99,11 @@ def add_staffing_minimum(
             ds = d.isoformat()
             covering: list[cp_model.IntVar] = []
             for emp in req.employees:
+                if not _emp_can_cover_station(emp_st[emp.id], sr.stationNumber, sr.isFacilityWide):
+                    continue
                 for p in req.shiftProfiles:
                     if p.shiftType != sr.shiftType:
                         continue
-                    if not sr.isFacilityWide:
-                        if p.stationNumber is not None and p.stationNumber != sr.stationNumber:
-                            continue
                     key = (emp.id, ds, p.id)
                     if key in shift:
                         covering.append(shift[key])
@@ -106,6 +119,7 @@ def add_staffing_maximum(
     req: SolveRequest,
 ):
     dates = _dates(req)
+    emp_stations = _emp_station_map(req)
     for sr in req.staffingRequirements:
         if sr.maxTotalCount is None:
             continue
@@ -113,12 +127,11 @@ def add_staffing_maximum(
             ds = d.isoformat()
             covering: list[cp_model.IntVar] = []
             for emp in req.employees:
+                if not _emp_can_cover_station(emp_stations[emp.id], sr.stationNumber, sr.isFacilityWide):
+                    continue
                 for p in req.shiftProfiles:
                     if p.shiftType != sr.shiftType:
                         continue
-                    if not sr.isFacilityWide:
-                        if p.stationNumber is not None and p.stationNumber != sr.stationNumber:
-                            continue
                     key = (emp.id, ds, p.id)
                     if key in shift:
                         covering.append(shift[key])
@@ -137,6 +150,7 @@ def add_qualification_coverage(
     emp_tags: dict[str, set[str]] = {
         e.id: set(e.qualificationTags) for e in req.employees
     }
+    emp_st = _emp_station_map(req)
     for sr in req.staffingRequirements:
         for qr in sr.qualificationRequirements:
             tags = [t.strip() for t in ",".join(qr.tags).split(",")]
@@ -146,14 +160,13 @@ def add_qualification_coverage(
                 ds = d.isoformat()
                 qualified_vars: list[cp_model.IntVar] = []
                 for emp in req.employees:
+                    if not _emp_can_cover_station(emp_st[emp.id], sr.stationNumber, sr.isFacilityWide):
+                        continue
                     if not any(t in emp_tags.get(emp.id, set()) for t in tags):
                         continue
                     for p in req.shiftProfiles:
                         if p.shiftType != sr.shiftType:
                             continue
-                        if not sr.isFacilityWide:
-                            if p.stationNumber is not None and p.stationNumber != sr.stationNumber:
-                                continue
                         key = (emp.id, ds, p.id)
                         if key in shift:
                             qualified_vars.append(shift[key])
@@ -250,7 +263,43 @@ def add_max_consecutive_days(
             model.Add(sum(day_vars[i:i + window]) <= max_days)
 
 
-# ── H12: WBL must have at least 1 BL per ISO week ──────────────────────────
+# ── H12: WBL gets at most 1 BL per ISO week ─────────────────────────────────
+
+def add_wbl_bl_max_one_per_week(
+    model: cp_model.CpModel,
+    shift: ShiftVar,
+    req: SolveRequest,
+):
+    """Each WBL employee gets at most 1 BL shift per ISO week."""
+    wbl_emps = [e for e in req.employees if e.isWbl]
+    bl_profiles = {p.id for p in req.shiftProfiles if p.shiftType == "BL"}
+    if not wbl_emps or not bl_profiles:
+        return
+
+    dates = _dates(req)
+    weeks: dict[str, list[date]] = {}
+    for d in dates:
+        wk = iso_week_key(d)
+        weeks.setdefault(wk, []).append(d)
+
+    for emp in wbl_emps:
+        emp_bl = {pid for pid in bl_profiles
+                  if emp.allowedShiftProfileIds == [] or pid in emp.allowedShiftProfileIds}
+        if not emp_bl:
+            continue
+        for wk, wk_dates in weeks.items():
+            bl_vars = []
+            for d in wk_dates:
+                ds = d.isoformat()
+                for pid in emp_bl:
+                    key = (emp.id, ds, pid)
+                    if key in shift:
+                        bl_vars.append(shift[key])
+            if bl_vars:
+                model.Add(sum(bl_vars) <= 1)
+
+
+# ── (legacy) WBL must have at least 1 BL per ISO week ──────────────────────
 
 def add_wbl_bl_weekly(
     model: cp_model.CpModel,

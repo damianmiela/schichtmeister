@@ -15,16 +15,37 @@ ShiftVar = dict[tuple[str, str, str], cp_model.IntVar]
 
 SCALE = 100
 
-W_STAFFING_MIN = 1000
-W_QUALIFICATION = 800
-W_WBL_BL = 500
-W_SOLL_DEV = 100
-W_OVERTIME = 200
-W_UNDERCUT = 150
-W_WISH_NORMAL = 50
-W_WISH_STRONG = 80
-W_FAIRNESS = 30
-W_PREFERENCE = 5
+# Staffing coverage is by far the highest priority — each missing person costs
+# more than any individual employee-level deviation.  Since soll_deviation is
+# measured in scaled hours (1 hour = SCALE = 100 units) and multiplied by its
+# weight, a single understaffed slot must outweigh the deviation it would cause.
+# An 8h shift adds 800 deviation units * W_SOLL_DEV(10) = 8 000; one missing
+# slot must cost more -> 50 000.
+W_STAFFING_MIN = 50_000
+W_QUALIFICATION = 40_000
+W_WBL_BL = 20_000
+W_SOLL_DEV = 10
+W_OVERTIME = 20
+W_UNDERCUT = 15
+W_WISH_NORMAL = 3_000
+W_WISH_STRONG = 6_000
+W_FAIRNESS = 5
+W_PREFERENCE = 1
+
+
+def _emp_station_map(req: SolveRequest) -> dict[str, set[int]]:
+    return {e.id: set(e.assignedStations) if e.assignedStations else set() for e in req.employees}
+
+
+def _emp_can_cover_station(emp_stations: set[int], station: int | None, is_fw: bool) -> bool:
+    """Check if an employee can cover a staffing requirement's station."""
+    if is_fw:
+        return True
+    if station is None:
+        return True
+    if not emp_stations:
+        return True
+    return station in emp_stations
 
 
 def add_staffing_minimum_soft(
@@ -35,6 +56,7 @@ def add_staffing_minimum_soft(
     """Penalize understaffing — each missing person per day per requirement costs W_STAFFING_MIN."""
     terms: list[tuple[cp_model.IntVar, int]] = []
     dates = dates_in_range(req.periodStart, req.periodEnd)
+    emp_stations = _emp_station_map(req)
     for sr in req.staffingRequirements:
         if sr.minTotalCount <= 0:
             continue
@@ -42,12 +64,11 @@ def add_staffing_minimum_soft(
             ds = d.isoformat()
             covering: list[cp_model.IntVar] = []
             for emp in req.employees:
+                if not _emp_can_cover_station(emp_stations[emp.id], sr.stationNumber, sr.isFacilityWide):
+                    continue
                 for p in req.shiftProfiles:
                     if p.shiftType != sr.shiftType:
                         continue
-                    if not sr.isFacilityWide:
-                        if p.stationNumber is not None and p.stationNumber != sr.stationNumber:
-                            continue
                     key = (emp.id, ds, p.id)
                     if key in shift:
                         covering.append(shift[key])
@@ -72,6 +93,7 @@ def add_qualification_coverage_soft(
     emp_tags: dict[str, set[str]] = {
         e.id: set(e.qualificationTags) for e in req.employees
     }
+    emp_stations = _emp_station_map(req)
     for sr in req.staffingRequirements:
         for qr in sr.qualificationRequirements:
             tags = [t.strip() for t in ",".join(qr.tags).split(",")]
@@ -81,14 +103,13 @@ def add_qualification_coverage_soft(
                 ds = d.isoformat()
                 qualified_vars: list[cp_model.IntVar] = []
                 for emp in req.employees:
+                    if not _emp_can_cover_station(emp_stations[emp.id], sr.stationNumber, sr.isFacilityWide):
+                        continue
                     if not any(t in emp_tags.get(emp.id, set()) for t in tags):
                         continue
                     for p in req.shiftProfiles:
                         if p.shiftType != sr.shiftType:
                             continue
-                        if not sr.isFacilityWide:
-                            if p.stationNumber is not None and p.stationNumber != sr.stationNumber:
-                                continue
                         key = (emp.id, ds, p.id)
                         if key in shift:
                             qualified_vars.append(shift[key])
