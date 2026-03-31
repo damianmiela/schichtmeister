@@ -15,21 +15,21 @@ ShiftVar = dict[tuple[str, str, str], cp_model.IntVar]
 
 SCALE = 100
 
-# Staffing coverage is by far the highest priority — each missing person costs
-# more than any individual employee-level deviation.  Since soll_deviation is
-# measured in scaled hours (1 hour = SCALE = 100 units) and multiplied by its
-# weight, a single understaffed slot must outweigh the deviation it would cause.
-# An 8h shift adds 800 deviation units * W_SOLL_DEV(10) = 8 000; one missing
-# slot must cost more -> 50 000.
+# ── Weight hierarchy ──────────────────────────────────────────────────
+# Tier 1 — Staffing coverage: fill all required slots first
 W_STAFFING_MIN = 50_000
 W_QUALIFICATION = 40_000
+# Tier 2 — Employee utilization: every employee should get at least some shifts
+W_MIN_UTIL = 30_000
 W_WBL_BL = 20_000
-W_SOLL_DEV = 10
-W_OVERTIME = 20
-W_UNDERCUT = 15
+# Tier 3 — Hours accuracy & distribution
+W_SOLL_DEV = 100
+W_OVERTIME = 200
+W_UNDERCUT = 150
+W_FAIRNESS = 50
+# Tier 4 — Wishes & preferences
 W_WISH_NORMAL = 3_000
 W_WISH_STRONG = 6_000
-W_FAIRNESS = 5
 W_PREFERENCE = 1
 
 
@@ -162,6 +162,61 @@ def add_wbl_bl_soft(
             miss_bl = model.NewBoolVar(f"wbl_miss_{emp.id}_{wk}")
             model.Add(miss_bl == 1 - has_bl)
             terms.append((miss_bl, W_WBL_BL))
+    return terms
+
+
+def add_min_utilization_soft(
+    model: cp_model.CpModel,
+    shift: ShiftVar,
+    req: SolveRequest,
+) -> list[tuple[cp_model.IntVar, int]]:
+    """Penalize employees who get far fewer shifts than their soll requires.
+
+    For each employee, compute a target shift count from soll hours and the
+    average shift duration.  Penalize each missing shift below half that target
+    with W_MIN_UTIL.  This prevents the solver from concentrating all work on
+    a subset of employees while leaving others idle.
+    """
+    terms: list[tuple[cp_model.IntVar, int]] = []
+    dates = dates_in_range(req.periodStart, req.periodEnd)
+    soll_map = req.monthlySollHoursByEmployee or {}
+
+    active_hours = [p.paidHours for p in req.shiftProfiles if p.isActive and p.paidHours > 0]
+    avg_hours = sum(active_hours) / len(active_hours) if active_hours else 8.0
+
+    for emp in req.employees:
+        soll = soll_map.get(emp.id)
+        if soll is None:
+            pct = emp.targetHoursPercent
+            if pct is None:
+                continue
+            wd = req.monthlyWorkingDays or 22
+            soll = wd * 8.0 * (pct / 100.0)
+
+        if soll <= 0:
+            continue
+
+        target_shifts = soll / avg_hours
+        min_shifts = max(1, int(target_shifts * 0.5))
+
+        emp_vars: list[cp_model.IntVar] = []
+        for d in dates:
+            ds = d.isoformat()
+            for p in req.shiftProfiles:
+                key = (emp.id, ds, p.id)
+                if key in shift:
+                    emp_vars.append(shift[key])
+
+        if not emp_vars:
+            continue
+
+        total_shifts = model.NewIntVar(0, len(emp_vars), f"util_count_{emp.id}")
+        model.Add(total_shifts == sum(emp_vars))
+
+        shortfall = model.NewIntVar(0, min_shifts, f"util_short_{emp.id}")
+        model.Add(shortfall >= min_shifts - total_shifts)
+        terms.append((shortfall, W_MIN_UTIL))
+
     return terms
 
 

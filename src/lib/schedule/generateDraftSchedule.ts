@@ -120,6 +120,26 @@ export function mergeStaffingRequirements(
       });
     }
   }
+
+  // When a facility-wide entry exists for a shift type, the station-specific
+  // entries for that same type are redundant — the FW entry already defines
+  // the total headcount needed across the entire facility.  Remove them so
+  // neither the greedy nor the CP-SAT engine double-counts.
+  const fwShiftTypes = new Set<string>();
+  for (const [k, v] of map) {
+    if (v.isFacilityWide) {
+      fwShiftTypes.add(k.split(":")[0]!);
+    }
+  }
+  if (fwShiftTypes.size > 0) {
+    for (const k of [...map.keys()]) {
+      const entry = map.get(k)!;
+      if (!entry.isFacilityWide && fwShiftTypes.has(k.split(":")[0]!)) {
+        map.delete(k);
+      }
+    }
+  }
+
   return map;
 }
 

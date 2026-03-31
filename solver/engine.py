@@ -31,6 +31,7 @@ from constraints.soft import (
     add_staffing_minimum_soft,
     add_qualification_coverage_soft,
     add_wbl_bl_soft,
+    add_min_utilization_soft,
     add_soll_deviation,
     add_overtime_penalty,
     add_undercut_penalty,
@@ -136,6 +137,7 @@ def solve(request: SolveRequest) -> SolveResponse:
     objective_terms.extend(add_staffing_minimum_soft(model, shift, request))
     objective_terms.extend(add_qualification_coverage_soft(model, shift, request))
     objective_terms.extend(add_wbl_bl_soft(model, shift, request))
+    objective_terms.extend(add_min_utilization_soft(model, shift, request))
     objective_terms.extend(add_soll_deviation(model, shift, request))
     objective_terms.extend(add_overtime_penalty(model, shift, request))
     objective_terms.extend(add_undercut_penalty(model, shift, request))
@@ -155,7 +157,12 @@ def solve(request: SolveRequest) -> SolveResponse:
              len(objective_terms), request.maxSolveTimeSeconds)
     status_code = solver.Solve(model)
     wall_ms = (time.perf_counter() - wall_start) * 1000
-    log.info("Solve done: status=%s, wall=%.1fms", status_code, wall_ms)
+    log.info("Solve done: status=%s, wall=%.1fms, objective=%.0f, bound=%.0f, gap=%.3f",
+             status_code, wall_ms,
+             solver.ObjectiveValue() if status_code in (cp_model.OPTIMAL, cp_model.FEASIBLE) else 0,
+             solver.BestObjectiveBound() if status_code in (cp_model.OPTIMAL, cp_model.FEASIBLE) else 0,
+             solver.BestObjectiveBound() / max(solver.ObjectiveValue(), 1e-9)
+             if status_code in (cp_model.OPTIMAL, cp_model.FEASIBLE) and solver.ObjectiveValue() > 0 else 0)
 
     status_map = {
         cp_model.OPTIMAL: "OPTIMAL",
