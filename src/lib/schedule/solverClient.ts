@@ -76,7 +76,7 @@ interface SolverRules {
   maxUndercutHours: number;
 }
 
-interface SolverPayload {
+export interface SolverPayload {
   schemaVersion: number;
   scheduleId: string;
   periodStart: string;

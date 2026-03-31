@@ -76,7 +76,8 @@ export function staffingKey(shiftType: ShiftType, stationNumber: number): string
   return `${shiftType}:${stationNumber}`;
 }
 
-/** Merge DB rows that share (shiftType, stationNumber) — sums counts, unions qual reqs. */
+/** Merge DB rows that share (shiftType, stationNumber, isFacilityWide) — sums counts, unions qual reqs.
+ *  FW rows get key suffix `:fw` to prevent merging with station-specific rows of the same station number. */
 export function mergeStaffingRequirements(
   rows: {
     shiftType: ShiftType;
@@ -89,7 +90,9 @@ export function mergeStaffingRequirements(
 ): Map<string, MergedStaffingEntry> {
   const map = new Map<string, MergedStaffingEntry>();
   for (const r of rows) {
-    const k = staffingKey(r.shiftType, r.stationNumber);
+    const k = (r.isFacilityWide ?? false)
+      ? `${staffingKey(r.shiftType, r.stationNumber)}:fw`
+      : staffingKey(r.shiftType, r.stationNumber);
     const cur = map.get(k);
     if (!cur) {
       map.set(k, {
