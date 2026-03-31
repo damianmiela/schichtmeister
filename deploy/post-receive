@@ -34,6 +34,13 @@ if [[ "$LAST_REF" == "refs/heads/main" ]] || [[ "$LAST_REF" == "refs/heads/maste
     rm -f /tmp/schichtmeister-env-backup
   fi
 
+  # Self-update: copy latest hook from repo so future deploys use updated logic
+  if [[ -f "$APP_DIR/deploy/post-receive" ]]; then
+    cp "$APP_DIR/deploy/post-receive" "$GIT_DIR/hooks/post-receive"
+    chmod +x "$GIT_DIR/hooks/post-receive"
+    echo ">>> Hook self-updated from deploy/post-receive"
+  fi
+
   # Load DB URL for Prisma (compose interpolates DATABASE_URL; .env may only set POSTGRES_*)
   set -a
   # shellcheck disable=SC1091
