@@ -64,4 +64,4 @@ _LOCAL_DOCS/
 /generate-logs/
 
 # Solver debug data (exported JSONs, scoring scripts, analysis)
-/debug/
+debug/

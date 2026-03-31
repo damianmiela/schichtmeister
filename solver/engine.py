@@ -15,6 +15,7 @@ from models import (
     ModelStats, Diagnostics, SollDelta,
 )
 from utils import dates_in_range, paid_hours
+import collections
 from constraints.hard import (
     add_one_shift_per_day,
     add_unavailability,
@@ -102,6 +103,108 @@ def _build_variables(
                 works_day[(emp.id, ds)] = model.NewBoolVar(f"wd_{emp.id}_{ds}")
 
     return shift, works_day
+
+
+def _resolve_stations(
+    assignments: list[AssignmentOutput],
+    request: SolveRequest,
+) -> list[AssignmentOutput]:
+    """Assign a stationNumber to each assignment based on staffing requirements.
+
+    Strategy:
+    1. Group assignments by (date, shiftType).
+    2. Build per-station demand from non-facility-wide staffing requirements.
+    3. Place single-station employees first (they can only go to one station).
+    4. Place multi-station employees greedily to the station with the largest
+       remaining gap (demand minus already-placed count).
+    5. Employees with no station (floaters) or facility-wide-only shift types
+       keep stationNumber = None.
+    """
+    prof_map = {p.id: p for p in request.shiftProfiles}
+    emp_map = {e.id: e for e in request.employees}
+
+    # Build station demands per shift type: {shiftType: {station: minTotalCount}}
+    station_demand: dict[str, dict[int, int]] = collections.defaultdict(dict)
+    for sr in request.staffingRequirements:
+        if sr.isFacilityWide or sr.stationNumber is None:
+            continue
+        station_demand[sr.shiftType][sr.stationNumber] = sr.minTotalCount
+
+    # Group assignments by (date, shiftType)
+    groups: dict[tuple[str, str], list[int]] = collections.defaultdict(list)
+    for idx, a in enumerate(assignments):
+        prof = prof_map.get(a.shiftProfileId)
+        st = prof.shiftType if prof else "?"
+        groups[(a.date, st)].append(idx)
+
+    result = list(assignments)  # shallow copy to mutate stationNumber
+
+    for (ds, shift_type), indices in groups.items():
+        demands = station_demand.get(shift_type)
+        if not demands:
+            # No station-specific requirements for this shift type (e.g., BL, NIGHT fw-only)
+            continue
+
+        # Track how many still needed per station
+        remaining = dict(demands)  # {station: remaining_needed}
+        placed: dict[int, int | None] = {}  # assignment index -> station
+
+        # Separate employees into single-station and multi-station buckets
+        single_station_indices: list[int] = []
+        multi_station_indices: list[int] = []
+
+        for idx in indices:
+            a = assignments[idx]
+            emp = emp_map.get(a.employeeId)
+            if not emp:
+                continue
+            emp_stations = set(emp.assignedStations)
+            # Filter to only stations that have demand for this shift type
+            eligible = emp_stations & set(demands.keys())
+
+            if len(eligible) == 1:
+                single_station_indices.append(idx)
+            elif len(eligible) > 1:
+                multi_station_indices.append(idx)
+            elif len(emp_stations) == 0:
+                # Floater — no assigned stations; will be placed in pass 2
+                multi_station_indices.append(idx)
+
+        # Pass 1: place single-station employees
+        for idx in single_station_indices:
+            a = assignments[idx]
+            emp = emp_map.get(a.employeeId)
+            if not emp:
+                continue
+            eligible = set(emp.assignedStations) & set(demands.keys())
+            if len(eligible) == 1:
+                station = next(iter(eligible))
+                placed[idx] = station
+                remaining[station] = remaining.get(station, 0) - 1
+
+        # Pass 2: place multi-station employees to station with biggest gap
+        for idx in multi_station_indices:
+            a = assignments[idx]
+            emp = emp_map.get(a.employeeId)
+            if not emp:
+                continue
+            emp_stations = set(emp.assignedStations)
+            eligible = emp_stations & set(demands.keys()) if emp_stations else set(demands.keys())
+
+            if not eligible:
+                continue
+
+            # Pick station with the highest remaining need
+            best_station = max(eligible, key=lambda s: remaining.get(s, 0))
+            placed[idx] = best_station
+            remaining[best_station] = remaining.get(best_station, 0) - 1
+
+        # Write station numbers back
+        for idx, station in placed.items():
+            if station is not None:
+                result[idx] = result[idx].model_copy(update={"stationNumber": station})
+
+    return result
 
 
 def solve(request: SolveRequest) -> SolveResponse:
@@ -193,6 +296,9 @@ def solve(request: SolveRequest) -> SolveResponse:
 
     log.info("Extracted %d assignments for %d employees",
              len(assignments), len({a.employeeId for a in assignments}))
+
+    # ── Post-solve: resolve station numbers ────────────────────────────
+    assignments = _resolve_stations(assignments, request)
 
     # ── Diagnostics ─────────────────────────────────────────────────────
     profile_hours = {p.id: p.paidHours for p in request.shiftProfiles}

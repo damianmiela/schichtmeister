@@ -109,6 +109,7 @@ class AssignmentOutput(BaseModel):
     employeeId: str
     date: str
     shiftProfileId: str
+    stationNumber: int | None = None
 
 
 class ModelStats(BaseModel):

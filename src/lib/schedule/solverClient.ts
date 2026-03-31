@@ -104,6 +104,7 @@ interface SolverAssignment {
   employeeId: string;
   date: string;
   shiftProfileId: string;
+  stationNumber: number | null;
 }
 
 interface SolverDiagnostics {
@@ -367,6 +368,7 @@ export function assignmentsToPrismaInputs(
     employeeId: a.employeeId,
     date: new Date(a.date + "T00:00:00.000Z"),
     shiftProfileId: a.shiftProfileId,
+    stationNumber: a.stationNumber ?? undefined,
     createdByUserId: userId,
   }));
 }
