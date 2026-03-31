@@ -399,21 +399,22 @@ export default function MonthTableView({
     filter: SectionFilter = "none",
   ) => {
     // Filter out employees who have no shifts at this station
+    // Also exclude employees that are completely unassigned (they appear in "Nicht eingeplant")
     let filtered = sectionEmployees;
+    const assignedEmpIds = new Set(assignments.map((a) => a.employeeId));
     if (typeof filter === "object" && "station" in filter) {
       const stationNum = filter.station;
       filtered = sectionEmployees.filter((emp) => {
-        // Keep employees who have at least one assignment at this station
+        // Exclude completely unassigned employees — they belong in "Nicht eingeplant"
+        if (!assignedEmpIds.has(emp.id)) return false;
+        // Keep employees who have at least one non-night assignment at this station
         for (const a of assignments) {
           if (a.employeeId !== emp.id) continue;
           const prof = profilesById[a.shiftProfileId];
           if (prof?.shiftType === "NIGHT") continue; // nights are separate
-          // Check: assignment has stationNumber matching, or employee is single-station assigned here
           const assignedStation = a.stationNumber ?? (emp.assignedStations?.length === 1 ? emp.assignedStations[0] : null);
           if (assignedStation === stationNum) return true;
         }
-        // Also keep employees with a non-ACTIVE status (they show status codes)
-        if (emp.status && emp.status !== "ACTIVE") return true;
         return false;
       });
     } else if (filter === "night-only") {

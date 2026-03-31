@@ -10,6 +10,11 @@ import {
   useTheme,
   ToggleButtonGroup,
   ToggleButton,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
 } from "@mui/material";
 import ViewColumnIcon from "@mui/icons-material/ViewColumn";
 import TimelineIcon from "@mui/icons-material/Timeline";
@@ -58,8 +63,15 @@ const SHIFT_TYPE_COLORS: Record<string, string> = {
   BL: "#66bb6a",
 };
 
+const SHIFT_TYPE_LABELS: Record<string, string> = {
+  EARLY: "Frueh",
+  LATE: "Spaet",
+  NIGHT: "Nacht",
+  BL: "BL",
+};
+
 // ══════════════════════════════════════════════════════════
-//  COLUMN VIEW (new default)
+//  COLUMN VIEW (new default) - rows with shift + qualification pills
 // ══════════════════════════════════════════════════════════
 
 function ColumnView({
@@ -73,8 +85,6 @@ function ColumnView({
   profilesById: Record<string, ShiftProfileJson>;
   onEmployeeClick?: (employeeId: string) => void;
 }) {
-  const theme = useTheme();
-
   // Group by station and shift type
   const { stationData, nightRows } = useMemo(() => {
     const stations: Record<number, { early: EmpRow[]; late: EmpRow[]; bl: EmpRow[] }> = {
@@ -127,61 +137,95 @@ function ColumnView({
     return { stationData: stations, nightRows: nights };
   }, [dayAssignments, employeesById, profilesById]);
 
-  const renderPersonChip = (row: EmpRow) => {
+  const renderEmployeeRow = (row: EmpRow) => {
     const name = row.employee
       ? `${row.employee.lastName}, ${row.employee.firstName}`
       : row.employeeId.slice(0, 8);
     const tags = row.employee?.qualificationTags ?? [];
 
     return (
-      <Tooltip
+      <TableRow
         key={row.assignment.id}
-        title={
-          <Box sx={{ p: 0.5 }}>
-            <Typography variant="body2" fontWeight={600}>
-              {row.employee ? `${row.employee.firstName} ${row.employee.lastName}` : row.employeeId}
-            </Typography>
-            <Typography variant="caption" display="block">
-              {row.profile.name}: {row.profile.startTime}–{row.profile.endTime}
-            </Typography>
-            <Box sx={{ my: 0.5 }}>
-              <QualificationPills qualifications={row.employee?.qualifications} tags={tags} compact />
-            </Box>
-          </Box>
-        }
-        arrow
+        hover
+        sx={{ "&:last-child td": { borderBottom: 0 } }}
       >
-        <Chip
-          label={name}
-          size="small"
-          onClick={onEmployeeClick ? () => onEmployeeClick(row.employeeId) : undefined}
-          sx={{
-            fontWeight: 500,
-            fontSize: 12,
-            height: 28,
-            cursor: onEmployeeClick ? "pointer" : "default",
-            "& .MuiChip-label": { px: 1 },
-          }}
-        />
-      </Tooltip>
+        <TableCell sx={{ py: 0.75, pl: 2 }}>
+          <Typography
+            variant="body2"
+            sx={{
+              fontWeight: 500,
+              fontSize: 13,
+              cursor: onEmployeeClick ? "pointer" : "default",
+              "&:hover": onEmployeeClick
+                ? { textDecoration: "underline", color: "primary.main" }
+                : undefined,
+            }}
+            onClick={onEmployeeClick ? () => onEmployeeClick(row.employeeId) : undefined}
+          >
+            {name}
+          </Typography>
+        </TableCell>
+        <TableCell sx={{ py: 0.75 }}>
+          <Chip
+            label={row.profile.name}
+            size="small"
+            sx={{
+              height: 22,
+              fontSize: 11,
+              fontWeight: 600,
+              bgcolor: alpha(SHIFT_TYPE_COLORS[row.profile.shiftType] ?? "#78909c", 0.15),
+              color: SHIFT_TYPE_COLORS[row.profile.shiftType] ?? "#78909c",
+              "& .MuiChip-label": { px: 0.75 },
+            }}
+          />
+        </TableCell>
+        <TableCell sx={{ py: 0.75 }}>
+          <QualificationPills
+            qualifications={row.employee?.qualifications}
+            tags={tags}
+            compact
+          />
+        </TableCell>
+      </TableRow>
     );
   };
 
-  const renderShiftSection = (label: string, rows: EmpRow[], color: string) => {
+  const renderShiftGroup = (label: string, rows: EmpRow[], color: string) => {
     if (rows.length === 0) return null;
     return (
-      <Box sx={{ mb: 1.5 }}>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.5 }}>
-          <Box sx={{ width: 3, height: 16, bgcolor: color, borderRadius: 1 }} />
-          <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ textTransform: "uppercase", letterSpacing: 0.5 }}>
-            {label}
-          </Typography>
-          <Chip label={rows.length} size="small" sx={{ height: 18, fontSize: 10, "& .MuiChip-label": { px: 0.5 } }} />
-        </Box>
-        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, pl: 1.5 }}>
-          {rows.map(renderPersonChip)}
-        </Box>
-      </Box>
+      <>
+        <TableRow>
+          <TableCell
+            colSpan={3}
+            sx={{
+              py: 0.5,
+              px: 1.5,
+              bgcolor: alpha(color, 0.06),
+              borderBottom: `1px solid ${alpha(color, 0.2)}`,
+            }}
+          >
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Box sx={{ width: 3, height: 14, bgcolor: color, borderRadius: 1 }} />
+              <Typography
+                variant="caption"
+                sx={{
+                  fontWeight: 700,
+                  textTransform: "uppercase",
+                  letterSpacing: 0.5,
+                  color: "text.secondary",
+                  fontSize: 11,
+                }}
+              >
+                {label}
+              </Typography>
+              <Typography variant="caption" sx={{ color: "text.disabled", fontSize: 11 }}>
+                ({rows.length})
+              </Typography>
+            </Box>
+          </TableCell>
+        </TableRow>
+        {rows.map(renderEmployeeRow)}
+      </>
     );
   };
 
@@ -195,13 +239,14 @@ function ColumnView({
       <Box
         sx={{
           flex: 1,
-          minWidth: 250,
+          minWidth: 300,
           border: 1,
           borderColor: "divider",
           borderRadius: 2,
           overflow: "hidden",
         }}
       >
+        {/* Station header */}
         <Box
           sx={{
             px: 2,
@@ -228,29 +273,45 @@ function ColumnView({
             }}
           />
         </Box>
-        <Box sx={{ p: 1.5 }}>
-          {renderShiftSection("Früh", data.early, SHIFT_TYPE_COLORS.EARLY)}
-          {renderShiftSection("Spät", data.late, SHIFT_TYPE_COLORS.LATE)}
-          {renderShiftSection("BL", data.bl, SHIFT_TYPE_COLORS.BL)}
-          {total === 0 && (
-            <Typography variant="body2" color="text.secondary" sx={{ textAlign: "center", py: 2, fontStyle: "italic" }}>
-              Keine Schichten
-            </Typography>
-          )}
-        </Box>
+
+        {total === 0 ? (
+          <Typography
+            variant="body2"
+            color="text.secondary"
+            sx={{ textAlign: "center", py: 3, fontStyle: "italic" }}
+          >
+            Keine Schichten
+          </Typography>
+        ) : (
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell sx={{ fontWeight: 600, fontSize: 12, py: 0.5, pl: 2 }}>Name</TableCell>
+                <TableCell sx={{ fontWeight: 600, fontSize: 12, py: 0.5, width: 80 }}>Schicht</TableCell>
+                <TableCell sx={{ fontWeight: 600, fontSize: 12, py: 0.5, width: 120 }}>Qualifikation</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {renderShiftGroup("Frueh", data.early, SHIFT_TYPE_COLORS.EARLY)}
+              {renderShiftGroup("Spaet", data.late, SHIFT_TYPE_COLORS.LATE)}
+              {renderShiftGroup("BL", data.bl, SHIFT_TYPE_COLORS.BL)}
+            </TableBody>
+          </Table>
+        )}
       </Box>
     );
   };
 
   return (
     <Box>
+      {/* Station columns */}
       <Box sx={{ display: "flex", gap: 2, mb: 2 }}>
         {renderStationColumn(1)}
         {renderStationColumn(2)}
         {renderStationColumn(3)}
       </Box>
 
-      {/* Night row */}
+      {/* Night section */}
       <Box
         sx={{
           border: 1,
@@ -271,7 +332,7 @@ function ColumnView({
           }}
         >
           <Typography variant="subtitle2" fontWeight={700} sx={{ color: SHIFT_TYPE_COLORS.NIGHT }}>
-            Nacht (gesamtes Gebäude)
+            Nacht (gesamtes Gebaeude)
           </Typography>
           <Chip
             label={`${nightRows.length} MA`}
@@ -285,17 +346,28 @@ function ColumnView({
             }}
           />
         </Box>
-        <Box sx={{ p: 1.5 }}>
-          {nightRows.length > 0 ? (
-            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
-              {nightRows.map(renderPersonChip)}
-            </Box>
-          ) : (
-            <Typography variant="body2" color="text.secondary" sx={{ textAlign: "center", py: 2, fontStyle: "italic" }}>
-              Keine Nachtschichten
-            </Typography>
-          )}
-        </Box>
+        {nightRows.length > 0 ? (
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell sx={{ fontWeight: 600, fontSize: 12, py: 0.5, pl: 2 }}>Name</TableCell>
+                <TableCell sx={{ fontWeight: 600, fontSize: 12, py: 0.5, width: 80 }}>Schicht</TableCell>
+                <TableCell sx={{ fontWeight: 600, fontSize: 12, py: 0.5, width: 120 }}>Qualifikation</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {nightRows.map(renderEmployeeRow)}
+            </TableBody>
+          </Table>
+        ) : (
+          <Typography
+            variant="body2"
+            color="text.secondary"
+            sx={{ textAlign: "center", py: 3, fontStyle: "italic" }}
+          >
+            Keine Nachtschichten
+          </Typography>
+        )}
       </Box>
     </Box>
   );
@@ -563,7 +635,7 @@ function TimelineView({
       { title: "Station 1", rows: stationRows[1].sort(sortFn) },
       { title: "Station 2", rows: stationRows[2].sort(sortFn) },
       { title: "Station 3", rows: stationRows[3].sort(sortFn) },
-      { title: "Nacht (gesamtes Gebäude)", rows: nightRows.sort(sortFn) },
+      { title: "Nacht (gesamtes Gebaeude)", rows: nightRows.sort(sortFn) },
     ] as Section[];
   }, [dayAssignments, profilesById, employeesById, shiftWishSet, iso]);
 
@@ -600,7 +672,7 @@ export default function DayView({
     return (
       <Box sx={{ p: 3, textAlign: "center" }}>
         <Typography color="text.secondary">
-          Keine Zuweisungen für{" "}
+          Keine Zuweisungen fuer{" "}
           {date.toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long" })}.
         </Typography>
       </Box>

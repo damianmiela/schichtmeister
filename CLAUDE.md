@@ -1,0 +1,1 @@
+after every change. Prepare git commit command for me. Dont give me git add or git push. ONLY simple (no cat eof type) git commit command

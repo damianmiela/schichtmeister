@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { Box, Paper, Tooltip, Typography, Chip } from "@mui/material";
+import { Box, Paper, Tooltip, Typography } from "@mui/material";
 import type { AssignmentJson, EmployeeJson, ShiftProfileJson, StaffingJson } from "@/lib/schedule/scheduleTypes";
 import { monthCalendarRowsLocal } from "@/lib/schedule/monthSchedule";
 import { getWeekNumber } from "@/lib/schedule/viewUtils";
@@ -39,7 +39,7 @@ function resolveStation(
   return null;
 }
 
-// Station colors for visual distinction
+// Station colors
 const STATION_COLORS: Record<number, string> = {
   1: "#1565c0",
   2: "#2e7d32",
@@ -115,8 +115,6 @@ export default function MonthView({
       const station = resolveStation(a, employeesById);
 
       if (st === "NIGHT" || st === "BL") {
-        // Facility-wide
-        const key = `${a.date}|${st}:fw`;
         const prev = counts.get(a.date) ?? {};
         prev[`${st}:fw`] = (prev[`${st}:fw`] ?? 0) + 1;
         counts.set(a.date, prev);
@@ -129,13 +127,12 @@ export default function MonthView({
     return counts;
   }, [assignments, profilesById, employeesById]);
 
-  // Render station-grouped chips for a day
-  function renderDayChips(iso: string) {
+  // Render staffing data for a single day cell
+  function renderDayContent(iso: string) {
     const dayData = dayCounts.get(iso) ?? {};
+    const rows: React.ReactNode[] = [];
 
-    const chips: React.ReactNode[] = [];
-
-    // Per station: Early + Late combined
+    // Per-station rows
     for (const st of stations) {
       const earlyKey = `EARLY:${st}`;
       const lateKey = `LATE:${st}`;
@@ -150,82 +147,149 @@ export default function MonthView({
 
       const earlyOk = earlyCount >= earlyMin;
       const lateOk = lateCount >= lateMin;
-      const allOk = earlyOk && lateOk;
 
-      chips.push(
+      rows.push(
         <Box
           key={`st${st}`}
           sx={{
             display: "flex",
             alignItems: "center",
-            gap: 0.25,
-            fontSize: 9,
-            lineHeight: 1,
+            gap: "4px",
+            py: "1px",
           }}
         >
-          <Box
+          <Typography
             component="span"
             sx={{
               fontWeight: 700,
+              fontSize: 11,
               color: STATION_COLORS[st] ?? "text.primary",
-              minWidth: 18,
+              minWidth: 22,
+              lineHeight: 1,
             }}
           >
             S{st}
+          </Typography>
+          <Box
+            component="span"
+            sx={{
+              fontSize: 11,
+              fontWeight: 600,
+              color: earlyOk ? "success.main" : "error.main",
+              minWidth: 28,
+            }}
+          >
+            F {earlyCount}/{earlyMin}
           </Box>
-          <Chip
-            size="small"
-            label={`F${earlyCount}/${earlyMin}`}
-            color={earlyOk ? "success" : "error"}
-            sx={{ height: 16, fontSize: 9, "& .MuiChip-label": { px: 0.3 } }}
-          />
-          <Chip
-            size="small"
-            label={`S${lateCount}/${lateMin}`}
-            color={lateOk ? "success" : "error"}
-            sx={{ height: 16, fontSize: 9, "& .MuiChip-label": { px: 0.3 } }}
-          />
+          <Box
+            component="span"
+            sx={{
+              fontSize: 11,
+              fontWeight: 600,
+              color: lateOk ? "success.main" : "error.main",
+              minWidth: 28,
+            }}
+          >
+            S {lateCount}/{lateMin}
+          </Box>
         </Box>,
       );
     }
 
-    // Night (facility-wide)
+    // Night row (facility-wide)
     const nightCount = dayData["NIGHT:fw"] ?? 0;
     const nightReq = stationReqs["NIGHT:fw"];
     const nightMin = nightReq?.min ?? 0;
     if (nightMin > 0 || nightCount > 0) {
-      chips.push(
-        <Chip
+      const nightOk = nightCount >= nightMin;
+      rows.push(
+        <Box
           key="night"
-          size="small"
-          label={`N ${nightCount}/${nightMin}`}
-          color={nightCount >= nightMin ? "success" : "error"}
-          sx={{ height: 16, fontSize: 9, "& .MuiChip-label": { px: 0.3 } }}
-        />,
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            gap: "4px",
+            py: "1px",
+            borderTop: rows.length > 0 ? "1px solid" : "none",
+            borderColor: "divider",
+            mt: rows.length > 0 ? "2px" : 0,
+            pt: rows.length > 0 ? "3px" : "1px",
+          }}
+        >
+          <Typography
+            component="span"
+            sx={{
+              fontWeight: 700,
+              fontSize: 11,
+              color: "#7e57c2",
+              minWidth: 22,
+              lineHeight: 1,
+            }}
+          >
+            N
+          </Typography>
+          <Box
+            component="span"
+            sx={{
+              fontSize: 11,
+              fontWeight: 600,
+              color: nightOk ? "success.main" : "error.main",
+            }}
+          >
+            {nightCount}/{nightMin}
+          </Box>
+        </Box>,
       );
     }
 
-    // BL (facility-wide)
+    // BL row (facility-wide)
     const blCount = dayData["BL:fw"] ?? 0;
     const blReq = stationReqs["BL:fw"];
     const blMin = blReq?.min ?? 0;
     if (blMin > 0 || blCount > 0) {
-      chips.push(
-        <Chip
+      const blOk = blCount >= blMin;
+      rows.push(
+        <Box
           key="bl"
-          size="small"
-          label={`B ${blCount}/${blMin}`}
-          color={blCount >= blMin ? "success" : "error"}
-          sx={{ height: 16, fontSize: 9, "& .MuiChip-label": { px: 0.3 } }}
-        />,
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            gap: "4px",
+            py: "1px",
+          }}
+        >
+          <Typography
+            component="span"
+            sx={{
+              fontWeight: 700,
+              fontSize: 11,
+              color: "#66bb6a",
+              minWidth: 22,
+              lineHeight: 1,
+            }}
+          >
+            BL
+          </Typography>
+          <Box
+            component="span"
+            sx={{
+              fontSize: 11,
+              fontWeight: 600,
+              color: blOk ? "success.main" : "error.main",
+            }}
+          >
+            {blCount}/{blMin}
+          </Box>
+        </Box>,
       );
     }
 
-    return chips;
+    return rows;
   }
 
   return (
     <Box sx={{ overflow: "auto" }}>
+      {/* Weekday header */}
       <Box
         sx={{
           display: "grid",
@@ -235,11 +299,13 @@ export default function MonthView({
         }}
       >
         {WEEKDAYS.map((d) => (
-          <Typography key={d} variant="caption" fontWeight={600} textAlign="center">
+          <Typography key={d} variant="caption" fontWeight={700} textAlign="center" sx={{ fontSize: 13 }}>
             {d}
           </Typography>
         ))}
       </Box>
+
+      {/* Calendar rows */}
       {rows.map((row, ri) => (
         <Box
           key={ri}
@@ -256,57 +322,78 @@ export default function MonthView({
                 <Paper
                   key={`pad-${ri}-${ci}`}
                   variant="outlined"
-                  sx={{ minHeight: 100, bgcolor: "action.hover", opacity: 0.5 }}
+                  sx={{ minHeight: 110, bgcolor: "action.hover", opacity: 0.4 }}
                 />
               );
             }
             const [y, m, d] = iso.split("-").map(Number);
             const dayDate = new Date(y, m - 1, d);
             const holidayName = holidayMap?.get(iso);
+            const dayOfWeek = dayDate.getDay();
+            const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
             const cell = (
               <Paper
                 key={iso}
                 variant="outlined"
                 sx={{
-                  minHeight: 100,
-                  p: 0.75,
+                  minHeight: 110,
+                  p: 1,
                   cursor: "pointer",
+                  transition: "background-color 0.15s",
                   "&:hover": { bgcolor: "action.hover" },
-                  ...(holidayName ? { bgcolor: "error.50", borderColor: "error.200" } : {}),
+                  ...(holidayName
+                    ? { bgcolor: "#fff5f5", borderColor: "error.200" }
+                    : isWeekend
+                    ? { bgcolor: "#fafafa" }
+                    : {}),
                 }}
                 onClick={() => onDayClick(dayDate)}
               >
-                <Typography
-                  variant="subtitle2"
-                  fontWeight={700}
-                  component="button"
-                  type="button"
-                  onClick={(ev) => {
-                    ev.stopPropagation();
-                    const monday = new Date(dayDate);
-                    const day = monday.getDay();
-                    const diff = day === 0 ? -6 : 1 - day;
-                    monday.setDate(monday.getDate() + diff);
-                    onWeekClick(getWeekNumber(monday), monday);
-                  }}
-                  sx={{
-                    cursor: "pointer",
-                    border: "none",
-                    background: "none",
-                    p: 0,
-                    font: "inherit",
-                    textAlign: "left",
-                    color: "primary.main",
-                    textDecoration: "underline",
-                  }}
-                >
-                  {d}
-                </Typography>
-                <Box sx={{ display: "flex", flexDirection: "column", gap: 0.3, mt: 0.5 }}>
-                  {renderDayChips(iso)}
+                {/* Day number */}
+                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.5 }}>
+                  <Typography
+                    variant="body2"
+                    component="button"
+                    type="button"
+                    onClick={(ev) => {
+                      ev.stopPropagation();
+                      const monday = new Date(dayDate);
+                      const day = monday.getDay();
+                      const diff = day === 0 ? -6 : 1 - day;
+                      monday.setDate(monday.getDate() + diff);
+                      onWeekClick(getWeekNumber(monday), monday);
+                    }}
+                    sx={{
+                      cursor: "pointer",
+                      border: "none",
+                      background: "none",
+                      p: 0,
+                      font: "inherit",
+                      fontWeight: 700,
+                      fontSize: 14,
+                      color: holidayName ? "error.main" : isWeekend ? "text.secondary" : "primary.main",
+                      textDecoration: "underline",
+                      textDecorationColor: "transparent",
+                      "&:hover": { textDecorationColor: "currentcolor" },
+                    }}
+                  >
+                    {d}
+                  </Typography>
+                  {holidayName && (
+                    <Typography variant="caption" sx={{ fontSize: 9, color: "error.main", fontWeight: 500 }}>
+                      Feiertag
+                    </Typography>
+                  )}
+                </Box>
+
+                {/* Staffing data */}
+                <Box sx={{ display: "flex", flexDirection: "column" }}>
+                  {renderDayContent(iso)}
                 </Box>
               </Paper>
             );
+
             return holidayName ? (
               <Tooltip key={`hol-${iso}`} title={holidayName} arrow>
                 {cell}
