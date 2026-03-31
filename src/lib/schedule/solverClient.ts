@@ -287,7 +287,7 @@ export class SolverError extends Error {
 }
 
 const SOLVER_URL = process.env.SOLVER_URL ?? "http://schichtmeister-solver:8000";
-const SOLVER_TIMEOUT_MS = 60_000;
+const SOLVER_TIMEOUT_MS = 300_000;
 
 export async function callSolver(payload: SolverPayload): Promise<SolverResponse> {
   const controller = new AbortController();
@@ -314,7 +314,7 @@ export async function callSolver(payload: SolverPayload): Promise<SolverResponse
   } catch (e) {
     if (e instanceof SolverError) throw e;
     if (e instanceof DOMException && e.name === "AbortError") {
-      throw new SolverError("Solver-Anfrage Zeitüberschreitung (60s)", 504);
+      throw new SolverError("Solver-Anfrage Zeitüberschreitung (5min)", 504);
     }
     throw new SolverError(
       `Solver nicht erreichbar: ${e instanceof Error ? e.message : String(e)}`,
