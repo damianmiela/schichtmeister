@@ -1041,110 +1041,111 @@ export default function SchedulePage() {
               <Box sx={{ width: 1, height: 24, bgcolor: "divider", mx: 1 }} />
             </>
           )}
-          {viewState.type === "month" && (<>
-            <Button
-              variant="outlined"
-              startIcon={<DownloadIcon />}
-              disabled={loading || !schedule || exportBusy || editMode}
-              onClick={(e) => setExportMenuEl(e.currentTarget)}
-            >
-              {exportBusy ? <CircularProgress size={20} /> : "Export"}
-            </Button>
-            <Menu
-              anchorEl={exportMenuEl}
-              open={Boolean(exportMenuEl)}
-              onClose={() => setExportMenuEl(null)}
-            >
-              <MenuItem
-                onClick={() => void downloadExport("excel")}
-                disabled={exportBusy}
-              >
-                Excel (.xlsx)
-              </MenuItem>
-              <MenuItem
-                onClick={() => void downloadExport("pdf")}
-                disabled={exportBusy}
-              >
-                PDF
-              </MenuItem>
-              <MenuItem
-                onClick={() => void downloadExport("score")}
-                disabled={exportBusy}
-              >
-                Qualitätsbericht (.txt)
-              </MenuItem>
-              <MenuItem
-                onClick={() => void downloadExport("debug")}
-                disabled={exportBusy}
-              >
-                Debug JSON
-              </MenuItem>
-            </Menu>
-          </>
-          <Tooltip title="Generator-Protokoll anzeigen">
-            <Button
-              variant="outlined"
-              size="small"
-              startIcon={<DescriptionIcon />}
-              disabled={loading || !schedule || editMode}
-              onClick={() => void onViewLogs()}
-            >
-              Logs
-            </Button>
-          </Tooltip>
-          <Button
-            variant="outlined"
-            startIcon={<AutoAwesomeIcon />}
-            disabled={loading || !schedule || generateBusy || editMode}
-            onClick={() => {
-              setPreGenEntries([]);
-              setPreGenOpen(true);
-            }}
-          >
-            {generateBusy ? <CircularProgress size={20} /> : "Entwurf füllen"}
-          </Button>
-          <Button
-            variant="outlined"
-            color="error"
-            startIcon={<DeleteSweepIcon />}
-            disabled={loading || !schedule || clearBusy || assignments.length === 0 || editMode}
-            onClick={() => setClearConfirmOpen(true)}
-          >
-            {clearBusy ? <CircularProgress size={20} /> : "Leeren"}
-          </Button>
-          {!editMode ? (
-            <Button
-              variant="outlined"
-              startIcon={<EditIcon />}
-              disabled={
-                loading || !schedule || assignments.length === 0 ||
-                viewState.type !== "month" || monthViewMode !== "table"
-              }
-              onClick={enterEditMode}
-            >
-              Bearbeiten
-            </Button>
-          ) : (
+          {viewState.type === "month" && (
             <>
               <Button
                 variant="outlined"
-                onClick={cancelEditMode}
-                disabled={editSaving}
+                startIcon={<DownloadIcon />}
+                disabled={loading || !schedule || exportBusy || editMode}
+                onClick={(e) => setExportMenuEl(e.currentTarget)}
               >
-                Abbrechen
+                {exportBusy ? <CircularProgress size={20} /> : "Export"}
+              </Button>
+              <Menu
+                anchorEl={exportMenuEl}
+                open={Boolean(exportMenuEl)}
+                onClose={() => setExportMenuEl(null)}
+              >
+                <MenuItem
+                  onClick={() => void downloadExport("excel")}
+                  disabled={exportBusy}
+                >
+                  Excel (.xlsx)
+                </MenuItem>
+                <MenuItem
+                  onClick={() => void downloadExport("pdf")}
+                  disabled={exportBusy}
+                >
+                  PDF
+                </MenuItem>
+                <MenuItem
+                  onClick={() => void downloadExport("score")}
+                  disabled={exportBusy}
+                >
+                  Qualitätsbericht (.txt)
+                </MenuItem>
+                <MenuItem
+                  onClick={() => void downloadExport("debug")}
+                  disabled={exportBusy}
+                >
+                  Debug JSON
+                </MenuItem>
+              </Menu>
+              <Tooltip title="Generator-Protokoll anzeigen">
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<DescriptionIcon />}
+                  disabled={loading || !schedule || editMode}
+                  onClick={() => void onViewLogs()}
+                >
+                  Logs
+                </Button>
+              </Tooltip>
+              <Button
+                variant="outlined"
+                startIcon={<AutoAwesomeIcon />}
+                disabled={loading || !schedule || generateBusy || editMode}
+                onClick={() => {
+                  setPreGenEntries([]);
+                  setPreGenOpen(true);
+                }}
+              >
+                {generateBusy ? <CircularProgress size={20} /> : "Entwurf füllen"}
               </Button>
               <Button
-                variant="contained"
-                color="primary"
-                startIcon={editSaving ? <CircularProgress size={18} color="inherit" /> : <SaveIcon />}
-                disabled={editSaving}
-                onClick={() => void onSaveEdits()}
+                variant="outlined"
+                color="error"
+                startIcon={<DeleteSweepIcon />}
+                disabled={loading || !schedule || clearBusy || assignments.length === 0 || editMode}
+                onClick={() => setClearConfirmOpen(true)}
               >
-                Speichern
+                {clearBusy ? <CircularProgress size={20} /> : "Leeren"}
               </Button>
+              {!editMode ? (
+                <Button
+                  variant="outlined"
+                  startIcon={<EditIcon />}
+                  disabled={
+                    loading || !schedule || assignments.length === 0 ||
+                    viewState.type !== "month" || monthViewMode !== "table"
+                  }
+                  onClick={enterEditMode}
+                >
+                  Bearbeiten
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    variant="outlined"
+                    onClick={cancelEditMode}
+                    disabled={editSaving}
+                  >
+                    Abbrechen
+                  </Button>
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    startIcon={editSaving ? <CircularProgress size={18} color="inherit" /> : <SaveIcon />}
+                    disabled={editSaving}
+                    onClick={() => void onSaveEdits()}
+                  >
+                    Speichern
+                  </Button>
+                </>
+              )}
             </>
           )}
-          </>)}
           <Button
             variant="contained"
             startIcon={<PublishIcon />}
