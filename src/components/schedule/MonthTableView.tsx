@@ -153,9 +153,11 @@ function groupEmployeesByStation(employees: EmployeeJson[]): Record<number, Empl
         }
       }
     } else {
-      if (!added.has(emp.id)) {
-        grouped[1]!.push(emp);
-        added.add(emp.id);
+      for (const st of [1, 2, 3]) {
+        if (!added.has(`${emp.id}-${st}`)) {
+          grouped[st]!.push(emp);
+          added.add(`${emp.id}-${st}`);
+        }
       }
     }
   }
@@ -389,7 +391,13 @@ export default function MonthTableView({
 
   /* ──── section renderer ──── */
 
-  const renderSection = (title: string, sectionEmployees: EmployeeJson[]) => {
+  type SectionFilter = "none" | "night-only" | { station: number };
+
+  const renderSection = (
+    title: string,
+    sectionEmployees: EmployeeJson[],
+    filter: SectionFilter = "none",
+  ) => {
     if (sectionEmployees.length === 0) return null;
     const sorted = sortEmployees(sectionEmployees);
 
@@ -523,6 +531,23 @@ export default function MonthTableView({
                     }}
                   >
                     <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                      {!(emp.assignedStations?.length) && typeof filter === "object" && "station" in filter && (
+                        <Box
+                          component="span"
+                          sx={{
+                            fontSize: 9,
+                            fontWeight: 700,
+                            px: 0.5,
+                            py: 0.1,
+                            borderRadius: 0.5,
+                            bgcolor: "info.100",
+                            color: "info.dark",
+                            lineHeight: 1.3,
+                          }}
+                        >
+                          F
+                        </Box>
+                      )}
                       <Box
                         component="span"
                         onClick={(ev) => {
@@ -531,6 +556,7 @@ export default function MonthTableView({
                         }}
                         sx={{
                           cursor: onEmployeeClick ? "pointer" : "default",
+                          fontStyle: !(emp.assignedStations?.length) && typeof filter === "object" ? "italic" : "normal",
                           "&:hover": onEmployeeClick
                             ? { textDecoration: "underline", color: "primary.main" }
                             : undefined,
@@ -598,7 +624,7 @@ export default function MonthTableView({
                   {/* ── day cells ── */}
                   {dayCols.map((iso) => {
                     const cellKey = `${emp.id}|${iso}`;
-                    const display = getCellDisplay(
+                    let display = getCellDisplay(
                       emp.id,
                       iso,
                       byEmpDay,
@@ -606,6 +632,24 @@ export default function MonthTableView({
                       profilesById,
                       employeesById,
                     );
+
+                    if (filter !== "none" && !display.isStatus) {
+                      const asgn = byEmpDay.get(cellKey);
+                      if (asgn) {
+                        const prof = profilesById[asgn.shiftProfileId];
+                        if (filter === "night-only") {
+                          if (prof?.shiftType !== "NIGHT") {
+                            display = { row1: "X", row2: "", row3: "", isStatus: true, statusCode: "X" };
+                          }
+                        } else if (typeof filter === "object" && "station" in filter) {
+                          const isFloater = !(emp.assignedStations?.length);
+                          if (isFloater && asgn.stationNumber != null && asgn.stationNumber !== filter.station) {
+                            display = { row1: "X", row2: "", row3: "", isStatus: true, statusCode: "X" };
+                          }
+                        }
+                      }
+                    }
+
                     const isShiftWish =
                       shiftWishSet?.has(cellKey) && !display.isStatus;
                     const isFreiWish = freiWishSet?.has(cellKey);
@@ -787,6 +831,93 @@ export default function MonthTableView({
     );
   };
 
+  const unassignedEmployees = useMemo(() => {
+    const assignedIds = new Set(assignments.map((a) => a.employeeId));
+    return employees.filter((e) => !assignedIds.has(e.id));
+  }, [employees, assignments]);
+
+  const renderUnassignedSection = () => {
+    if (unassignedEmployees.length === 0) return null;
+    const sorted = sortEmployees(unassignedEmployees);
+    return (
+      <Box sx={{ mb: 2 }}>
+        <Typography
+          variant="subtitle1"
+          sx={{
+            fontWeight: 700,
+            px: 2,
+            py: 1,
+            bgcolor: "warning.50",
+            borderBottom: 1,
+            borderColor: "divider",
+          }}
+        >
+          Nicht eingeplant ({sorted.length})
+        </Typography>
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell sx={{ fontWeight: 600, minWidth: 200 }}>Mitarbeiter</TableCell>
+              <TableCell sx={{ fontWeight: 600, minWidth: 120 }}>Grund</TableCell>
+              <TableCell sx={{ fontWeight: 600, minWidth: 80 }} align="center">Soll</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {sorted.map((emp) => {
+              let reason: string;
+              if (emp.status === "INACTIVE") {
+                reason = "Inaktiv";
+              } else if (emp.contractType === "AUSBILDUNG") {
+                reason = "Ausbildung";
+              } else if (emp.status === "KRANK") {
+                reason = "Krank (ganzer Monat)";
+              } else if (emp.status === "LANGZEITKRANK") {
+                reason = "Langzeitkrank";
+              } else if (emp.status === "MUTTERSCHUTZ") {
+                reason = "Mutterschutz";
+              } else if (emp.status === "URLAUB") {
+                reason = "Urlaub (ganzer Monat)";
+              } else if (emp.status === "KUR") {
+                reason = "Kur";
+              } else {
+                reason = "Keine passenden Schichten";
+              }
+              const target = monthlyTargetForMonth(emp, year, monthIndex);
+              return (
+                <TableRow key={emp.id} hover>
+                  <TableCell>
+                    <Box
+                      component="span"
+                      onClick={() => onEmployeeClick?.(emp.id)}
+                      sx={{
+                        cursor: onEmployeeClick ? "pointer" : "default",
+                        "&:hover": onEmployeeClick
+                          ? { textDecoration: "underline", color: "primary.main" }
+                          : undefined,
+                      }}
+                    >
+                      {emp.lastName}, {emp.firstName}
+                    </Box>
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2" color="text.secondary">
+                      {reason}
+                    </Typography>
+                  </TableCell>
+                  <TableCell align="center">
+                    <Typography variant="body2" color="text.secondary">
+                      {target != null ? `${formatHours(target)} h` : "–"}
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </Box>
+    );
+  };
+
   /* ──── render ──── */
 
   return (
@@ -799,10 +930,11 @@ export default function MonthTableView({
         borderRadius: 1,
       }}
     >
-      {renderSection("Station 1", stationGroups[1]!)}
-      {renderSection("Station 2", stationGroups[2]!)}
-      {renderSection("Station 3", stationGroups[3]!)}
-      {renderSection("Nacht (gesamtes Gebäude)", nightEmployees)}
+      {renderSection("Station 1", stationGroups[1]!, { station: 1 })}
+      {renderSection("Station 2", stationGroups[2]!, { station: 2 })}
+      {renderSection("Station 3", stationGroups[3]!, { station: 3 })}
+      {renderSection("Nacht (gesamtes Gebäude)", nightEmployees, "night-only")}
+      {renderUnassignedSection()}
 
       {/* ── Left-click menu (Row 1: profiles + status | Row 2/3: markings) ── */}
       <Menu

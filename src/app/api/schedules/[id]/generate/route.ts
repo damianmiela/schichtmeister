@@ -107,7 +107,7 @@ export async function POST(request: Request, context: RouteCtx) {
 
   const body = await request.json().catch(() => ({}));
   const engine: "greedy" | "cpsat" =
-    body?.engine === "cpsat" ? "cpsat" : "greedy";
+    body?.engine === "greedy" ? "greedy" : "cpsat";
   const manualPlacements = parseManualPlacements(body?.manualPlacements);
   const blockedDates = parseBlockedDates(body?.blockedDates);
 

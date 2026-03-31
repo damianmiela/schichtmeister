@@ -168,8 +168,8 @@ export default function SchedulePage() {
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [preGenOpen, setPreGenOpen] = useState(false);
   const [preGenEntries, setPreGenEntries] = useState<PreGenEntry[]>([]);
-  const [genEngine, setGenEngine] = useState<"greedy" | "cpsat">("greedy");
-  const GENERATE_STAGES = genEngine === "cpsat" ? CPSAT_STAGES : GREEDY_STAGES;
+  const genEngine = "cpsat" as const;
+  const GENERATE_STAGES = CPSAT_STAGES;
   const [editMode, setEditMode] = useState(false);
   const [editedCells, setEditedCells] = useState<Map<string, CellEdit>>(new Map());
   const [editedShiftWishSet, setEditedShiftWishSet] = useState<Set<string>>(new Set());
@@ -1336,31 +1336,16 @@ export default function SchedulePage() {
               mb: 2,
               p: 1.5,
               borderRadius: 1,
-              bgcolor: genEngine === "cpsat" ? "primary.50" : "action.hover",
+              bgcolor: "primary.50",
               border: "1px solid",
-              borderColor: genEngine === "cpsat" ? "primary.200" : "divider",
+              borderColor: "primary.200",
             }}
           >
-            <Typography variant="subtitle2" sx={{ minWidth: 60 }}>
-              Engine:
+            <Typography variant="subtitle2">
+              Engine: CP-SAT Solver
             </Typography>
-            <ToggleButtonGroup
-              size="small"
-              exclusive
-              value={genEngine}
-              onChange={(_, v) => v && setGenEngine(v)}
-            >
-              <ToggleButton value="greedy">
-                Schnell (Heuristik)
-              </ToggleButton>
-              <ToggleButton value="cpsat">
-                Optimal (CP-SAT)
-              </ToggleButton>
-            </ToggleButtonGroup>
             <Typography variant="caption" color="text.secondary" sx={{ flex: 1 }}>
-              {genEngine === "cpsat"
-                ? "Findet die bestmögliche Lösung (ca. 10–30 Sek.)"
-                : "Schnelle Heuristik (< 5 Sek.)"}
+              Findet die bestmögliche Lösung (ca. 10–120 Sek.)
             </Typography>
           </Box>
 
