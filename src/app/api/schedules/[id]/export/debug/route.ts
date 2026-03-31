@@ -27,7 +27,7 @@ export async function GET(_request: Request, context: RouteCtx) {
     return NextResponse.json({ error: "Nicht gefunden" }, { status: 404 });
   }
 
-  const [genCtx, facility, employees, assignments] = await Promise.all([
+  const [genCtx, facility, employees, assignments, absences] = await Promise.all([
     loadGenerateContext(prisma, facilityId, schedule.periodStart, schedule.periodEnd),
     prisma.facility.findUniqueOrThrow({
       where: { id: facilityId },
@@ -35,11 +35,24 @@ export async function GET(_request: Request, context: RouteCtx) {
     }),
     prisma.employee.findMany({
       where: { facilityId },
-      select: { id: true, firstName: true, lastName: true, status: true },
+      select: {
+        id: true, firstName: true, lastName: true, status: true,
+        contractType: true, isFullTimeBl: true, fixedWorkingDays: true,
+        shiftDistribution: true, targetHoursPercent: true, targetHours: true,
+        targetHoursPeriod: true,
+      },
     }),
     prisma.assignment.findMany({
       where: { scheduleId },
-      select: { employeeId: true, date: true, shiftProfileId: true },
+      select: { employeeId: true, date: true, shiftProfileId: true, stationNumber: true },
+    }),
+    prisma.employeeAbsence.findMany({
+      where: {
+        employee: { facilityId },
+        startDate: { lte: schedule.periodEnd },
+        endDate: { gte: schedule.periodStart },
+      },
+      select: { employeeId: true, startDate: true, endDate: true, type: true },
     }),
   ]);
 
@@ -47,6 +60,29 @@ export async function GET(_request: Request, context: RouteCtx) {
   for (const e of employees) {
     employeeNames[e.id] = `${e.firstName} ${e.lastName}`;
   }
+
+  const employeeProfiles: Record<string, object> = {};
+  for (const e of employees) {
+    employeeProfiles[e.id] = {
+      name: `${e.firstName} ${e.lastName}`,
+      status: e.status,
+      contractType: e.contractType,
+      targetHoursPercent: e.targetHoursPercent ? Number(e.targetHoursPercent) : null,
+      targetHours: e.targetHours ? Number(e.targetHours) : null,
+      targetHoursPeriod: e.targetHoursPeriod,
+      isFullTimeBl: e.isFullTimeBl,
+      fixedWorkingDays: e.fixedWorkingDays,
+      shiftDistribution: e.shiftDistribution,
+    };
+  }
+
+  const employeeAbsences = absences.map((a) => ({
+    employeeId: a.employeeId,
+    employeeName: employeeNames[a.employeeId] ?? "?",
+    startDate: toIsoDateOnly(a.startDate),
+    endDate: toIsoDateOnly(a.endDate),
+    type: a.type,
+  }));
 
   const profileNames: Record<string, string> = {};
   const profileShiftTypes: Record<string, string> = {};
@@ -90,6 +126,7 @@ export async function GET(_request: Request, context: RouteCtx) {
     shiftProfileId: a.shiftProfileId,
     shiftProfileName: profileNames[a.shiftProfileId] ?? "?",
     shiftType: profileShiftTypes[a.shiftProfileId] ?? "?",
+    stationNumber: a.stationNumber,
   }));
 
   const result = {
@@ -106,6 +143,8 @@ export async function GET(_request: Request, context: RouteCtx) {
     },
     planningRules: snapshot,
     employeeNames,
+    employeeProfiles,
+    employeeAbsences,
     profileNames,
     staffingRequirements,
     currentAssignments,
