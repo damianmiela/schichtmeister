@@ -524,7 +524,7 @@ export default function SchedulePage() {
     }
   };
 
-  const downloadExport = async (kind: "excel" | "pdf" | "debug") => {
+  const downloadExport = async (kind: "excel" | "pdf" | "debug" | "score") => {
     if (!schedule) return;
     setExportBusy(true);
     setActionMsg(null);
@@ -547,7 +547,7 @@ export default function SchedulePage() {
       const blob = await res.blob();
       const cd = res.headers.get("Content-Disposition");
       const m = cd?.match(/filename="([^"]+)"/);
-      const fallbackMap = { excel: "dienstplan.xlsx", pdf: "dienstplan.pdf", debug: "debug.json" };
+      const fallbackMap = { excel: "dienstplan.xlsx", pdf: "dienstplan.pdf", debug: "debug.json", score: "qualitaetsbericht.txt" };
       const filename = m?.[1] ?? fallbackMap[kind];
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -1066,6 +1066,12 @@ export default function SchedulePage() {
                 disabled={exportBusy}
               >
                 PDF
+              </MenuItem>
+              <MenuItem
+                onClick={() => void downloadExport("score")}
+                disabled={exportBusy}
+              >
+                Qualitätsbericht (.txt)
               </MenuItem>
               <MenuItem
                 onClick={() => void downloadExport("debug")}

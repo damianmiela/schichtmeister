@@ -12,7 +12,8 @@ import {
   loadGenerateContext,
   runGreedyScheduleGeneration,
 } from "@/lib/schedule/generateDraftSchedule";
-import { runCpsatGeneration, SolverError, type CpsatGenerateResult } from "@/lib/schedule/solverClient";
+import { runCpsatGeneration, SolverError, callScorer, buildSolverPayload, type CpsatGenerateResult } from "@/lib/schedule/solverClient";
+import type { FacilityRulesSlice } from "@/lib/planning/merge";
 
 /**
  * Replaces the roster: **deletes all assignments** on this schedule (Entwurf or veröffentlicht), then
@@ -267,11 +268,89 @@ export async function POST(request: Request, context: RouteCtx) {
     })),
   };
 
+  // ── Build score report (fire-and-forget style, non-blocking on failure) ──
+  let scoreReport: string | null = null;
+  try {
+    // Build employee name map
+    const allEmps = await prisma.employee.findMany({
+      where: { facilityId },
+      select: {
+        id: true, firstName: true, lastName: true, status: true,
+        contractType: true, isFullTimeBl: true, targetHoursPercent: true,
+        targetHours: true, targetHoursPeriod: true,
+      },
+    });
+    const employeeNames: Record<string, string> = {};
+    for (const e of allEmps) {
+      employeeNames[e.id] = `${e.firstName} ${e.lastName}`;
+    }
+
+    const profileNames: Record<string, string> = {};
+    const profileShiftTypes: Record<string, string> = {};
+    for (const p of genCtx.profiles) {
+      profileNames[p.id] = p.name;
+      profileShiftTypes[p.id] = p.shiftType;
+    }
+
+    const staffingRequirements = [...genCtx.mergedStaffing.entries()].map(([key, entry]) => ({
+      key,
+      ...entry,
+    }));
+
+    const currentAssignments = rows.map((a) => ({
+      employeeId: a.employeeId,
+      date: toIsoDateOnly(a.date),
+      shiftProfileId: a.shiftProfileId,
+      shiftType: profileShiftTypes[a.shiftProfileId] ?? "?",
+      stationNumber: a.stationNumber,
+    }));
+
+    let solverPayload: Record<string, unknown> | null = null;
+    try {
+      const facilitySlice: FacilityRulesSlice = engine === "cpsat"
+        ? (await prisma.facility.findUniqueOrThrow({
+            where: { id: facilityId },
+            select: { minRestHours: true, miniJobMaxMonthlyHours: true, ruleOverridesJson: true },
+          }))
+        : { minRestHours: 11, miniJobMaxMonthlyHours: null, ruleOverridesJson: null };
+      solverPayload = buildSolverPayload(
+        scheduleId,
+        schedule.periodStart,
+        schedule.periodEnd,
+        genCtx,
+        facilitySlice,
+        [],
+        [],
+      ) as unknown as Record<string, unknown>;
+    } catch {
+      // Non-critical: proceed without solver payload
+    }
+
+    const debugJson = {
+      schedule: {
+        id: schedule.id,
+        periodStart: toIsoDateOnly(schedule.periodStart),
+        periodEnd: toIsoDateOnly(schedule.periodEnd),
+        status: schedule.status,
+      },
+      employeeNames,
+      profileNames,
+      staffingRequirements,
+      currentAssignments,
+      solverPayload,
+    };
+
+    scoreReport = await callScorer(debugJson);
+  } catch {
+    // Score generation is non-critical — proceed without it
+  }
+
   await prisma.schedule.update({
     where: { id: scheduleId },
     data: {
       warningsJson: allWarnings.length > 0 ? JSON.stringify(allWarnings) : null,
       generationLog: report.debugLog || null,
+      scoreReport: scoreReport || null,
       preGenWishesJson:
         preGenWishes.shiftWishes.length > 0 || preGenWishes.freiDates.length > 0
           ? JSON.stringify(preGenWishes)

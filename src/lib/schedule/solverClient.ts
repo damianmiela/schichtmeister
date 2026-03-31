@@ -319,6 +319,30 @@ export class SolverError extends Error {
 
 const SOLVER_URL = process.env.SOLVER_URL ?? "http://schichtmeister-solver:8000";
 const SOLVER_TIMEOUT_MS = 300_000;
+const SCORER_TIMEOUT_MS = 30_000;
+
+/**
+ * Call the solver's /score endpoint with a debug-export JSON to get a
+ * plain-text quality report.  Returns null on any failure (non-critical).
+ */
+export async function callScorer(debugJson: Record<string, unknown>): Promise<string | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SCORER_TIMEOUT_MS);
+  try {
+    const resp = await fetch(`${SOLVER_URL}/score`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(debugJson),
+      signal: controller.signal,
+    });
+    if (!resp.ok) return null;
+    return await resp.text();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export async function callSolver(payload: SolverPayload): Promise<SolverResponse> {
   const controller = new AbortController();
