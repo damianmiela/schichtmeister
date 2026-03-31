@@ -172,7 +172,7 @@ function EmployeeRow({
         />
       </Box>
       <Typography variant="caption" display="block" color="text.secondary">
-        Station {employee?.assignedStations?.length ? employee.assignedStations.join("+") : "–"}
+        Station {assignment.stationNumber ?? (employee?.assignedStations?.length ? employee.assignedStations.join("+") : "–")}
       </Typography>
     </Box>
   );
@@ -403,7 +403,9 @@ export default function DayView({
       if (profile.shiftType === "NIGHT") {
         nightRows.push(row);
       } else {
-        const st = employee?.assignedStations?.[0] ?? 1;
+        // Use the solver-assigned station from the assignment first,
+        // fall back to the employee's profile station
+        const st = a.stationNumber ?? employee?.assignedStations?.[0] ?? 1;
         (stationRows[st] ?? stationRows[1]).push(row);
       }
     }
