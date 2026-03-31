@@ -76,8 +76,13 @@ class RulesInput(BaseModel):
     maxConsecutiveNights: int = 3
     maxConsecutiveDays: int = 7
     requiredRestDaysAfterStreak: int = 2
+    requiredRestDaysAfter6: int = 2
     maxOvertimeHours: float = 8
     maxUndercutHours: float = 4
+    alternatingWeekendsEnabled: bool = True
+    wblMaxWeekendDays: int = 3
+    sollMinDelta: float = -4.0
+    sollMaxDelta: float = 8.0
 
 
 class SolveRequest(BaseModel):

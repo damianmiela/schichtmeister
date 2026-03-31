@@ -27,6 +27,8 @@ W_SOLL_DEV = 100
 W_OVERTIME = 200
 W_UNDERCUT = 150
 W_FAIRNESS = 50
+# Tier 0 — Soll hard-delta bounds (nearly hard constraint)
+W_SOLL_HARD = 200_000
 # Tier 4 — Wishes & preferences
 W_WISH_NORMAL = 3_000
 W_WISH_STRONG = 6_000
@@ -53,10 +55,12 @@ def add_staffing_minimum_soft(
     shift: ShiftVar,
     req: SolveRequest,
 ) -> list[tuple[cp_model.IntVar, int]]:
-    """Penalize understaffing — each missing person per day per requirement costs W_STAFFING_MIN."""
+    """Penalize understaffing — each missing person per day per requirement costs W_STAFFING_MIN.
+    BL profiles are excluded from station headcount — BL workers don't fill station positions."""
     terms: list[tuple[cp_model.IntVar, int]] = []
     dates = dates_in_range(req.periodStart, req.periodEnd)
     emp_stations = _emp_station_map(req)
+    bl_profile_ids = {p.id for p in req.shiftProfiles if p.shiftType == "BL"}
     for sr in req.staffingRequirements:
         if sr.minTotalCount <= 0:
             continue
@@ -68,6 +72,8 @@ def add_staffing_minimum_soft(
                     continue
                 for p in req.shiftProfiles:
                     if p.shiftType != sr.shiftType:
+                        continue
+                    if p.id in bl_profile_ids:
                         continue
                     key = (emp.id, ds, p.id)
                     if key in shift:
@@ -87,13 +93,14 @@ def add_qualification_coverage_soft(
     shift: ShiftVar,
     req: SolveRequest,
 ) -> list[tuple[cp_model.IntVar, int]]:
-    """Penalize missing qualification coverage per day."""
+    """Penalize missing qualification coverage per day. BL profiles excluded."""
     terms: list[tuple[cp_model.IntVar, int]] = []
     dates = dates_in_range(req.periodStart, req.periodEnd)
     emp_tags: dict[str, set[str]] = {
         e.id: set(e.qualificationTags) for e in req.employees
     }
     emp_stations = _emp_station_map(req)
+    bl_profile_ids = {p.id for p in req.shiftProfiles if p.shiftType == "BL"}
     for sr in req.staffingRequirements:
         for qr in sr.qualificationRequirements:
             tags = [t.strip() for t in ",".join(qr.tags).split(",")]
@@ -109,6 +116,8 @@ def add_qualification_coverage_soft(
                         continue
                     for p in req.shiftProfiles:
                         if p.shiftType != sr.shiftType:
+                            continue
+                        if p.id in bl_profile_ids:
                             continue
                         key = (emp.id, ds, p.id)
                         if key in shift:
@@ -225,10 +234,16 @@ def add_soll_deviation(
     shift: ShiftVar,
     req: SolveRequest,
 ) -> list[tuple[cp_model.IntVar, int]]:
-    """Minimize |total_hours[e] - soll[e]| for each employee."""
+    """Minimize |total_hours[e] - soll[e]| with tiered penalties.
+    
+    Within [sollMinDelta, sollMaxDelta]: normal W_SOLL_DEV weight.
+    Outside that range: very heavy W_SOLL_HARD penalty per extra hour.
+    """
     terms: list[tuple[cp_model.IntVar, int]] = []
     dates = dates_in_range(req.periodStart, req.periodEnd)
     soll_map = req.monthlySollHoursByEmployee or {}
+    min_delta = req.rules.sollMinDelta
+    max_delta = req.rules.sollMaxDelta
 
     for emp in req.employees:
         soll = soll_map.get(emp.id)
@@ -258,6 +273,18 @@ def add_soll_deviation(
         model.Add(dev >= total - soll_scaled)
         model.Add(dev >= soll_scaled - total)
         terms.append((dev, W_SOLL_DEV))
+
+        # Tier 0 heavy penalty: beyond allowed delta range
+        upper_bound_scaled = int((soll + max_delta) * SCALE)
+        lower_bound_scaled = int((soll + min_delta) * SCALE)
+
+        over_excess = model.NewIntVar(0, 744 * SCALE, f"soll_over_{emp.id}")
+        model.Add(over_excess >= total - upper_bound_scaled)
+        terms.append((over_excess, W_SOLL_HARD))
+
+        under_excess = model.NewIntVar(0, 744 * SCALE, f"soll_under_{emp.id}")
+        model.Add(under_excess >= lower_bound_scaled - total)
+        terms.append((under_excess, W_SOLL_HARD))
 
     return terms
 

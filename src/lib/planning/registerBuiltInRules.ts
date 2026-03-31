@@ -8,7 +8,15 @@ import { miniJobMonthlyHoursRule } from "@/lib/planning/rules/miniJobMonthlyHour
 import { noOverlapRule } from "@/lib/planning/rules/noOverlap";
 import { overtimeExcessRule } from "@/lib/planning/rules/overtimeExcess";
 import { qualificationCoverageRule } from "@/lib/planning/rules/qualificationCoverage";
-import { fairnessCountersRule, targetHoursBalanceRule, wishFulfillmentRule } from "@/lib/planning/rules/softStubs";
+import {
+  fairnessCountersRule,
+  targetHoursBalanceRule,
+  wishFulfillmentRule,
+  restAfter6DaysRule,
+  alternatingWeekendsRule,
+  wblWeekendLimitRule,
+  sollDeltaRule,
+} from "@/lib/planning/rules/softStubs";
 import { staffingMinimumRule } from "@/lib/planning/rules/staffingMinimum";
 
 /** Idempotent: overwrites any prior registration for the same rule ids. */
@@ -64,5 +72,21 @@ export function registerBuiltInPlanningRules(): void {
   registerRule(
     { id: "overtimeExcess", severity: "soft", scope: "employee", description: "Employee hours should not exceed Soll + 8h overtime." },
     overtimeExcessRule,
+  );
+  registerRule(
+    { id: "restAfter6Days", severity: "hard", scope: "employee", description: "Nach 6+ aufeinanderfolgenden Arbeitstagen sind zusätzliche Ruhetage erforderlich." },
+    restAfter6DaysRule,
+  );
+  registerRule(
+    { id: "alternatingWeekends", severity: "hard", scope: "employee", description: "Jedes zweite Wochenende muss frei sein." },
+    alternatingWeekendsRule,
+  );
+  registerRule(
+    { id: "wblWeekendLimit", severity: "hard", scope: "employee", description: "WBL-Mitarbeiter können max. 1,5 Wochenenden pro Monat arbeiten (max. 3 Wochenendtage)." },
+    wblWeekendLimitRule,
+  );
+  registerRule(
+    { id: "sollDelta", severity: "hard", scope: "employee", description: "Soll-Stunden-Abweichung: Zielbereich für alle Mitarbeiter (Standard: -4h bis +8h)." },
+    sollDeltaRule,
   );
 }

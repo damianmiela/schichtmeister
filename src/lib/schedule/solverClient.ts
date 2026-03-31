@@ -74,8 +74,13 @@ interface SolverRules {
   maxConsecutiveNights: number;
   maxConsecutiveDays: number;
   requiredRestDaysAfterStreak: number;
+  requiredRestDaysAfter6: number;
   maxOvertimeHours: number;
   maxUndercutHours: number;
+  alternatingWeekendsEnabled: boolean;
+  wblMaxWeekendDays: number;
+  sollMinDelta: number;
+  sollMaxDelta: number;
 }
 
 export interface SolverPayload {
@@ -157,6 +162,10 @@ export function buildSolverPayload(
 
   const maxNightsRule = snapshot.ruleStates["maxConsecutiveNights"];
   const maxDaysRule = snapshot.ruleStates["maxConsecutiveDays"];
+  const altWeekendRule = snapshot.ruleStates["alternatingWeekends"];
+  const wblWeekendRule = snapshot.ruleStates["wblWeekendLimit"];
+  const sollDeltaRule = snapshot.ruleStates["sollDelta"];
+  const restAfter6Rule = snapshot.ruleStates["restAfter6Days"];
 
   const rules: SolverRules = {
     minRestHours: snapshot.minRestHours,
@@ -172,8 +181,25 @@ export function buildSolverPayload(
       maxDaysRule?.enabled
         ? (maxDaysRule.params.requiredRestDays as number) ?? 2
         : 0,
+    requiredRestDaysAfter6:
+      restAfter6Rule?.enabled
+        ? (restAfter6Rule.params.requiredRestDays as number) ?? 2
+        : 0,
     maxOvertimeHours: 8,
     maxUndercutHours: 4,
+    alternatingWeekendsEnabled: altWeekendRule?.enabled ?? true,
+    wblMaxWeekendDays:
+      wblWeekendRule?.enabled
+        ? (wblWeekendRule.params.maxWeekendDays as number) ?? 3
+        : 99,
+    sollMinDelta:
+      sollDeltaRule?.enabled
+        ? (sollDeltaRule.params.minDelta as number) ?? -4
+        : -999,
+    sollMaxDelta:
+      sollDeltaRule?.enabled
+        ? (sollDeltaRule.params.maxDelta as number) ?? 8
+        : 999,
   };
 
   const startYear = periodStart.getUTCFullYear();

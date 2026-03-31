@@ -6,3 +6,11 @@ export const wishFulfillmentRule: RuleFn = () => ({ errors: [], warnings: [] });
 export const fairnessCountersRule: RuleFn = () => ({ errors: [], warnings: [] });
 
 export const targetHoursBalanceRule: RuleFn = () => ({ errors: [], warnings: [] });
+
+export const restAfter6DaysRule: RuleFn = () => ({ errors: [], warnings: [] });
+
+export const alternatingWeekendsRule: RuleFn = () => ({ errors: [], warnings: [] });
+
+export const wblWeekendLimitRule: RuleFn = () => ({ errors: [], warnings: [] });
+
+export const sollDeltaRule: RuleFn = () => ({ errors: [], warnings: [] });

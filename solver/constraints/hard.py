@@ -128,6 +128,8 @@ def add_staffing_maximum(
     emp_stations = _emp_station_map(req)
 
     # Per-station caps: only employees explicitly assigned to that station
+    # BL profiles are excluded — BL workers don't fill station positions
+    bl_profile_ids = {p.id for p in req.shiftProfiles if p.shiftType == "BL"}
     for sr in req.staffingRequirements:
         if sr.maxTotalCount is None:
             continue
@@ -145,6 +147,8 @@ def add_staffing_maximum(
                         continue
                 for p in req.shiftProfiles:
                     if p.shiftType != sr.shiftType:
+                        continue
+                    if p.id in bl_profile_ids:
                         continue
                     key = (emp.id, ds, p.id)
                     if key in shift:
@@ -166,6 +170,8 @@ def add_staffing_maximum(
             for emp in req.employees:
                 for p in req.shiftProfiles:
                     if p.shiftType != stype:
+                        continue
+                    if p.id in bl_profile_ids:
                         continue
                     key = (emp.id, ds, p.id)
                     if key in shift:
@@ -282,6 +288,7 @@ def add_max_consecutive_days(
     req: SolveRequest,
 ):
     max_days = req.rules.maxConsecutiveDays
+    rest_after_6 = req.rules.requiredRestDaysAfter6
     dates = _dates(req)
 
     for emp in req.employees:
@@ -293,9 +300,21 @@ def add_max_consecutive_days(
             else:
                 day_vars.append(0)
 
+        # Existing: no more than max_days in a window of max_days+1
         window = max_days + 1
         for i in range(len(day_vars) - window + 1):
             model.Add(sum(day_vars[i:i + window]) <= max_days)
+
+        # After 6+ consecutive days: require rest_after_6 days off
+        if rest_after_6 > 0 and len(day_vars) >= 8:
+            for i in range(len(day_vars) - 7):
+                streak_6 = model.NewBoolVar(f"streak6_{emp.id}_{i}")
+                model.Add(sum(day_vars[i:i + 6]) >= 6).OnlyEnforceIf(streak_6)
+                model.Add(sum(day_vars[i:i + 6]) <= 5).OnlyEnforceIf(streak_6.Not())
+                for off in range(rest_after_6):
+                    idx = i + 6 + off
+                    if idx < len(day_vars):
+                        model.Add(day_vars[idx] == 0).OnlyEnforceIf(streak_6)
 
 
 # ── H12: WBL gets at most 1 BL per ISO week ─────────────────────────────────
@@ -443,3 +462,89 @@ def add_mini_job_cap(
         model.Add(
             sum(int(h * scale) * v for v, h in hour_terms) <= scaled_limit
         )
+
+
+# ── H16: Alternating weekends (every other weekend free) ─────────────────
+
+def add_alternating_weekends(
+    model: cp_model.CpModel,
+    works_day: WorksDay,
+    req: SolveRequest,
+):
+    if not req.rules.alternatingWeekendsEnabled:
+        return
+
+    dates = _dates(req)
+    weekends: list[tuple[date | None, date | None]] = []
+    i = 0
+    while i < len(dates):
+        d = dates[i]
+        if d.isoweekday() == 6:
+            sat = d
+            sun = dates[i + 1] if i + 1 < len(dates) and dates[i + 1].isoweekday() == 7 else None
+            weekends.append((sat, sun))
+            i += 2 if sun else 1
+        elif d.isoweekday() == 7:
+            weekends.append((None, d))
+            i += 1
+        else:
+            i += 1
+
+    if len(weekends) < 2:
+        return
+
+    for emp in req.employees:
+        for wi in range(len(weekends) - 1):
+            sat_k, sun_k = weekends[wi]
+            sat_next, sun_next = weekends[wi + 1]
+
+            wk_vars = []
+            if sat_k:
+                key = (emp.id, sat_k.isoformat())
+                if key in works_day:
+                    wk_vars.append(works_day[key])
+            if sun_k:
+                key = (emp.id, sun_k.isoformat())
+                if key in works_day:
+                    wk_vars.append(works_day[key])
+
+            if not wk_vars:
+                continue
+
+            works_wk = model.NewBoolVar(f"wknd_{emp.id}_{wi}")
+            model.AddMaxEquality(works_wk, wk_vars)
+
+            if sat_next:
+                key = (emp.id, sat_next.isoformat())
+                if key in works_day:
+                    model.Add(works_day[key] == 0).OnlyEnforceIf(works_wk)
+            if sun_next:
+                key = (emp.id, sun_next.isoformat())
+                if key in works_day:
+                    model.Add(works_day[key] == 0).OnlyEnforceIf(works_wk)
+
+
+# ── H17: WBL max weekend-days per month ──────────────────────────────────
+
+def add_wbl_weekend_limit(
+    model: cp_model.CpModel,
+    works_day: WorksDay,
+    req: SolveRequest,
+):
+    max_wd = req.rules.wblMaxWeekendDays
+    if max_wd <= 0:
+        return
+
+    dates = _dates(req)
+    weekend_dates = [d for d in dates if d.isoweekday() in (6, 7)]
+    if not weekend_dates:
+        return
+
+    for emp in [e for e in req.employees if e.isWbl]:
+        wknd_vars = []
+        for d in weekend_dates:
+            key = (emp.id, d.isoformat())
+            if key in works_day:
+                wknd_vars.append(works_day[key])
+        if wknd_vars:
+            model.Add(sum(wknd_vars) <= max_wd)

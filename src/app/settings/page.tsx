@@ -116,12 +116,19 @@ const RULE_LABELS: Record<string, string> = {
   minRestBetweenShifts: "Mindestruhezeit zwischen Schichten",
   maxConsecutiveNights: "Max. aufeinanderfolgende Nachtschichten",
   maxConsecutiveDays: "Max. aufeinanderfolgende Arbeitstage",
+  restAfter6Days: "Ruhetage nach 6+ Arbeitstagen",
+  alternatingWeekends: "Jedes zweite Wochenende frei",
+  wblWeekendLimit: "WBL max. Wochenendtage pro Monat",
+  sollDelta: "Soll-Stunden Abweichungsbereich",
 };
 
 const PARAM_LABELS: Record<string, string> = {
   maxCount: "Maximale Nächte",
   maxDays: "Maximale Tage",
   requiredRestDays: "Erforderliche Ruhetage danach",
+  maxWeekendDays: "Max. Wochenendtage",
+  minDelta: "Min. Abweichung (Stunden)",
+  maxDelta: "Max. Abweichung (Stunden)",
 };
 
 function extractApiError(e: unknown, fallback: string): string {
@@ -1275,7 +1282,6 @@ export default function SettingsPage() {
                       const d = rulesDraft[rule.id];
                       if (!d) return null;
                       const paramKeys = Object.keys(rule.params);
-                      if (paramKeys.length === 0) return null;
 
                       return (
                         <Box
@@ -1284,51 +1290,79 @@ export default function SettingsPage() {
                             mb: 2,
                             p: 2,
                             border: "1px solid",
-                            borderColor: "divider",
+                            borderColor: d.enabled ? "primary.main" : "divider",
                             borderRadius: 1,
+                            opacity: d.enabled ? 1 : 0.6,
                           }}
                         >
-                          <Typography variant="subtitle2" gutterBottom>
-                            {RULE_LABELS[rule.id] ?? rule.id}
-                          </Typography>
-                          <Typography
-                            variant="body2"
-                            color="text.secondary"
-                            sx={{ mb: 1.5 }}
-                          >
-                            {rule.description}
-                          </Typography>
-                          <Box
-                            sx={{
-                              display: "flex",
-                              gap: 2,
-                              flexWrap: "wrap",
-                            }}
-                          >
-                            {paramKeys.map((k) => (
-                              <TextField
-                                key={k}
-                                label={PARAM_LABELS[k] ?? k}
-                                size="small"
-                                type="number"
-                                value={d.params[k] ?? ""}
-                                onChange={(e) =>
-                                  setRulesDraft((prev) => ({
-                                    ...prev,
-                                    [rule.id]: {
-                                      ...prev[rule.id],
-                                      params: {
-                                        ...prev[rule.id].params,
-                                        [k]: e.target.value,
+                          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 0.5 }}>
+                            <Typography variant="subtitle2">
+                              {RULE_LABELS[rule.id] ?? rule.id}
+                            </Typography>
+                            <FormControlLabel
+                              control={
+                                <Switch
+                                  size="small"
+                                  checked={d.enabled}
+                                  onChange={(e) =>
+                                    setRulesDraft((prev) => ({
+                                      ...prev,
+                                      [rule.id]: {
+                                        ...prev[rule.id],
+                                        enabled: e.target.checked,
                                       },
-                                    },
-                                  }))
-                                }
-                                inputProps={{ min: 0 }}
-                                sx={{ width: 200 }}
-                              />
-                            ))}
+                                    }))
+                                  }
+                                />
+                              }
+                              label={d.enabled ? "Aktiv" : "Inaktiv"}
+                              labelPlacement="start"
+                              sx={{ mr: 0 }}
+                            />
                           </Box>
+                          {rule.description && (
+                            <Typography
+                              variant="body2"
+                              color="text.secondary"
+                              sx={{ mb: 1.5 }}
+                            >
+                              {rule.description}
+                            </Typography>
+                          )}
+                          {paramKeys.length > 0 && (
+                            <Box
+                              sx={{
+                                display: "flex",
+                                gap: 2,
+                                flexWrap: "wrap",
+                              }}
+                            >
+                              {paramKeys.map((k) => (
+                                <TextField
+                                  key={k}
+                                  label={PARAM_LABELS[k] ?? k}
+                                  size="small"
+                                  type="number"
+                                  value={d.params[k] ?? ""}
+                                  disabled={!d.enabled}
+                                  onChange={(e) =>
+                                    setRulesDraft((prev) => ({
+                                      ...prev,
+                                      [rule.id]: {
+                                        ...prev[rule.id],
+                                        params: {
+                                          ...prev[rule.id].params,
+                                          [k]: e.target.value,
+                                        },
+                                      },
+                                    }))
+                                  }
+                                  inputProps={{ step: "any" }}
+                                  sx={{ width: 200 }}
+                                />
+                              ))}
+                            </Box>
+                          )}
                         </Box>
                       );
                     })}

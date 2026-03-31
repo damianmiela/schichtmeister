@@ -25,7 +25,8 @@ from constraints.hard import (
     add_manual_placements,
     add_mini_job_cap,
     add_wbl_bl_max_one_per_week,
-    add_wbl_bl_spread,
+    add_alternating_weekends,
+    add_wbl_weekend_limit,
 )
 from constraints.soft import (
     add_staffing_minimum_soft,
@@ -131,7 +132,8 @@ def solve(request: SolveRequest) -> SolveResponse:
     add_manual_placements(model, shift, request)
     add_mini_job_cap(model, shift, request)
     add_wbl_bl_max_one_per_week(model, shift, request)
-    add_wbl_bl_spread(model, shift, request)
+    add_alternating_weekends(model, works_day, request)
+    add_wbl_weekend_limit(model, works_day, request)
 
     # ── Soft objectives (penalized, but relaxable) ───────────────────
     objective_terms: list[tuple[cp_model.IntVar, int]] = []

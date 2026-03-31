@@ -13,6 +13,10 @@
     { "id": "fairnessCounters", "enabled": false },
     { "id": "targetHoursBalance", "enabled": false },
     { "id": "maxConsecutiveNights", "enabled": true, "params": { "maxCount": 3 } },
-    { "id": "maxConsecutiveDays", "enabled": true, "params": { "maxDays": 7, "requiredRestDays": 2 } }
+    { "id": "maxConsecutiveDays", "enabled": true, "params": { "maxDays": 7, "requiredRestDays": 2 } },
+    { "id": "restAfter6Days", "enabled": true, "params": { "requiredRestDays": 2 }, "description": "Nach 6+ aufeinanderfolgenden Arbeitstagen sind zusätzliche Ruhetage erforderlich." },
+    { "id": "alternatingWeekends", "enabled": true, "params": {}, "description": "Jedes zweite Wochenende muss frei sein." },
+    { "id": "wblWeekendLimit", "enabled": true, "params": { "maxWeekendDays": 3 }, "description": "WBL-Mitarbeiter können max. 1,5 Wochenenden pro Monat arbeiten." },
+    { "id": "sollDelta", "enabled": true, "params": { "minDelta": -4, "maxDelta": 8 }, "description": "Soll-Stunden-Abweichung: Zielbereich für alle Mitarbeiter." }
   ]
 }
