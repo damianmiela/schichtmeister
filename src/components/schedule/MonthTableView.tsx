@@ -110,7 +110,7 @@ const WISH_SHIFT_BG = "#e8f5e9";
 const WISH_FREI_BG = "#e3f2fd";
 const EDIT_CHANGED_BORDER = "2px dashed #ff9800";
 const ROW_HEIGHT = 56;
-const NAME_COL_WIDTH = 200;
+const NAME_COL_WIDTH = 300;
 
 const MARKING_CODES = ["FO", "PA", "E", "BD"] as const;
 
@@ -398,25 +398,32 @@ export default function MonthTableView({
     sectionEmployees: EmployeeJson[],
     filter: SectionFilter = "none",
   ) => {
-    if (sectionEmployees.length === 0) return null;
-    const sorted = sortEmployees(sectionEmployees);
+    // Filter out employees who have no shifts at this station
+    let filtered = sectionEmployees;
+    if (typeof filter === "object" && "station" in filter) {
+      const stationNum = filter.station;
+      filtered = sectionEmployees.filter((emp) => {
+        // Keep employees who have at least one assignment at this station
+        for (const a of assignments) {
+          if (a.employeeId !== emp.id) continue;
+          const prof = profilesById[a.shiftProfileId];
+          if (prof?.shiftType === "NIGHT") continue; // nights are separate
+          // Check: assignment has stationNumber matching, or employee is single-station assigned here
+          const assignedStation = a.stationNumber ?? (emp.assignedStations?.length === 1 ? emp.assignedStations[0] : null);
+          if (assignedStation === stationNum) return true;
+        }
+        // Also keep employees with a non-ACTIVE status (they show status codes)
+        if (emp.status && emp.status !== "ACTIVE") return true;
+        return false;
+      });
+    } else if (filter === "night-only") {
+      // Already filtered by getNightEmployees
+    }
+    if (filtered.length === 0) return null;
+    const sorted = sortEmployees(filtered);
 
     return (
       <Box key={title} sx={{ mb: 2 }}>
-        <Typography
-          variant="subtitle1"
-          sx={{
-            fontWeight: 700,
-            px: 2,
-            py: 1,
-            bgcolor: "grey.100",
-            borderBottom: 1,
-            borderColor: "divider",
-          }}
-        >
-          {title}
-        </Typography>
-
         <Table size="small" stickyHeader>
           <TableHead>
             <TableRow>
@@ -425,14 +432,15 @@ export default function MonthTableView({
                   width: NAME_COL_WIDTH,
                   minWidth: NAME_COL_WIDTH,
                   maxWidth: NAME_COL_WIDTH,
-                  fontWeight: 600,
+                  fontWeight: 700,
                   position: "sticky",
                   left: 0,
                   zIndex: 3,
-                  bgcolor: "background.paper",
+                  bgcolor: "grey.100",
+                  fontSize: "0.875rem",
                 }}
               >
-                Mitarbeiter
+                {title}
               </TableCell>
               <TableCell
                 align="center"
@@ -497,10 +505,6 @@ export default function MonthTableView({
               const target = monthlyTargetForMonth(emp, year, monthIndex);
               const tags = emp.qualificationTags ?? [];
               const contractPct = emp.targetHoursPercent ?? 100;
-              const completionPct =
-                target != null && target > 0
-                  ? Math.round((planned / target) * 100)
-                  : null;
 
               let hoursColor: string;
               if (target == null) {
@@ -531,23 +535,6 @@ export default function MonthTableView({
                     }}
                   >
                     <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                      {!(emp.assignedStations?.length) && typeof filter === "object" && "station" in filter && (
-                        <Box
-                          component="span"
-                          sx={{
-                            fontSize: 9,
-                            fontWeight: 700,
-                            px: 0.5,
-                            py: 0.1,
-                            borderRadius: 0.5,
-                            bgcolor: "info.100",
-                            color: "info.dark",
-                            lineHeight: 1.3,
-                          }}
-                        >
-                          F
-                        </Box>
-                      )}
                       <Box
                         component="span"
                         onClick={(ev) => {
@@ -556,7 +543,6 @@ export default function MonthTableView({
                         }}
                         sx={{
                           cursor: onEmployeeClick ? "pointer" : "default",
-                          fontStyle: !(emp.assignedStations?.length) && typeof filter === "object" ? "italic" : "normal",
                           "&:hover": onEmployeeClick
                             ? { textDecoration: "underline", color: "primary.main" }
                             : undefined,
@@ -603,7 +589,7 @@ export default function MonthTableView({
                           {formatHours(planned)}
                           {target != null ? `/${formatHours(target)}` : ""}
                         </Typography>
-                        {completionPct != null && (
+                        {target != null && (
                           <Typography
                             display="block"
                             variant="caption"
@@ -614,7 +600,7 @@ export default function MonthTableView({
                               lineHeight: 1,
                             }}
                           >
-                            ({completionPct}%)
+                            ({planned - target >= 0 ? "+" : ""}{formatHours(planned - target)}h)
                           </Typography>
                         )}
                       </Box>

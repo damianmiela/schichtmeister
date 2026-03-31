@@ -1041,7 +1041,7 @@ export default function SchedulePage() {
               <Box sx={{ width: 1, height: 24, bgcolor: "divider", mx: 1 }} />
             </>
           )}
-          <>
+          {viewState.type === "month" && (<>
             <Button
               variant="outlined"
               startIcon={<DownloadIcon />}
@@ -1144,6 +1144,7 @@ export default function SchedulePage() {
               </Button>
             </>
           )}
+          </>)}
           <Button
             variant="contained"
             startIcon={<PublishIcon />}
@@ -1250,6 +1251,7 @@ export default function SchedulePage() {
               year={viewState.year}
               monthIndex={viewState.month}
               assignments={assignments}
+              employees={employees}
               profilesById={profilesById}
               staffing={staffing}
               onWeekClick={handleWeekClick}
