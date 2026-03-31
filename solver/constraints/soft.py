@@ -128,9 +128,9 @@ def add_wbl_bl_soft(
     shift: ShiftVar,
     req: SolveRequest,
 ) -> list[tuple[cp_model.IntVar, int]]:
-    """Penalize WBL employees missing BL shifts (at least 1 per ISO week)."""
+    """Penalize WBL employees missing BL shifts (at least 1 per ISO week). Skip full-time BL."""
     terms: list[tuple[cp_model.IntVar, int]] = []
-    wbl_emps = [e for e in req.employees if e.isWbl]
+    wbl_emps = [e for e in req.employees if e.isWbl and not e.isFullTimeBl]
     bl_profiles = {p.id for p in req.shiftProfiles if p.shiftType == "BL"}
     if not wbl_emps or not bl_profiles:
         return terms
@@ -448,5 +448,60 @@ def add_preference_bonus(
                 key = (emp.id, d.isoformat(), p.id)
                 if key in shift:
                     terms.append((shift[key], W_PREFERENCE))
+
+    return terms
+
+
+W_DISTRIBUTION = 500
+
+
+def add_shift_distribution_soft(
+    model: cp_model.CpModel,
+    shift: ShiftVar,
+    req: SolveRequest,
+) -> list[tuple[cp_model.IntVar, int]]:
+    """Penalize deviation from employee's preferred shift profile distribution."""
+    terms: list[tuple[cp_model.IntVar, int]] = []
+    dates = dates_in_range(req.periodStart, req.periodEnd)
+    soll_map = req.monthlySollHoursByEmployee or {}
+
+    active_hours = [p.paidHours for p in req.shiftProfiles if p.isActive and p.paidHours > 0]
+    avg_hours = sum(active_hours) / len(active_hours) if active_hours else 8.0
+
+    for emp in req.employees:
+        dist = emp.shiftDistribution
+        if not dist:
+            continue
+
+        soll = soll_map.get(emp.id)
+        if soll is None:
+            pct = emp.targetHoursPercent
+            if pct is None:
+                continue
+            wd = req.monthlyWorkingDays or 22
+            soll = wd * 8.0 * (pct / 100.0)
+
+        total_target_shifts = soll / avg_hours if avg_hours > 0 else 0
+
+        for profile_id, percentage in dist.items():
+            target_count = max(1, int(total_target_shifts * percentage / 100.0))
+
+            profile_vars: list[cp_model.IntVar] = []
+            for d in dates:
+                ds = d.isoformat()
+                key = (emp.id, ds, profile_id)
+                if key in shift:
+                    profile_vars.append(shift[key])
+
+            if not profile_vars:
+                continue
+
+            actual = model.NewIntVar(0, len(profile_vars), f"dist_{emp.id}_{profile_id}")
+            model.Add(actual == sum(profile_vars))
+
+            dev = model.NewIntVar(0, len(profile_vars), f"dist_dev_{emp.id}_{profile_id}")
+            model.Add(dev >= actual - target_count)
+            model.Add(dev >= target_count - actual)
+            terms.append((dev, W_DISTRIBUTION))
 
     return terms

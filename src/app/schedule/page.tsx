@@ -66,6 +66,7 @@ import type {
   StaffingJson,
 } from "@/lib/schedule/scheduleTypes";
 import { getWeekNumber, shiftTypeLabel } from "@/lib/schedule/viewUtils";
+import { holidayDateMap } from "@/lib/holidays";
 
 type GenerateScheduleResponse = {
   createdAssignments: number;
@@ -891,6 +892,13 @@ export default function SchedulePage() {
     [profilesById],
   );
 
+  const holidays = useMemo(() => {
+    if (viewState.type !== "month") return new Map<string, string>();
+    const start = new Date(Date.UTC(viewState.year, viewState.month, 1));
+    const end = new Date(Date.UTC(viewState.year, viewState.month + 1, 0));
+    return holidayDateMap(start, end);
+  }, [viewState]);
+
   const addPreGenEntry = (type: "shift" | "frei") => {
     const first = sortedEmployees[0];
     if (!first || daysInMonth.length === 0) return;
@@ -1227,6 +1235,7 @@ export default function SchedulePage() {
               onCellChange={handleCellChange}
               shiftProfiles={allProfiles}
               onToggleWish={handleToggleWish}
+              holidayMap={holidays}
             />
           )}
 
@@ -1239,6 +1248,7 @@ export default function SchedulePage() {
               staffing={staffing}
               onWeekClick={handleWeekClick}
               onDayClick={handleDayClick}
+              holidayMap={holidays}
             />
           )}
 

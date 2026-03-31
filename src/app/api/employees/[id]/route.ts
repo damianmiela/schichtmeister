@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { Prisma } from "@prisma/client";
-import { ContractType } from "@prisma/client";
+import { Prisma, ContractType } from "@prisma/client";
 import { resolveContractForPatch } from "@/lib/api/employeeContractResolve";
 import { employeePatchSchema } from "@/lib/api/employeeSchemas";
 import { serializeEmployee } from "@/lib/api/employeeSerialize";
@@ -66,6 +65,15 @@ export async function PATCH(request: NextRequest, context: RouteCtx) {
   }
   if (data.status !== undefined) {
     updateData.status = data.status;
+  }
+  if (data.isFullTimeBl !== undefined) {
+    updateData.isFullTimeBl = data.isFullTimeBl;
+  }
+  if (data.fixedWorkingDays !== undefined) {
+    updateData.fixedWorkingDays = data.fixedWorkingDays;
+  }
+  if (data.shiftDistribution !== undefined) {
+    updateData.shiftDistribution = data.shiftDistribution ?? Prisma.JsonNull;
   }
   if (data.qualificationIds !== undefined) {
     updateData.qualifications = {

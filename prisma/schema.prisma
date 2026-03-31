@@ -32,6 +32,7 @@ enum ShiftType {
 
 enum EmployeeStatus {
   ACTIVE
+  INACTIVE
   KRANK
   LANGZEITKRANK
   MUTTERSCHUTZ
@@ -129,6 +130,9 @@ model Employee {
   status                   EmployeeStatus      @default(ACTIVE)
   qualificationTags        String[]            @default([])
   preferredShiftTypes      ShiftType[]         @default([])
+  isFullTimeBl             Boolean             @default(false)
+  fixedWorkingDays         Int[]               @default([])
+  shiftDistribution        Json?
   createdAt                DateTime            @default(now())
   updatedAt                DateTime            @updatedAt
 

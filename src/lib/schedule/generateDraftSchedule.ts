@@ -20,6 +20,7 @@ import type {
   StaffingRequirementInput,
 } from "@/lib/planning/types";
 import { assignmentPaidHours } from "@/lib/planning/time";
+import { monthlyWorkingDaysWithHolidays } from "@/lib/holidays";
 import { registerBuiltInPlanningRules, runScopedRules, mergePlanningRules, defaultPlanningRulesConfig } from "@/lib/planning";
 
 /** Deterministic shift order within a calendar day. */
@@ -235,6 +236,9 @@ export type GenEmployee = {
   assignedStations: number[];
   allowedShiftProfileIds: Set<string>;
   unavailableDateSet: Set<string>;
+  isFullTimeBl: boolean;
+  fixedWorkingDays: number[];
+  shiftDistribution: Record<string, number> | null;
 };
 
 /** Presence of `EmployeeAvailability` row for that calendar day -> excluded from generation. */
@@ -258,13 +262,7 @@ export function sumPaidHoursForEmployeeInProposed(
 }
 
 export function monthlyWorkingDays(year: number, month: number): number {
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  let wd = 0;
-  for (let d = 1; d <= daysInMonth; d++) {
-    const dow = new Date(year, month, d).getDay();
-    if (dow !== 0 && dow !== 6) wd++;
-  }
-  return wd;
+  return monthlyWorkingDaysWithHolidays(year, month);
 }
 
 export function monthlySollHours(workingDays: number, percent: number): number {
@@ -413,7 +411,11 @@ export async function loadGenerateContext(
   wishes: Wish[];
 }> {
   const employeesRaw = await db.employee.findMany({
-    where: { facilityId, status: EmployeeStatus.ACTIVE },
+    where: {
+      facilityId,
+      status: EmployeeStatus.ACTIVE,
+      contractType: { not: ContractType.AUSBILDUNG },
+    },
     include: {
       qualifications: true,
       allowedShiftProfiles: true,
@@ -471,6 +473,22 @@ export async function loadGenerateContext(
       }
     }
 
+    // fixedWorkingDays: mark all dates outside those weekdays as unavailable
+    const fwd = e.fixedWorkingDays ?? [];
+    if (fwd.length > 0) {
+      const fwdSet = new Set(fwd);
+      let t2 = Date.UTC(periodStart.getUTCFullYear(), periodStart.getUTCMonth(), periodStart.getUTCDate());
+      const end2 = Date.UTC(periodEnd.getUTCFullYear(), periodEnd.getUTCMonth(), periodEnd.getUTCDate());
+      while (t2 <= end2) {
+        const dt = new Date(t2);
+        const isoDay = dt.getUTCDay() === 0 ? 7 : dt.getUTCDay();
+        if (!fwdSet.has(isoDay)) {
+          unavail.add(toIsoDateOnly(dt));
+        }
+        t2 += 24 * 60 * 60 * 1000;
+      }
+    }
+
     return {
       id: e.id,
       qualificationTags: e.qualificationTags,
@@ -485,6 +503,9 @@ export async function loadGenerateContext(
       assignedStations: e.assignedStations ?? [],
       allowedShiftProfileIds: new Set(e.allowedShiftProfiles.map(p => p.id)),
       unavailableDateSet: unavail,
+      isFullTimeBl: e.isFullTimeBl ?? false,
+      fixedWorkingDays: fwd,
+      shiftDistribution: (e.shiftDistribution as Record<string, number>) ?? null,
     };
   });
 

@@ -86,6 +86,9 @@ describe("phase 07 — generate draft schedule (pure helpers)", () => {
       assignedStations: [],
       allowedShiftProfileIds: new Set(),
       unavailableDateSet: new Set(["2026-02-01"]),
+      isFullTimeBl: false,
+      fixedWorkingDays: [],
+      shiftDistribution: null,
     };
     expect(isUnavailableOnDate(emp, "2026-02-01")).toBe(true);
     expect(isUnavailableOnDate(emp, "2026-02-02")).toBe(false);
@@ -302,6 +305,9 @@ describe("rebalanceAssignments", () => {
       assignedStations: assignedStation != null ? [assignedStation] : [],
       allowedShiftProfileIds: new Set(),
       unavailableDateSet: new Set(),
+      isFullTimeBl: false,
+      fixedWorkingDays: [],
+      shiftDistribution: null,
     };
   }
 
@@ -541,6 +547,9 @@ describe("blocked dates (Frei-Wünsche)", () => {
       assignedStations: [],
       allowedShiftProfileIds: new Set(),
       unavailableDateSet: new Set(),
+      isFullTimeBl: false,
+      fixedWorkingDays: [],
+      shiftDistribution: null,
     };
 
     expect(isUnavailableOnDate(emp, "2026-03-10")).toBe(false);
@@ -578,6 +587,9 @@ describe("blocked dates (Frei-Wünsche)", () => {
       assignedStations: [],
       allowedShiftProfileIds: new Set(),
       unavailableDateSet: new Set(),
+      isFullTimeBl: false,
+      fixedWorkingDays: [],
+      shiftDistribution: null,
     };
     const emp2: GenEmployee = {
       id: "e2",
@@ -592,6 +604,9 @@ describe("blocked dates (Frei-Wünsche)", () => {
       assignedStations: [],
       allowedShiftProfileIds: new Set(),
       unavailableDateSet: new Set(),
+      isFullTimeBl: false,
+      fixedWorkingDays: [],
+      shiftDistribution: null,
     };
 
     const blockedDates = [{ employeeId: "e1", date: "2026-03-15" }];
@@ -618,6 +633,9 @@ describe("blocked dates (Frei-Wünsche)", () => {
       assignedStations: [],
       allowedShiftProfileIds: new Set(),
       unavailableDateSet: new Set(["2026-03-01"]),
+      isFullTimeBl: false,
+      fixedWorkingDays: [],
+      shiftDistribution: null,
     };
 
     emp.unavailableDateSet.add("2026-03-02");
@@ -641,6 +659,9 @@ describe("blocked dates (Frei-Wünsche)", () => {
       assignedStations: [],
       allowedShiftProfileIds: new Set(),
       unavailableDateSet: new Set(),
+      isFullTimeBl: false,
+      fixedWorkingDays: [],
+      shiftDistribution: null,
     };
 
     const blockedDates = [{ employeeId: "nonexistent", date: "2026-03-10" }];
@@ -698,6 +719,9 @@ describe("selectProfileForEmployee", () => {
       assignedStations: [],
       allowedShiftProfileIds: new Set(),
       unavailableDateSet: new Set(),
+      isFullTimeBl: false,
+      fixedWorkingDays: [],
+      shiftDistribution: null,
     };
     const result = selectProfileForEmployee(emp, ShiftType.EARLY, profiles);
     expect(result).not.toBeNull();
@@ -718,6 +742,9 @@ describe("selectProfileForEmployee", () => {
       assignedStations: [],
       allowedShiftProfileIds: new Set(["f2"]),
       unavailableDateSet: new Set(),
+      isFullTimeBl: false,
+      fixedWorkingDays: [],
+      shiftDistribution: null,
     };
     const result = selectProfileForEmployee(emp, ShiftType.EARLY, profiles);
     expect(result).not.toBeNull();
@@ -738,6 +765,9 @@ describe("selectProfileForEmployee", () => {
       assignedStations: [],
       allowedShiftProfileIds: new Set(["nonexistent"]),
       unavailableDateSet: new Set(),
+      isFullTimeBl: false,
+      fixedWorkingDays: [],
+      shiftDistribution: null,
     };
     const result = selectProfileForEmployee(emp, ShiftType.EARLY, profiles);
     expect(result).toBeNull();
@@ -757,6 +787,9 @@ describe("selectProfileForEmployee", () => {
       assignedStations: [],
       allowedShiftProfileIds: new Set(["inactive"]),
       unavailableDateSet: new Set(),
+      isFullTimeBl: false,
+      fixedWorkingDays: [],
+      shiftDistribution: null,
     };
     const result = selectProfileForEmployee(emp, ShiftType.EARLY, profiles);
     expect(result).toBeNull();
@@ -823,6 +856,9 @@ describe("rebalanceAssignments respects allowedShiftProfileIds", () => {
       assignedStations: [],
       allowedShiftProfileIds: new Set(),
       unavailableDateSet: new Set(),
+      isFullTimeBl: false,
+      fixedWorkingDays: [],
+      shiftDistribution: null,
     };
     const empUnder: GenEmployee = {
       id: "under",
@@ -837,6 +873,9 @@ describe("rebalanceAssignments respects allowedShiftProfileIds", () => {
       assignedStations: [],
       allowedShiftProfileIds: new Set(["late1"]),
       unavailableDateSet: new Set(),
+      isFullTimeBl: false,
+      fixedWorkingDays: [],
+      shiftDistribution: null,
     };
 
     const proposed: AssignmentInput[] = [];

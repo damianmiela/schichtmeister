@@ -96,6 +96,9 @@ export async function POST(request: NextRequest) {
         assignedStations: data.assignedStations ?? [],
         qualificationTags: data.qualificationTags ?? [],
         preferredShiftTypes: data.preferredShiftTypes ?? [],
+        isFullTimeBl: data.isFullTimeBl ?? false,
+        fixedWorkingDays: data.fixedWorkingDays ?? [],
+        shiftDistribution: data.shiftDistribution ?? undefined,
         ...(data.qualificationIds && data.qualificationIds.length > 0
           ? { qualifications: { connect: data.qualificationIds.map((id: string) => ({ id })) } }
           : {}),

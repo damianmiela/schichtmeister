@@ -9,7 +9,7 @@ export const contractTypeZ = z.enum([
 export const targetHoursPeriodZ = z.enum(["WEEKLY", "MONTHLY"]);
 export const shiftTypeZ = z.enum(["EARLY", "LATE", "NIGHT", "BL"]);
 export const employeeStatusZ = z.enum([
-  "ACTIVE", "KRANK", "LANGZEITKRANK", "MUTTERSCHUTZ", "URLAUB", "KUR",
+  "ACTIVE", "INACTIVE", "KRANK", "LANGZEITKRANK", "MUTTERSCHUTZ", "URLAUB", "KUR",
 ]);
 
 const targetHoursPercentZ = z.number().positive().max(1000).optional().nullable();
@@ -27,6 +27,9 @@ export const employeeCreateSchema = z.object({
   qualificationIds: z.array(z.string()).optional(),
   allowedShiftProfileIds: z.array(z.string()).optional(),
   preferredShiftTypes: z.array(shiftTypeZ).optional(),
+  isFullTimeBl: z.boolean().optional(),
+  fixedWorkingDays: z.array(z.number().int().min(1).max(7)).optional(),
+  shiftDistribution: z.record(z.string(), z.number().min(0).max(100)).optional().nullable(),
 });
 
 export const employeePatchSchema = z
@@ -43,6 +46,9 @@ export const employeePatchSchema = z
     qualificationIds: z.array(z.string()).optional(),
     allowedShiftProfileIds: z.array(z.string()).optional(),
     preferredShiftTypes: z.array(shiftTypeZ).optional(),
+    isFullTimeBl: z.boolean().optional(),
+    fixedWorkingDays: z.array(z.number().int().min(1).max(7)).optional(),
+    shiftDistribution: z.record(z.string(), z.number().min(0).max(100)).optional().nullable(),
   })
   .refine((o) => Object.keys(o).length > 0, {
     message: "Mindestens ein Feld zum Aktualisieren angeben",

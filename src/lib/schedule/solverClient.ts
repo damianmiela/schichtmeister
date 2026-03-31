@@ -29,6 +29,8 @@ interface SolverEmployee {
   miniJobMaxMonthlyHours: number | null;
   unavailableDates: string[];
   isWbl: boolean;
+  isFullTimeBl: boolean;
+  shiftDistribution: Record<string, number> | null;
 }
 
 interface SolverShiftProfile {
@@ -198,6 +200,8 @@ export function buildSolverPayload(
       isWbl:
         e.qualificationTags.includes("WBL") ||
         e.qualificationAbbreviations.includes("WBL"),
+      isFullTimeBl: e.isFullTimeBl,
+      shiftDistribution: e.shiftDistribution,
     };
   });
 

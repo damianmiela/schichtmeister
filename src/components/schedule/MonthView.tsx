@@ -1,6 +1,6 @@
 "use client";
 
-import { Box, Paper, Typography, Chip } from "@mui/material";
+import { Box, Paper, Tooltip, Typography, Chip } from "@mui/material";
 import type { AssignmentJson, ShiftProfileJson, StaffingJson } from "@/lib/schedule/scheduleTypes";
 import { monthCalendarRowsLocal } from "@/lib/schedule/monthSchedule";
 import {
@@ -59,6 +59,7 @@ interface MonthViewProps {
   staffing: StaffingJson[];
   onWeekClick: (weekNumber: number, startDate: Date) => void;
   onDayClick: (date: Date) => void;
+  holidayMap?: Map<string, string>;
 }
 
 export default function MonthView({
@@ -69,6 +70,7 @@ export default function MonthView({
   staffing,
   onWeekClick,
   onDayClick,
+  holidayMap,
 }: MonthViewProps) {
   const rows = monthCalendarRowsLocal(year, monthIndex);
   const staffRows: StaffRowAgg[] = staffing.map((s) => ({
@@ -126,7 +128,8 @@ export default function MonthView({
             const [y, m, d] = iso.split("-").map(Number);
             const dayDate = new Date(y, m - 1, d);
             const ass = assignedCountsForIsoDate(iso, assignments, profilesById);
-            return (
+            const holidayName = holidayMap?.get(iso);
+            const cell = (
               <Paper
                 key={iso}
                 variant="outlined"
@@ -135,6 +138,7 @@ export default function MonthView({
                   p: 0.75,
                   cursor: "pointer",
                   "&:hover": { bgcolor: "action.hover" },
+                  ...(holidayName ? { bgcolor: "error.50", borderColor: "error.200" } : {}),
                 }}
                 onClick={() => onDayClick(dayDate)}
               >
@@ -204,6 +208,13 @@ export default function MonthView({
                   })}
                 </Box>
               </Paper>
+            );
+            return holidayName ? (
+              <Tooltip key={`hol-${iso}`} title={holidayName} arrow>
+                {cell}
+              </Tooltip>
+            ) : (
+              cell
             );
           })}
         </Box>

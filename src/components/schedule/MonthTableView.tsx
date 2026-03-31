@@ -21,6 +21,7 @@ import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
 import { localIsoFromParts } from "@/lib/schedule/monthSchedule";
 import type { AssignmentJson, EmployeeJson, ShiftProfileJson } from "@/lib/schedule/scheduleTypes";
 import QualificationPills from "@/components/schedule/QualificationPills";
+import { monthlyWorkingDaysWithHolidays } from "@/lib/holidays";
 
 /* ──────────────────────── exported type ──────────────────────── */
 
@@ -48,6 +49,7 @@ interface MonthTableViewProps {
   onCellChange?: (employeeId: string, date: string, edit: Partial<CellEdit>) => void;
   shiftProfiles?: ShiftProfileJson[];
   onToggleWish?: (employeeId: string, date: string, type: "shift" | "frei") => void;
+  holidayMap?: Map<string, string>;
 }
 
 /* ──────────────────────── helpers ──────────────────────── */
@@ -72,13 +74,7 @@ function formatHours(h: number): string {
 const FULL_TIME_DAILY_HOURS = 8;
 
 function workingDaysInMonth(year: number, monthIndex: number): number {
-  const totalDays = new Date(year, monthIndex + 1, 0).getDate();
-  let count = 0;
-  for (let d = 1; d <= totalDays; d++) {
-    const dow = new Date(year, monthIndex, d).getDay();
-    if (dow !== 0 && dow !== 6) count++;
-  }
-  return count;
+  return monthlyWorkingDaysWithHolidays(year, monthIndex);
 }
 
 function monthlyTargetForMonth(
@@ -297,6 +293,7 @@ export default function MonthTableView({
   onCellChange,
   shiftProfiles,
   onToggleWish,
+  holidayMap,
 }: MonthTableViewProps) {
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [menuCell, setMenuCell] = useState<{ empId: string; iso: string } | null>(null);
@@ -451,6 +448,15 @@ export default function MonthTableView({
                 const wd = new Date(y!, m! - 1, d!).toLocaleDateString("de-DE", {
                   weekday: "short",
                 });
+                const hName = holidayMap?.get(iso);
+                const inner = (
+                  <>
+                    <Typography variant="caption" display="block" color="text.secondary">
+                      {wd}
+                    </Typography>
+                    {d}
+                  </>
+                );
                 return (
                   <TableCell
                     key={iso}
@@ -460,13 +466,17 @@ export default function MonthTableView({
                       fontWeight: 600,
                       cursor: "pointer",
                       "&:hover": { bgcolor: "action.hover" },
+                      ...(hName ? { bgcolor: "#fff0f0" } : {}),
                     }}
                     onClick={() => onDayClick(new Date(y!, m! - 1, d!))}
                   >
-                    <Typography variant="caption" display="block" color="text.secondary">
-                      {wd}
-                    </Typography>
-                    {d}
+                    {hName ? (
+                      <Tooltip title={hName} arrow>
+                        <Box>{inner}</Box>
+                      </Tooltip>
+                    ) : (
+                      inner
+                    )}
                   </TableCell>
                 );
               })}

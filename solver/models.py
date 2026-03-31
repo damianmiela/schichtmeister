@@ -21,6 +21,8 @@ class EmployeeInput(BaseModel):
     miniJobMaxMonthlyHours: float | None = None
     unavailableDates: list[str] = []
     isWbl: bool = False
+    isFullTimeBl: bool = False
+    shiftDistribution: dict[str, float] | None = None
 
 
 class ShiftProfileInput(BaseModel):

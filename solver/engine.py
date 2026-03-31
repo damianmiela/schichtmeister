@@ -38,6 +38,7 @@ from constraints.soft import (
     add_wish_fulfillment,
     add_fairness,
     add_preference_bonus,
+    add_shift_distribution_soft,
 )
 
 
@@ -89,8 +90,8 @@ def _build_variables(
             for p in active_profiles:
                 if allowed and p.id not in allowed:
                     continue
-                # BL profiles are exclusively for WBL employees
-                if p.shiftType == "BL" and not is_wbl:
+                # BL profiles: only WBL employees, unless isFullTimeBl
+                if p.shiftType == "BL" and not is_wbl and not emp.isFullTimeBl:
                     continue
                 var = model.NewBoolVar(f"s_{emp.id}_{ds}_{p.id}")
                 shift[(emp.id, ds, p.id)] = var
@@ -144,6 +145,7 @@ def solve(request: SolveRequest) -> SolveResponse:
     objective_terms.extend(add_wish_fulfillment(model, shift, request))
     objective_terms.extend(add_fairness(model, shift, request))
     objective_terms.extend(add_preference_bonus(model, shift, request))
+    objective_terms.extend(add_shift_distribution_soft(model, shift, request))
 
     if objective_terms:
         model.Minimize(sum(var * weight for var, weight in objective_terms))

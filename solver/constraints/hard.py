@@ -305,8 +305,8 @@ def add_wbl_bl_max_one_per_week(
     shift: ShiftVar,
     req: SolveRequest,
 ):
-    """Each WBL employee gets at most 1 BL shift per ISO week."""
-    wbl_emps = [e for e in req.employees if e.isWbl]
+    """Each WBL employee gets at most 1 BL shift per ISO week (skip full-time BL)."""
+    wbl_emps = [e for e in req.employees if e.isWbl and not e.isFullTimeBl]
     bl_profiles = {p.id for p in req.shiftProfiles if p.shiftType == "BL"}
     if not wbl_emps or not bl_profiles:
         return

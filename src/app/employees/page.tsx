@@ -39,7 +39,7 @@ import { ApiError, fetchJson } from "@/lib/api/fetchJson";
 import { REFERENCE_FULL_TIME_MONTHLY_HOURS } from "@/lib/employeeContractDenorm";
 
 type ContractType = "FULL_TIME" | "PART_TIME" | "MINI_JOB" | "AUSBILDUNG";
-type StatusType = "ACTIVE" | "KRANK" | "LANGZEITKRANK" | "MUTTERSCHUTZ" | "URLAUB" | "KUR";
+type StatusType = "ACTIVE" | "INACTIVE" | "KRANK" | "LANGZEITKRANK" | "MUTTERSCHUTZ" | "URLAUB" | "KUR";
 
 interface QualificationCatalog {
   id: string;
@@ -76,6 +76,9 @@ interface EmployeeRow {
   qualificationTags: string[];
   qualifications: { id: string; name: string; abbreviation: string }[];
   allowedShiftProfiles: { id: string; name: string; shiftType: string }[];
+  isFullTimeBl?: boolean;
+  fixedWorkingDays?: number[];
+  shiftDistribution?: Record<string, number> | null;
 }
 
 const CONTRACT_LABELS: Record<ContractType, string> = {
@@ -104,6 +107,7 @@ const CONTRACT_CHIP_COLOR: Record<
 
 const STATUS_LABELS: Record<StatusType, string> = {
   ACTIVE: "Aktiv",
+  INACTIVE: "Inaktiv",
   KRANK: "Krank",
   LANGZEITKRANK: "Langzeitkrank",
   MUTTERSCHUTZ: "Mutterschutz",
@@ -116,6 +120,7 @@ const STATUS_CHIP_COLOR: Record<
   "success" | "error" | "warning" | "secondary" | "info" | "default"
 > = {
   ACTIVE: "success",
+  INACTIVE: "default",
   KRANK: "error",
   LANGZEITKRANK: "warning",
   MUTTERSCHUTZ: "secondary",
@@ -125,12 +130,23 @@ const STATUS_CHIP_COLOR: Record<
 
 const STATUS_OPTIONS: StatusType[] = [
   "ACTIVE",
+  "INACTIVE",
   "KRANK",
   "LANGZEITKRANK",
   "MUTTERSCHUTZ",
   "URLAUB",
   "KUR",
 ];
+
+const WEEKDAY_LABELS: Record<number, string> = {
+  1: "Mo",
+  2: "Di",
+  3: "Mi",
+  4: "Do",
+  5: "Fr",
+  6: "Sa",
+  7: "So",
+};
 
 const SHIFT_TYPE_LABELS: Record<string, string> = {
   EARLY: "Früh",
@@ -260,6 +276,9 @@ export default function EmployeesPage() {
   const [selectedProfiles, setSelectedProfiles] = useState<ShiftProfileCatalog[]>([]);
   const [assignedStations, setAssignedStations] = useState<number[]>([]);
   const [profilesTouched, setProfilesTouched] = useState(false);
+  const [isFullTimeBl, setIsFullTimeBl] = useState(false);
+  const [fixedWorkingDays, setFixedWorkingDays] = useState<number[]>([]);
+  const [shiftDistribution, setShiftDistribution] = useState<Record<string, string>>({});
 
   const [absences, setAbsences] = useState<Absence[]>([]);
   const [absencesLoading, setAbsencesLoading] = useState(false);
@@ -383,6 +402,9 @@ export default function EmployeesPage() {
     setAssignedStations([]);
     setEditingId(null);
     setProfilesTouched(false);
+    setIsFullTimeBl(false);
+    setFixedWorkingDays([]);
+    setShiftDistribution({});
     setAbsences([]);
     setAbsenceError(null);
     resetAbsenceForm();
@@ -438,6 +460,14 @@ export default function EmployeesPage() {
     setSelectedProfiles(matchedProfiles);
     setProfilesTouched(true);
     setAssignedStations(e.assignedStations ?? []);
+    setIsFullTimeBl(e.isFullTimeBl ?? false);
+    setFixedWorkingDays(e.fixedWorkingDays ?? []);
+    const dist = e.shiftDistribution ?? {};
+    const distStrs: Record<string, string> = {};
+    for (const [k, v] of Object.entries(dist)) {
+      distStrs[k] = String(v);
+    }
+    setShiftDistribution(distStrs);
     setDialogOpen(true);
     void loadAbsences(e.id);
   };
@@ -479,6 +509,16 @@ export default function EmployeesPage() {
       };
     }
 
+    const parsedDist: Record<string, number> = {};
+    let distHasValues = false;
+    for (const [pid, raw] of Object.entries(shiftDistribution)) {
+      const n = Number(raw.replace(",", "."));
+      if (Number.isFinite(n) && n > 0) {
+        parsedDist[pid] = n;
+        distHasValues = true;
+      }
+    }
+
     const body: Record<string, unknown> = {
       firstName: firstName.trim(),
       lastName: lastName.trim(),
@@ -491,6 +531,9 @@ export default function EmployeesPage() {
       qualificationIds: selectedQuals.map((q) => q.id),
       allowedShiftProfileIds: selectedProfiles.map((pr) => pr.id),
       workProfileId: null,
+      isFullTimeBl,
+      fixedWorkingDays,
+      shiftDistribution: distHasValues ? parsedDist : null,
     };
 
     return { ok: true, body };
@@ -1030,6 +1073,93 @@ export default function EmployeesPage() {
               </MenuItem>
             ))}
           </TextField>
+
+          {/* Full-time BL checkbox — only visible if BL profile is selected */}
+          {selectedProfiles.some((p) => p.shiftType === "BL") && (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Checkbox
+                checked={isFullTimeBl}
+                onChange={(e) => setIsFullTimeBl(e.target.checked)}
+                disabled={saving}
+                size="small"
+              />
+              <Typography variant="body2">
+                Vollzeit-BL (Bereitschaftsdienst jeden Tag)
+              </Typography>
+            </Box>
+          )}
+
+          {/* Fixed working days */}
+          <TextField
+            select
+            label="Feste Arbeitstage"
+            value={fixedWorkingDays}
+            onChange={(e) => {
+              const v = e.target.value;
+              setFixedWorkingDays(
+                typeof v === "string"
+                  ? v.split(",").map(Number).filter(Boolean)
+                  : (v as number[]),
+              );
+            }}
+            fullWidth
+            disabled={saving}
+            helperText={
+              fixedWorkingDays.length === 0
+                ? "Alle Tage (Standard)"
+                : `Nur: ${fixedWorkingDays.map((d) => WEEKDAY_LABELS[d]).join(", ")}`
+            }
+            slotProps={{
+              select: {
+                multiple: true,
+                renderValue: (selected) => {
+                  const sel = selected as number[];
+                  return sel.length === 0
+                    ? "Alle Tage"
+                    : sel.map((d) => WEEKDAY_LABELS[d] ?? d).join(", ");
+                },
+              },
+            }}
+          >
+            {[1, 2, 3, 4, 5, 6, 7].map((d) => (
+              <MenuItem key={d} value={d}>
+                <Checkbox checked={fixedWorkingDays.includes(d)} size="small" />
+                {WEEKDAY_LABELS[d]}
+              </MenuItem>
+            ))}
+          </TextField>
+
+          {/* Shift profile distribution */}
+          {selectedProfiles.length >= 2 && (
+            <Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                Prozentuale Verteilung der Schichtprofile (optional)
+              </Typography>
+              {selectedProfiles.map((sp) => (
+                <TextField
+                  key={sp.id}
+                  label={sp.name}
+                  value={shiftDistribution[sp.id] ?? ""}
+                  onChange={(e) =>
+                    setShiftDistribution((prev) => ({
+                      ...prev,
+                      [sp.id]: e.target.value,
+                    }))
+                  }
+                  size="small"
+                  sx={{ mr: 1, mb: 1, width: 100 }}
+                  disabled={saving}
+                  slotProps={{
+                    input: {
+                      endAdornment: (
+                        <InputAdornment position="end">%</InputAdornment>
+                      ),
+                    },
+                  }}
+                />
+              ))}
+            </Box>
+          )}
 
           {editingId && (
             <>
