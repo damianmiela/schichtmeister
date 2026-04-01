@@ -74,17 +74,30 @@ const SHIFT_LABELS: Record<string, string> = {
 
 type QualReq = { qualificationTag: string; minCount: number };
 
+/** Check if employee has at least one of the required qualification tags.
+ *  qualificationTag is comma-separated (e.g. "APH,KPH,PH" means any of those). */
+function employeeMatchesTag(emp: EmployeeJson | undefined, qualTag: string): boolean {
+  if (!emp?.qualificationTags?.length) return false;
+  const required = qualTag.split(",").map((t) => t.trim());
+  return required.some((rt) => emp.qualificationTags!.includes(rt));
+}
+
+/** Format a comma-separated qualificationTag for display: "APH,KPH,PH" → "APH / KPH / PH" */
+function formatQualTag(qualTag: string): string {
+  return qualTag.split(",").map((t) => t.trim()).join(" / ");
+}
+
 /** Match employees to qualification-requirement slots for a shift group */
 function matchSlots(
   rows: EmpRow[],
   qualReqs: QualReq[],
 ) {
   // Build slots: one per required qualification x minCount
-  type Slot = { tag: string; filled: EmpRow | null };
+  type Slot = { tag: string; displayTag: string; filled: EmpRow | null };
   const slots: Slot[] = [];
   for (const qr of qualReqs) {
     for (let i = 0; i < qr.minCount; i++) {
-      slots.push({ tag: qr.qualificationTag, filled: null });
+      slots.push({ tag: qr.qualificationTag, displayTag: formatQualTag(qr.qualificationTag), filled: null });
     }
   }
 
@@ -95,7 +108,7 @@ function matchSlots(
     const match = rows.find(
       (r) =>
         !used.has(r.assignment.id) &&
-        (r.employee?.qualificationTags?.includes(slot.tag) ?? false),
+        employeeMatchesTag(r.employee, slot.tag),
     );
     if (match) {
       slot.filled = match;
@@ -368,8 +381,8 @@ function ColumnView({
         <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5, px: 1, py: 0.75 }}>
           {slots.map((slot, i) =>
             slot.filled
-              ? renderFilledReqPill(slot.filled, slot.tag, i)
-              : renderEmptyReqPill(slot.tag, i),
+              ? renderFilledReqPill(slot.filled, slot.displayTag, i)
+              : renderEmptyReqPill(slot.displayTag, i),
           )}
 
           {/* Separator between requirement pills and extras */}
