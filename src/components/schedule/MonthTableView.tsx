@@ -629,9 +629,10 @@ export default function MonthTableView({
                             display = { row1: "X", row2: "", row3: "", isStatus: true, statusCode: "X" };
                           }
                         } else if (typeof filter === "object" && "station" in filter) {
-                          const isFloater = !(emp.assignedStations?.length);
-                          if (isFloater && asgn.stationNumber != null && asgn.stationNumber !== filter.station) {
-                            display = { row1: "X", row2: "", row3: "", isStatus: true, statusCode: "X" };
+                          const asgnStation = asgn.stationNumber
+                            ?? (emp.assignedStations?.length === 1 ? emp.assignedStations[0] : null);
+                          if (asgnStation != null && asgnStation !== filter.station) {
+                            display = { row1: "", row2: "", row3: "", isStatus: false, statusCode: "" };
                           }
                         }
                       }
