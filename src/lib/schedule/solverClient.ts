@@ -67,6 +67,7 @@ interface SolverManualPlacement {
   employeeId: string;
   date: string;
   shiftProfileId: string;
+  stationNumber?: number;
 }
 
 interface SolverRules {
@@ -278,6 +279,7 @@ export function buildSolverPayload(
         employeeId: mp.employeeId,
         date: mp.date,
         shiftProfileId: pid,
+        ...(mp.stationNumber != null ? { stationNumber: mp.stationNumber } : {}),
       });
     }
   }

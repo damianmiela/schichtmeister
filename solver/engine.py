@@ -173,6 +173,12 @@ def _resolve_stations(
         st = prof.shiftType if prof else "?"
         groups[(a.date, st)].append(idx)
 
+    # Build lookup of manual placement station overrides: (employeeId, date) -> station
+    mp_station: dict[tuple[str, str], int] = {}
+    for mp in request.manualPlacements:
+        if mp.stationNumber is not None:
+            mp_station[(mp.employeeId, mp.date)] = mp.stationNumber
+
     result = list(assignments)  # shallow copy to mutate stationNumber
 
     for (ds, shift_type), indices in groups.items():
@@ -197,6 +203,19 @@ def _resolve_stations(
                 # Already assigned by solver — subtract from remaining, add to count
                 remaining[a.stationNumber] = remaining.get(a.stationNumber, 0) - 1
                 current_count[a.stationNumber] = current_count.get(a.stationNumber, 0) + 1
+                continue
+
+            # Check for manual placement station override
+            mp_st = mp_station.get((a.employeeId, a.date))
+            if mp_st is not None:
+                result[idx] = AssignmentOutput(
+                    employeeId=a.employeeId,
+                    date=a.date,
+                    shiftProfileId=a.shiftProfileId,
+                    stationNumber=mp_st,
+                )
+                remaining[mp_st] = remaining.get(mp_st, 0) - 1
+                current_count[mp_st] = current_count.get(mp_st, 0) + 1
                 continue
 
             emp = emp_map.get(a.employeeId)

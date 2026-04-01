@@ -8,15 +8,12 @@ import { prisma } from "@/lib/db/prisma";
 import { formatRuleViolations } from "@/lib/schedule/formatRuleViolations";
 import type { AssignmentInput } from "@/lib/planning/types";
 import type { GenerateReport, ManualPlacementInput } from "@/lib/schedule/generateDraftSchedule";
-import {
-  loadGenerateContext,
-  runGreedyScheduleGeneration,
-} from "@/lib/schedule/generateDraftSchedule";
+import { loadGenerateContext } from "@/lib/schedule/generateDraftSchedule";
 import { runCpsatGeneration, SolverError, callScorer, buildSolverPayload, type CpsatGenerateResult } from "@/lib/schedule/solverClient";
 
 /**
- * Replaces the roster: **deletes all assignments** on this schedule (Entwurf or veröffentlicht), then
- * runs a deterministic greedy fill. Calling twice yields the same result for the same DB state.
+ * Replaces the roster: **deletes all assignments** on this schedule, then
+ * runs the CP-SAT solver to generate an optimal schedule.
  */
 type RouteCtx = { params: Promise<{ id: string }> };
 
@@ -106,8 +103,6 @@ export async function POST(request: Request, context: RouteCtx) {
   const userId = session!.user.id;
 
   const body = await request.json().catch(() => ({}));
-  const engine: "greedy" | "cpsat" =
-    body?.engine === "greedy" ? "greedy" : "cpsat";
   const manualPlacements = parseManualPlacements(body?.manualPlacements);
   const blockedDates = parseBlockedDates(body?.blockedDates);
 
@@ -130,87 +125,47 @@ export async function POST(request: Request, context: RouteCtx) {
 
   let report: GenerateReport | CpsatGenerateResult;
 
-  if (engine === "cpsat") {
-    // ── CP-SAT path ───────────────────────────────────────────────
-    const facility = await prisma.facility.findUniqueOrThrow({
-      where: { id: facilityId },
-      select: { minRestHours: true, miniJobMaxMonthlyHours: true, ruleOverridesJson: true },
-    });
+  const facility = await prisma.facility.findUniqueOrThrow({
+    where: { id: facilityId },
+    select: { minRestHours: true, miniJobMaxMonthlyHours: true, ruleOverridesJson: true },
+  });
 
-    try {
-      report = await prisma.$transaction(
-        async (tx) => {
-          return runCpsatGeneration(
-            tx,
-            schedule.id,
-            schedule.periodStart,
-            schedule.periodEnd,
-            userId,
-            genCtx,
-            facility,
-            manualPlacements,
-            blockedDates,
-          );
-        },
-        { maxWait: TX_MAX_WAIT_MS, timeout: TX_TIMEOUT_MS },
-      );
-    } catch (e) {
-      console.error("POST /api/schedules/[id]/generate (cpsat)", e);
-      if (e instanceof SolverError) {
-        return NextResponse.json(
-          { error: `CP-SAT Solver: ${e.message}`, details: { status: e.status } },
-          { status: e.status >= 500 ? 502 : 500 },
+  try {
+    report = await prisma.$transaction(
+      async (tx) => {
+        return runCpsatGeneration(
+          tx,
+          schedule.id,
+          schedule.periodStart,
+          schedule.periodEnd,
+          userId,
+          genCtx,
+          facility,
+          manualPlacements,
+          blockedDates,
         );
-      }
-      const isTxTimeout =
-        e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2034";
+      },
+      { maxWait: TX_MAX_WAIT_MS, timeout: TX_TIMEOUT_MS },
+    );
+  } catch (e) {
+    console.error("POST /api/schedules/[id]/generate", e);
+    if (e instanceof SolverError) {
       return NextResponse.json(
-        {
-          error: isTxTimeout
-            ? "CP-SAT: Zeitlimit der Datenbanktransaktion überschritten."
-            : "CP-SAT Generierung fehlgeschlagen.",
-          details: serializeGenerateError(e),
-        },
-        { status: 500 },
+        { error: `CP-SAT Solver: ${e.message}`, details: { status: e.status } },
+        { status: e.status >= 500 ? 502 : 500 },
       );
     }
-  } else {
-    // ── Greedy path (unchanged) ───────────────────────────────────
-    try {
-      report = await prisma.$transaction(
-        async (tx) => {
-          await tx.assignment.deleteMany({ where: { scheduleId } });
-          return runGreedyScheduleGeneration(
-            tx,
-            facilityId,
-            {
-              id: schedule.id,
-              periodStart: schedule.periodStart,
-              periodEnd: schedule.periodEnd,
-            },
-            userId,
-            genCtx,
-            manualPlacements,
-            blockedDates,
-          );
-        },
-        { maxWait: TX_MAX_WAIT_MS, timeout: TX_TIMEOUT_MS },
-      );
-    } catch (e) {
-      console.error("POST /api/schedules/[id]/generate", e);
-      const isTxTimeout =
-        e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2034";
-      const details = serializeGenerateError(e);
-      return NextResponse.json(
-        {
-          error: isTxTimeout
-            ? "Generierung hat das Zeitlimit überschritten. Bitte erneut versuchen oder die Periode aufteilen."
-            : "Generierung fehlgeschlagen.",
-          details,
-        },
-        { status: 500 },
-      );
-    }
+    const isTxTimeout =
+      e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2034";
+    return NextResponse.json(
+      {
+        error: isTxTimeout
+          ? "Zeitlimit der Datenbanktransaktion überschritten."
+          : "Generierung fehlgeschlagen.",
+        details: serializeGenerateError(e),
+      },
+      { status: 500 },
+    );
   }
 
   // ── Shared post-generation: validate + persist ────────────────────
@@ -356,7 +311,6 @@ export async function POST(request: Request, context: RouteCtx) {
   });
 
   return NextResponse.json({
-    engine,
     createdAssignments: report.createdAssignments,
     manualPlacementsApplied: report.manualPlacementsApplied,
     unmetStaffing: report.unmetStaffing,

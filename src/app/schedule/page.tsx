@@ -87,19 +87,12 @@ type PreGenEntry = {
   type: "shift" | "frei";
   date: string;
   shiftProfileId: string;
+  stationNumber: number;
   dateFrom: string;
   dateTo: string;
 };
 
-const GREEDY_STAGES = [
-  { label: "Lade Mitarbeiterdaten...", pct: 5 },
-  { label: "Erstelle Schichtzuweisungen...", pct: 25 },
-  { label: "Optimiere Stundenverteilung...", pct: 60 },
-  { label: "Prüfe Ergebnisse...", pct: 80 },
-  { label: "Speichere Dienstplan...", pct: 92 },
-] as const;
-
-const CPSAT_STAGES = [
+const GENERATE_STAGES = [
   { label: "Lade Mitarbeiterdaten...", pct: 5 },
   { label: "Sende an CP-SAT Solver...", pct: 15 },
   { label: "Berechne optimalen Plan...", pct: 35 },
@@ -168,8 +161,6 @@ export default function SchedulePage() {
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [preGenOpen, setPreGenOpen] = useState(false);
   const [preGenEntries, setPreGenEntries] = useState<PreGenEntry[]>([]);
-  const genEngine = "cpsat" as const;
-  const GENERATE_STAGES = CPSAT_STAGES;
   const [editMode, setEditMode] = useState(false);
   const [editedCells, setEditedCells] = useState<Map<string, CellEdit>>(new Map());
   const [editedShiftWishSet, setEditedShiftWishSet] = useState<Set<string>>(new Set());
@@ -178,6 +169,9 @@ export default function SchedulePage() {
   const [logDialogOpen, setLogDialogOpen] = useState(false);
   const [logContent, setLogContent] = useState<string | null>(null);
   const [logLoading, setLogLoading] = useState(false);
+  const [scoreDialogOpen, setScoreDialogOpen] = useState(false);
+  const [scoreContent, setScoreContent] = useState<string | null>(null);
+  const [scoreLoading, setScoreLoading] = useState(false);
 
   const daysInMonth = useMemo(() => {
     const { year, month } = viewState;
@@ -577,9 +571,7 @@ export default function SchedulePage() {
     setActionDebugPayload(null);
     setActionAlertSeverity("info");
 
-    const timings = genEngine === "cpsat"
-      ? [800, 2000, 5000, 15000, 25000]
-      : [1200, 3000, 6000, 9000];
+    const timings = [800, 2000, 5000, 15000, 25000];
     const stageTimers = timings.map((ms, i) =>
       setTimeout(() => setGenStageIdx(i + 1), ms),
     );
@@ -588,11 +580,10 @@ export default function SchedulePage() {
       .filter((e) => e.type === "shift")
       .map((e) => {
         const prof = profilesById[e.shiftProfileId];
-        const emp = employeesById[e.employeeId];
         return {
           employeeId: e.employeeId,
           date: e.date,
-          stationNumber: emp?.assignedStations?.[0] ?? 1,
+          stationNumber: e.stationNumber,
           shiftType: prof?.shiftType ?? "EARLY",
         };
       });
@@ -600,10 +591,9 @@ export default function SchedulePage() {
       .filter((e) => e.type === "frei")
       .flatMap((e) => expandDateRange(e.employeeId, e.dateFrom, e.dateTo));
     const payload: {
-      engine: "greedy" | "cpsat";
       manualPlacements?: ManualPlacement[];
       blockedDates?: { employeeId: string; date: string }[];
-    } = { engine: genEngine };
+    } = {};
     if (manualPlacements.length > 0) payload.manualPlacements = manualPlacements;
     if (blockedDates.length > 0) payload.blockedDates = blockedDates;
 
@@ -699,6 +689,27 @@ export default function SchedulePage() {
       setLogContent(null);
     } finally {
       setLogLoading(false);
+    }
+  };
+
+  const onViewScore = async () => {
+    if (!schedule) return;
+    setScoreLoading(true);
+    setScoreContent(null);
+    setScoreDialogOpen(true);
+    try {
+      const res = await fetch(`/api/schedules/${schedule.id}/export/score`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        setScoreContent(null);
+      } else {
+        setScoreContent(await res.text());
+      }
+    } catch {
+      setScoreContent(null);
+    } finally {
+      setScoreLoading(false);
     }
   };
 
@@ -910,6 +921,7 @@ export default function SchedulePage() {
         type,
         date: firstDay,
         shiftProfileId: allProfiles[0]?.id ?? "",
+        stationNumber: first.assignedStations?.[0] ?? 1,
         dateFrom: firstDay,
         dateTo: firstDay,
       },
@@ -1069,10 +1081,10 @@ export default function SchedulePage() {
                   PDF
                 </MenuItem>
                 <MenuItem
-                  onClick={() => void downloadExport("score")}
+                  onClick={() => { setExportMenuEl(null); void onViewScore(); }}
                   disabled={exportBusy}
                 >
-                  Qualitätsbericht (.txt)
+                  Qualitätsbericht
                 </MenuItem>
                 <MenuItem
                   onClick={() => void downloadExport("debug")}
@@ -1338,27 +1350,6 @@ export default function SchedulePage() {
             um diese Vorgaben herum.
           </Typography>
 
-          <Box
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              gap: 2,
-              mb: 2,
-              p: 1.5,
-              borderRadius: 1,
-              bgcolor: "primary.50",
-              border: "1px solid",
-              borderColor: "primary.200",
-            }}
-          >
-            <Typography variant="subtitle2">
-              Engine: CP-SAT Solver
-            </Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ flex: 1 }}>
-              Findet die bestmögliche Lösung (ca. 10–120 Sek.)
-            </Typography>
-          </Box>
-
           <Divider sx={{ mb: 2 }} />
 
           {preGenEntries.length > 0 && (
@@ -1440,6 +1431,19 @@ export default function SchedulePage() {
                             {p.name}
                           </option>
                         ))}
+                      </TextField>
+                      <TextField
+                        select
+                        size="small"
+                        label="Station"
+                        value={entry.stationNumber}
+                        onChange={(e) => updateEntry(idx, { stationNumber: Number(e.target.value) })}
+                        sx={{ minWidth: 90 }}
+                        SelectProps={{ native: true }}
+                      >
+                        <option value={1}>Station 1</option>
+                        <option value={2}>Station 2</option>
+                        <option value={3}>Station 3</option>
                       </TextField>
                     </>
                   ) : (
@@ -1600,6 +1604,58 @@ export default function SchedulePage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setLogDialogOpen(false)}>Schließen</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Score report modal */}
+      <Dialog
+        open={scoreDialogOpen}
+        onClose={() => setScoreDialogOpen(false)}
+        maxWidth="lg"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <DescriptionIcon color="primary" />
+            Qualitätsbericht — {MONTH_NAMES[viewState.month]} {viewState.year}
+          </Box>
+          <IconButton size="small" onClick={() => setScoreDialogOpen(false)}>
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          {scoreLoading ? (
+            <Box sx={{ display: "flex", justifyContent: "center", p: 4 }}>
+              <CircularProgress />
+            </Box>
+          ) : scoreContent ? (
+            <Box
+              component="pre"
+              sx={{
+                m: 0,
+                p: 1.5,
+                bgcolor: "grey.50",
+                borderRadius: 1,
+                fontSize: "0.75rem",
+                lineHeight: 1.5,
+                overflow: "auto",
+                maxHeight: "60vh",
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+                fontFamily: "monospace",
+              }}
+            >
+              {scoreContent}
+            </Box>
+          ) : (
+            <Typography color="text.secondary" sx={{ py: 4, textAlign: "center" }}>
+              Kein Qualitätsbericht vorhanden.
+              Generieren Sie zuerst einen Dienstplan.
+            </Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setScoreDialogOpen(false)}>Schließen</Button>
         </DialogActions>
       </Dialog>
 
