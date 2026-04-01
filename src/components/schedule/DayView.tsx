@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Box,
   Typography,
@@ -375,7 +375,7 @@ function ColumnView({
     const totalMet = totalAssigned >= totalRequired;
 
     return (
-      <Box key={shiftType} sx={{ mb: 1 }}>
+      <Box key={shiftType} data-shift-group={shiftType} sx={{ mb: 1 }}>
         {/* Shift type header */}
         <Box
           sx={{
@@ -502,9 +502,28 @@ function ColumnView({
     );
   };
 
+  // ── Sync shift-group heights across station columns ──
+  const stationsRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const container = stationsRef.current;
+    if (!container) return;
+    const groups = container.querySelectorAll<HTMLElement>("[data-shift-group]");
+    const byShift: Record<string, HTMLElement[]> = {};
+    groups.forEach((el) => {
+      const st = el.dataset.shiftGroup!;
+      (byShift[st] ??= []).push(el);
+    });
+    for (const elements of Object.values(byShift)) {
+      // reset so we measure natural height
+      elements.forEach((el) => (el.style.minHeight = ""));
+      const maxH = Math.max(...elements.map((el) => el.offsetHeight));
+      elements.forEach((el) => (el.style.minHeight = `${maxH}px`));
+    }
+  });
+
   return (
     <Box>
-      <Box sx={{ display: "flex", gap: 2, mb: 2 }}>
+      <Box ref={stationsRef} sx={{ display: "flex", gap: 2, mb: 2 }}>
         {renderStationColumn(1)}
         {renderStationColumn(2)}
         {renderStationColumn(3)}
