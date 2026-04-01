@@ -30,6 +30,7 @@ interface SolverEmployee {
   unavailableDates: string[];
   isWbl: boolean;
   isFullTimeBl: boolean;
+  maxConsecutiveDays: number | null;
   shiftDistribution: Record<string, number> | null;
 }
 
@@ -235,6 +236,7 @@ export function buildSolverPayload(
         e.qualificationTags.includes("WBL") ||
         e.qualificationAbbreviations.includes("WBL"),
       isFullTimeBl: e.isFullTimeBl,
+      maxConsecutiveDays: e.maxConsecutiveDays,
       shiftDistribution: e.shiftDistribution,
     };
   });

@@ -81,6 +81,7 @@ describe("phase 07 — generate draft schedule (pure helpers)", () => {
       unavailableDateSet: new Set(["2026-02-01"]),
       isFullTimeBl: false,
       fixedWorkingDays: [],
+      maxConsecutiveDays: null,
       shiftDistribution: null,
     };
     expect(isUnavailableOnDate(emp, "2026-02-01")).toBe(true);

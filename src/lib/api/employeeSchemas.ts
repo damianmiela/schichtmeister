@@ -29,6 +29,7 @@ export const employeeCreateSchema = z.object({
   preferredShiftTypes: z.array(shiftTypeZ).optional(),
   isFullTimeBl: z.boolean().optional(),
   fixedWorkingDays: z.array(z.number().int().min(1).max(7)).optional(),
+  maxConsecutiveDays: z.number().int().min(1).max(31).optional().nullable(),
   shiftDistribution: z.record(z.string(), z.number().min(0).max(100)).optional().nullable(),
 });
 
@@ -48,6 +49,7 @@ export const employeePatchSchema = z
     preferredShiftTypes: z.array(shiftTypeZ).optional(),
     isFullTimeBl: z.boolean().optional(),
     fixedWorkingDays: z.array(z.number().int().min(1).max(7)).optional(),
+    maxConsecutiveDays: z.number().int().min(1).max(31).optional().nullable(),
     shiftDistribution: z.record(z.string(), z.number().min(0).max(100)).optional().nullable(),
   })
   .refine((o) => Object.keys(o).length > 0, {

@@ -7,7 +7,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 export function maxConsecutiveDaysRule(ctx: RuleContext): RuleResult {
   const errors: RuleResult["errors"] = [];
-  const maxDays =
+  const globalMaxDays =
     (ctx.snapshot.ruleStates.maxConsecutiveDays?.params?.maxDays as number | undefined) ??
     DEFAULT_MAX_DAYS;
   const requiredRestDays =
@@ -25,6 +25,10 @@ export function maxConsecutiveDaysRule(ctx: RuleContext): RuleResult {
   for (const [employeeId, days] of byEmployee) {
     const sorted = [...new Set(days)].sort();
     if (sorted.length === 0) continue;
+
+    // Per-employee override takes precedence over global setting
+    const emp = ctx.employeesById.get(employeeId);
+    const maxDays = emp?.maxConsecutiveDays ?? globalMaxDays;
 
     let streakStart = 0;
 

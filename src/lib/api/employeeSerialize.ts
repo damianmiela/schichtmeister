@@ -35,6 +35,7 @@ export type EmployeeRowPayload = {
   preferredShiftTypes: ShiftType[];
   isFullTimeBl: boolean;
   fixedWorkingDays: number[];
+  maxConsecutiveDays: number | null;
   shiftDistribution: Record<string, number> | null;
   createdAt: string;
 };
@@ -65,6 +66,7 @@ export function serializeEmployee(
     preferredShiftTypes: ShiftType[];
     isFullTimeBl?: boolean;
     fixedWorkingDays?: number[];
+    maxConsecutiveDays?: number | null;
     shiftDistribution?: unknown;
     createdAt: Date;
     workProfile?: WorkProfileSlice | null;
@@ -103,6 +105,7 @@ export function serializeEmployee(
     preferredShiftTypes: e.preferredShiftTypes,
     isFullTimeBl: e.isFullTimeBl ?? false,
     fixedWorkingDays: e.fixedWorkingDays ?? [],
+    maxConsecutiveDays: e.maxConsecutiveDays ?? null,
     shiftDistribution: (e.shiftDistribution as Record<string, number>) ?? null,
     createdAt: e.createdAt.toISOString(),
   };

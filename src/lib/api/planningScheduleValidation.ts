@@ -34,6 +34,7 @@ function buildEmployeeInput(e: {
   qualificationTags: string[];
   targetHoursPercent?: Prisma.Decimal | null;
   allowedShiftProfiles?: { id: string }[];
+  maxConsecutiveDays?: number | null;
 }): EmployeeInput {
   return {
     id: e.id,
@@ -43,6 +44,7 @@ function buildEmployeeInput(e: {
     qualificationTags: e.qualificationTags,
     targetHoursPercent: e.targetHoursPercent != null ? Number(e.targetHoursPercent) : null,
     allowedShiftProfileIds: e.allowedShiftProfiles?.map((p) => p.id),
+    maxConsecutiveDays: e.maxConsecutiveDays ?? null,
   };
 }
 

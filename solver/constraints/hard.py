@@ -382,11 +382,14 @@ def add_max_consecutive_days(
     works_day: WorksDay,
     req: SolveRequest,
 ):
-    max_days = req.rules.maxConsecutiveDays
+    global_max_days = req.rules.maxConsecutiveDays
     rest_after_6 = req.rules.requiredRestDaysAfter6
     dates = _dates(req)
 
     for emp in req.employees:
+        # Per-employee override takes precedence over global setting
+        max_days = emp.maxConsecutiveDays if emp.maxConsecutiveDays is not None else global_max_days
+
         day_vars: list[cp_model.IntVar | int] = []
         for d in dates:
             ds = d.isoformat()
@@ -395,7 +398,7 @@ def add_max_consecutive_days(
             else:
                 day_vars.append(0)
 
-        # Existing: no more than max_days in a window of max_days+1
+        # No more than max_days in a window of max_days+1
         window = max_days + 1
         for i in range(len(day_vars) - window + 1):
             model.Add(sum(day_vars[i:i + window]) <= max_days)

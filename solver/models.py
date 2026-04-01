@@ -22,6 +22,7 @@ class EmployeeInput(BaseModel):
     unavailableDates: list[str] = []
     isWbl: bool = False
     isFullTimeBl: bool = False
+    maxConsecutiveDays: int | None = None
     shiftDistribution: dict[str, float] | None = None
 
 

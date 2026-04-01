@@ -78,6 +78,7 @@ interface EmployeeRow {
   allowedShiftProfiles: { id: string; name: string; shiftType: string }[];
   isFullTimeBl?: boolean;
   fixedWorkingDays?: number[];
+  maxConsecutiveDays?: number | null;
   shiftDistribution?: Record<string, number> | null;
 }
 
@@ -278,6 +279,9 @@ export default function EmployeesPage() {
   const [profilesTouched, setProfilesTouched] = useState(false);
   const [isFullTimeBl, setIsFullTimeBl] = useState(false);
   const [fixedWorkingDays, setFixedWorkingDays] = useState<number[]>([]);
+  const [maxConsecOverride, setMaxConsecOverride] = useState(false);
+  const [maxConsecDays, setMaxConsecDays] = useState("");
+  const [globalMaxConsecDays, setGlobalMaxConsecDays] = useState(7);
   const [shiftDistribution, setShiftDistribution] = useState<Record<string, string>>({});
 
   const [absences, setAbsences] = useState<Absence[]>([]);
@@ -299,16 +303,21 @@ export default function EmployeesPage() {
     setLoading(true);
     setError(null);
     try {
-      const [empRes, qualRes, spRes] = await Promise.all([
+      const [empRes, qualRes, spRes, rulesRes] = await Promise.all([
         fetchJson<{ employees: EmployeeRow[] }>("/api/employees"),
         fetchJson<{ qualifications: QualificationCatalog[] }>("/api/qualifications"),
         fetchJson<{ shiftProfiles: ShiftProfileCatalog[] }>(
           "/api/shift-profiles?isActive=true",
         ),
+        fetchJson<{ rules: { id: string; enabled: boolean; params: Record<string, unknown> }[] }>("/api/facility/rules"),
       ]);
       setEmployees(empRes.employees ?? []);
       setQualCatalog(qualRes.qualifications ?? []);
       setShiftProfileCatalog(spRes.shiftProfiles ?? []);
+      const mcdRule = rulesRes.rules?.find((r) => r.id === "maxConsecutiveDays");
+      if (mcdRule?.enabled) {
+        setGlobalMaxConsecDays((mcdRule.params.maxDays as number) ?? 7);
+      }
     } catch (e) {
       setError(extractApiError(e, "Laden fehlgeschlagen."));
       setEmployees([]);
@@ -404,6 +413,8 @@ export default function EmployeesPage() {
     setProfilesTouched(false);
     setIsFullTimeBl(false);
     setFixedWorkingDays([]);
+    setMaxConsecOverride(false);
+    setMaxConsecDays(String(globalMaxConsecDays));
     setShiftDistribution({});
     setAbsences([]);
     setAbsenceError(null);
@@ -462,6 +473,8 @@ export default function EmployeesPage() {
     setAssignedStations(e.assignedStations ?? []);
     setIsFullTimeBl(e.isFullTimeBl ?? false);
     setFixedWorkingDays(e.fixedWorkingDays ?? []);
+    setMaxConsecOverride(e.maxConsecutiveDays != null);
+    setMaxConsecDays(e.maxConsecutiveDays != null ? String(e.maxConsecutiveDays) : String(globalMaxConsecDays));
     const dist = e.shiftDistribution ?? {};
     const distStrs: Record<string, string> = {};
     for (const [k, v] of Object.entries(dist)) {
@@ -533,6 +546,7 @@ export default function EmployeesPage() {
       workProfileId: null,
       isFullTimeBl,
       fixedWorkingDays,
+      maxConsecutiveDays: maxConsecOverride ? (parseInt(maxConsecDays, 10) || null) : null,
       shiftDistribution: distHasValues ? parsedDist : null,
     };
 
@@ -1128,6 +1142,36 @@ export default function EmployeesPage() {
               </MenuItem>
             ))}
           </TextField>
+
+          {/* Max consecutive working days override */}
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <Checkbox
+              checked={maxConsecOverride}
+              onChange={(e) => {
+                setMaxConsecOverride(e.target.checked);
+                if (e.target.checked && !maxConsecDays) {
+                  setMaxConsecDays(String(globalMaxConsecDays));
+                }
+              }}
+              disabled={saving}
+              size="small"
+            />
+            <Typography variant="body2">
+              Max. aufeinanderfolgende Arbeitstage
+            </Typography>
+            {maxConsecOverride && (
+              <TextField
+                value={maxConsecDays}
+                onChange={(e) => setMaxConsecDays(e.target.value)}
+                size="small"
+                disabled={saving}
+                type="number"
+                sx={{ width: 80 }}
+                slotProps={{ htmlInput: { min: 1, max: 31 } }}
+                helperText={`Standard: ${globalMaxConsecDays}`}
+              />
+            )}
+          </Box>
 
           {/* Shift profile distribution */}
           {selectedProfiles.length >= 2 && (

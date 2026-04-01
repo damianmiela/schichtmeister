@@ -34,6 +34,7 @@ export type EmployeeInput = {
   qualificationTags: string[];
   allowedShiftProfileIds?: string[];
   targetHoursPercent?: number | null;
+  maxConsecutiveDays?: number | null;
 };
 
 export type ShiftProfileInput = {

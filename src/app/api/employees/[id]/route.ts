@@ -72,6 +72,9 @@ export async function PATCH(request: NextRequest, context: RouteCtx) {
   if (data.fixedWorkingDays !== undefined) {
     updateData.fixedWorkingDays = data.fixedWorkingDays;
   }
+  if (data.maxConsecutiveDays !== undefined) {
+    updateData.maxConsecutiveDays = data.maxConsecutiveDays;
+  }
   if (data.shiftDistribution !== undefined) {
     updateData.shiftDistribution = data.shiftDistribution ?? Prisma.JsonNull;
   }

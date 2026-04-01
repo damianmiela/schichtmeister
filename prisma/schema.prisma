@@ -132,6 +132,7 @@ model Employee {
   preferredShiftTypes      ShiftType[]         @default([])
   isFullTimeBl             Boolean             @default(false)
   fixedWorkingDays         Int[]               @default([])
+  maxConsecutiveDays       Int?
   shiftDistribution        Json?
   createdAt                DateTime            @default(now())
   updatedAt                DateTime            @updatedAt

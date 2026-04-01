@@ -230,6 +230,7 @@ export type GenEmployee = {
   unavailableDateSet: Set<string>;
   isFullTimeBl: boolean;
   fixedWorkingDays: number[];
+  maxConsecutiveDays: number | null;
   shiftDistribution: Record<string, number> | null;
 };
 
@@ -498,6 +499,7 @@ export async function loadGenerateContext(
       unavailableDateSet: unavail,
       isFullTimeBl: e.isFullTimeBl ?? false,
       fixedWorkingDays: fwd,
+      maxConsecutiveDays: e.maxConsecutiveDays ?? null,
       shiftDistribution: (e.shiftDistribution as Record<string, number>) ?? null,
     };
   });
