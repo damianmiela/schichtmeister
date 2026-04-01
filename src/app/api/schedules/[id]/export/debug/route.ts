@@ -31,7 +31,7 @@ export async function GET(_request: Request, context: RouteCtx) {
     loadGenerateContext(prisma, facilityId, schedule.periodStart, schedule.periodEnd),
     prisma.facility.findUniqueOrThrow({
       where: { id: facilityId },
-      select: { id: true, name: true, minRestHours: true, miniJobMaxMonthlyHours: true, ruleOverridesJson: true },
+      select: { id: true, name: true, minRestHours: true, miniJobMaxMonthlyHours: true, maxSolveTimeSeconds: true, ruleOverridesJson: true },
     }),
     prisma.employee.findMany({
       where: { facilityId },
@@ -94,6 +94,7 @@ export async function GET(_request: Request, context: RouteCtx) {
   const facilitySlice: FacilityRulesSlice = {
     minRestHours: facility.minRestHours,
     miniJobMaxMonthlyHours: facility.miniJobMaxMonthlyHours,
+    maxSolveTimeSeconds: facility.maxSolveTimeSeconds,
     ruleOverridesJson: facility.ruleOverridesJson,
   };
 

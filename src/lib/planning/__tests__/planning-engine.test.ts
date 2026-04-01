@@ -20,6 +20,7 @@ function facilitySlice(
   return {
     minRestHours: new Prisma.Decimal(minRestHours),
     miniJobMaxMonthlyHours: new Prisma.Decimal(miniJobMaxMonthlyHours),
+    maxSolveTimeSeconds: 120,
     ruleOverridesJson,
   };
 }
