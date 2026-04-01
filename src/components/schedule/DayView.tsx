@@ -179,101 +179,137 @@ function ColumnView({
     return m;
   }, [staffing]);
 
-  // ── Render a single employee row ──
-  const renderEmpRow = (row: EmpRow, highlight?: "ok" | "warn") => {
+  // ── Render a filled requirement pill ──
+  const renderFilledReqPill = (row: EmpRow, tag: string, idx: number) => {
     const name = row.employee
       ? `${row.employee.lastName}, ${row.employee.firstName}`
       : row.employeeId.slice(0, 8);
-    const tags = row.employee?.qualificationTags ?? [];
+
+    return (
+      <Tooltip
+        key={`req-${tag}-${idx}`}
+        title={
+          <Box sx={{ p: 0.5 }}>
+            <Typography variant="caption" fontWeight={700}>{tag}</Typography>
+            <Typography variant="caption" display="block">{row.profile.name}</Typography>
+            <QualificationPills qualifications={row.employee?.qualifications} tags={row.employee?.qualificationTags ?? []} compact />
+          </Box>
+        }
+        arrow
+      >
+        <Box
+          onClick={onEmployeeClick ? () => onEmployeeClick(row.employeeId) : undefined}
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            gap: 0.75,
+            py: 0.75,
+            px: 1.5,
+            border: "2px dashed",
+            borderColor: "success.light",
+            borderRadius: 2,
+            bgcolor: alpha("#4caf50", 0.04),
+            cursor: onEmployeeClick ? "pointer" : "default",
+            "&:hover": { bgcolor: alpha("#4caf50", 0.1) },
+            minHeight: 40,
+          }}
+        >
+          <Typography variant="caption" sx={{ fontWeight: 700, color: "success.dark", fontSize: 10, minWidth: 60, flexShrink: 0 }}>
+            {tag}
+          </Typography>
+          <Typography variant="body2" sx={{ fontWeight: 500, fontSize: 13, flex: 1 }}>
+            {name}
+          </Typography>
+          <Chip
+            label={row.profile.name}
+            size="small"
+            sx={{
+              height: 20,
+              fontSize: 10,
+              fontWeight: 600,
+              bgcolor: alpha(SHIFT_TYPE_COLORS[row.profile.shiftType] ?? "#78909c", 0.15),
+              color: SHIFT_TYPE_COLORS[row.profile.shiftType] ?? "#78909c",
+              "& .MuiChip-label": { px: 0.5 },
+            }}
+          />
+          <QualificationPills qualifications={row.employee?.qualifications} tags={row.employee?.qualificationTags ?? []} compact />
+        </Box>
+      </Tooltip>
+    );
+  };
+
+  // ── Render an empty (unfilled) requirement pill ──
+  const renderEmptyReqPill = (tag: string, idx: number) => (
+    <Box
+      key={`empty-${tag}-${idx}`}
+      sx={{
+        display: "flex",
+        alignItems: "center",
+        gap: 0.75,
+        py: 0.75,
+        px: 1.5,
+        border: "2px dashed",
+        borderColor: "error.light",
+        borderRadius: 2,
+        bgcolor: alpha("#d32f2f", 0.04),
+        minHeight: 40,
+      }}
+    >
+      <WarningAmberIcon sx={{ fontSize: 16, color: "error.main" }} />
+      <Typography variant="caption" sx={{ fontWeight: 700, color: "error.main", fontSize: 11 }}>
+        {tag}
+      </Typography>
+      <Typography variant="body2" sx={{ color: "text.disabled", fontStyle: "italic", fontSize: 12, ml: 0.5 }}>
+        nicht besetzt
+      </Typography>
+    </Box>
+  );
+
+  // ── Render a regular (extra) employee pill ──
+  const renderExtraPill = (row: EmpRow) => {
+    const name = row.employee
+      ? `${row.employee.lastName}, ${row.employee.firstName}`
+      : row.employeeId.slice(0, 8);
 
     return (
       <Box
         key={row.assignment.id}
+        onClick={onEmployeeClick ? () => onEmployeeClick(row.employeeId) : undefined}
         sx={{
           display: "flex",
           alignItems: "center",
-          gap: 1,
-          py: 0.5,
+          gap: 0.75,
+          py: 0.75,
           px: 1.5,
-          borderLeft: highlight === "warn" ? "3px solid" : "3px solid",
-          borderColor: highlight === "warn" ? "error.main" : "transparent",
+          border: "1px solid",
+          borderColor: "divider",
+          borderRadius: 2,
+          cursor: onEmployeeClick ? "pointer" : "default",
           "&:hover": { bgcolor: "action.hover" },
+          minHeight: 40,
         }}
       >
-        <Typography
-          variant="body2"
-          sx={{
-            fontWeight: 500,
-            fontSize: 13,
-            minWidth: 140,
-            cursor: onEmployeeClick ? "pointer" : "default",
-            "&:hover": onEmployeeClick
-              ? { textDecoration: "underline", color: "primary.main" }
-              : undefined,
-          }}
-          onClick={onEmployeeClick ? () => onEmployeeClick(row.employeeId) : undefined}
-        >
+        <Typography variant="body2" sx={{ fontWeight: 500, fontSize: 13, flex: 1 }}>
           {name}
         </Typography>
         <Chip
           label={row.profile.name}
           size="small"
           sx={{
-            height: 22,
-            fontSize: 11,
+            height: 20,
+            fontSize: 10,
             fontWeight: 600,
             bgcolor: alpha(SHIFT_TYPE_COLORS[row.profile.shiftType] ?? "#78909c", 0.15),
             color: SHIFT_TYPE_COLORS[row.profile.shiftType] ?? "#78909c",
-            "& .MuiChip-label": { px: 0.75 },
+            "& .MuiChip-label": { px: 0.5 },
           }}
         />
-        <QualificationPills
-          qualifications={row.employee?.qualifications}
-          tags={tags}
-          compact
-        />
+        <QualificationPills qualifications={row.employee?.qualifications} tags={row.employee?.qualificationTags ?? []} compact />
       </Box>
     );
   };
 
-  // ── Render an empty (unfilled) slot ──
-  const renderEmptySlot = (tag: string, idx: number) => (
-    <Box
-      key={`empty-${tag}-${idx}`}
-      sx={{
-        display: "flex",
-        alignItems: "center",
-        gap: 1,
-        py: 0.5,
-        px: 1.5,
-        borderLeft: "3px solid",
-        borderColor: "error.main",
-      }}
-    >
-      <Box
-        sx={{
-          display: "flex",
-          alignItems: "center",
-          gap: 0.5,
-          flex: 1,
-          py: 0.25,
-          px: 1,
-          border: "1.5px dashed",
-          borderColor: "error.300",
-          borderRadius: 1,
-          bgcolor: alpha("#d32f2f", 0.04),
-          minHeight: 28,
-        }}
-      >
-        <WarningAmberIcon sx={{ fontSize: 16, color: "error.main" }} />
-        <Typography variant="body2" sx={{ color: "error.main", fontWeight: 600, fontSize: 12 }}>
-          {tag} fehlt
-        </Typography>
-      </Box>
-    </Box>
-  );
-
-  // ── Render a shift group (Frueh / Spaet / BL) with requirement slots ──
+  // ── Render a shift group (Frueh / Spaet / BL) with requirement pills ──
   const renderShiftGroup = (
     label: string,
     shiftType: string,
@@ -328,27 +364,29 @@ function ColumnView({
           )}
         </Box>
 
-        {/* Requirement slots (filled + empty) */}
-        {slots.map((slot, i) =>
-          slot.filled ? renderEmpRow(slot.filled, "ok") : renderEmptySlot(slot.tag, i),
-        )}
+        {/* Requirement pills */}
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5, px: 1, py: 0.75 }}>
+          {slots.map((slot, i) =>
+            slot.filled
+              ? renderFilledReqPill(slot.filled, slot.tag, i)
+              : renderEmptyReqPill(slot.tag, i),
+          )}
 
-        {/* Extra people beyond requirements */}
-        {extra.length > 0 && (
-          <>
-            {slots.length > 0 && extra.length > 0 && (
-              <Box sx={{ borderTop: "1px dashed", borderColor: "divider", mx: 1.5, my: 0.25 }} />
-            )}
-            {extra.map((r) => renderEmpRow(r))}
-          </>
-        )}
+          {/* Separator between requirement pills and extras */}
+          {slots.length > 0 && extra.length > 0 && (
+            <Box sx={{ borderTop: "1px dashed", borderColor: "divider", my: 0.25 }} />
+          )}
 
-        {/* Nothing at all */}
-        {rows.length === 0 && slots.length === 0 && (
-          <Typography variant="body2" color="text.disabled" sx={{ px: 2, py: 0.5, fontSize: 12, fontStyle: "italic" }}>
-            Keine Zuweisungen
-          </Typography>
-        )}
+          {/* Extra people beyond requirements */}
+          {extra.map((r) => renderExtraPill(r))}
+
+          {/* Nothing at all */}
+          {rows.length === 0 && slots.length === 0 && (
+            <Typography variant="body2" color="text.disabled" sx={{ px: 1, py: 0.5, fontSize: 12, fontStyle: "italic" }}>
+              Keine Zuweisungen
+            </Typography>
+          )}
+        </Box>
       </Box>
     );
   };
