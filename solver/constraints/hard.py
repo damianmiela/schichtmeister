@@ -73,6 +73,11 @@ def add_unavailability(
     shift: ShiftVar,
     req: SolveRequest,
 ):
+    # Manual placements override unavailability — don't block those specific combos
+    mp_forced: set[tuple[str, str, str]] = set()
+    for mp in req.manualPlacements:
+        mp_forced.add((mp.employeeId, mp.date, mp.shiftProfileId))
+
     blocked_set: dict[str, set[str]] = {}
     for bd in req.blockedDates:
         blocked_set.setdefault(bd.employeeId, set()).add(bd.date)
@@ -83,7 +88,7 @@ def add_unavailability(
         for ds in unavail:
             for p in req.shiftProfiles:
                 key = (emp.id, ds, p.id)
-                if key in shift:
+                if key in shift and key not in mp_forced:
                     model.Add(shift[key] == 0)
 
 

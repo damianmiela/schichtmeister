@@ -78,6 +78,11 @@ def _build_variables(
     for bd in req.blockedDates:
         blocked_dates.setdefault(bd.employeeId, set()).add(bd.date)
 
+    # Manual placements MUST have variables — bypass allowedShiftProfileIds filter
+    mp_forced: set[tuple[str, str, str]] = set()
+    for mp in req.manualPlacements:
+        mp_forced.add((mp.employeeId, mp.date, mp.shiftProfileId))
+
     shift: dict[tuple[str, str, str], cp_model.IntVar] = {}
     works_day: dict[tuple[str, str], cp_model.IntVar] = {}
 
@@ -90,14 +95,24 @@ def _build_variables(
         for d in dates:
             ds = d.isoformat()
             if ds in unavail:
+                # Still create vars for manual placements even on "unavailable" days
+                forced_on_day = [p for p in active_profiles if (emp.id, ds, p.id) in mp_forced]
+                if not forced_on_day:
+                    continue
+                for p in forced_on_day:
+                    var = model.NewBoolVar(f"s_{emp.id}_{ds}_{p.id}")
+                    shift[(emp.id, ds, p.id)] = var
+                if (emp.id, ds) not in works_day:
+                    works_day[(emp.id, ds)] = model.NewBoolVar(f"wd_{emp.id}_{ds}")
                 continue
 
             day_has_var = False
             for p in active_profiles:
-                if allowed and p.id not in allowed:
+                is_forced = (emp.id, ds, p.id) in mp_forced
+                if not is_forced and allowed and p.id not in allowed:
                     continue
-                # BL profiles: only WBL employees, unless isFullTimeBl
-                if p.shiftType == "BL" and not is_wbl and not emp.isFullTimeBl:
+                # BL profiles: only WBL employees, unless isFullTimeBl (but always allow if forced)
+                if not is_forced and p.shiftType == "BL" and not is_wbl and not emp.isFullTimeBl:
                     continue
                 var = model.NewBoolVar(f"s_{emp.id}_{ds}_{p.id}")
                 shift[(emp.id, ds, p.id)] = var
