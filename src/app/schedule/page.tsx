@@ -93,14 +93,14 @@ type PreGenEntry = {
   dateTo: string;
 };
 
-const GENERATE_STAGES = [
-  { label: "Lade Mitarbeiterdaten...", pct: 5 },
-  { label: "Sende an CP-SAT Solver...", pct: 15 },
-  { label: "Berechne optimalen Plan...", pct: 35 },
-  { label: "Optimierung läuft (bis 30 Sek.)...", pct: 60 },
-  { label: "Ergebnisse werden verarbeitet...", pct: 80 },
-  { label: "Speichere Dienstplan...", pct: 92 },
-] as const;
+type GenProgress = {
+  label: string;
+  pct: number;
+  solutions?: number;
+  objective?: number;
+  gap?: number;
+  elapsed?: number;
+};
 
 type ViewType = "month" | "week" | "day" | "employee";
 type MonthViewMode = "table" | "overview";
@@ -155,7 +155,7 @@ export default function SchedulePage() {
   >("info");
   const [exportMenuEl, setExportMenuEl] = useState<null | HTMLElement>(null);
   const [exportBusy, setExportBusy] = useState(false);
-  const [genStageIdx, setGenStageIdx] = useState(0);
+  const [genProgress, setGenProgress] = useState<GenProgress>({ label: "", pct: 0 });
   const [genModalOpen, setGenModalOpen] = useState(false);
   const [warningsOpen, setWarningsOpen] = useState(false);
   const [clearBusy, setClearBusy] = useState(false);
@@ -566,16 +566,11 @@ export default function SchedulePage() {
     if (!schedule) return;
     setPreGenOpen(false);
     setGenerateBusy(true);
-    setGenStageIdx(0);
+    setGenProgress({ label: "Starte Generierung...", pct: 1 });
     setGenModalOpen(true);
     setActionMsg(null);
     setActionDebugPayload(null);
     setActionAlertSeverity("info");
-
-    const timings = [800, 2000, 5000, 15000, 25000];
-    const stageTimers = timings.map((ms, i) =>
-      setTimeout(() => setGenStageIdx(i + 1), ms),
-    );
 
     const manualPlacements: ManualPlacement[] = preGenEntries
       .filter((e) => e.type === "shift")
@@ -592,83 +587,98 @@ export default function SchedulePage() {
     const blockedDates = preGenEntries
       .filter((e) => e.type === "frei")
       .flatMap((e) => expandDateRange(e.employeeId, e.dateFrom, e.dateTo));
-    const payload: {
+    const body: {
       manualPlacements?: ManualPlacement[];
       blockedDates?: { employeeId: string; date: string }[];
     } = {};
-    if (manualPlacements.length > 0) payload.manualPlacements = manualPlacements;
-    if (blockedDates.length > 0) payload.blockedDates = blockedDates;
+    if (manualPlacements.length > 0) body.manualPlacements = manualPlacements;
+    if (blockedDates.length > 0) body.blockedDates = blockedDates;
 
     try {
-      const res = await fetchJson<GenerateScheduleResponse>(
-        `/api/schedules/${schedule.id}/generate`,
-        {
-          method: "POST",
-          body: JSON.stringify(payload),
-        },
-      );
-      stageTimers.forEach(clearTimeout);
-      setGenStageIdx(GENERATE_STAGES.length - 1);
+      const resp = await fetch(`/api/schedules/${schedule.id}/generate-stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (!resp.ok || !resp.body) {
+        throw new Error(`HTTP ${resp.status}`);
+      }
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let result: GenerateScheduleResponse | null = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop() ?? "";
+
+        for (const part of parts) {
+          const trimmed = part.trim();
+          if (!trimmed.startsWith("data: ")) continue;
+          try {
+            const event = JSON.parse(trimmed.slice(6));
+            if (event.type === "progress") {
+              setGenProgress({
+                label: event.label ?? "",
+                pct: event.pct ?? 0,
+                solutions: event.solutions,
+                objective: event.objective,
+                gap: event.gap,
+                elapsed: event.elapsed,
+              });
+            } else if (event.type === "complete") {
+              result = event.result;
+              setGenProgress({ label: "Fertig!", pct: 100 });
+            } else if (event.type === "error") {
+              throw new Error(event.error ?? "Generierung fehlgeschlagen.");
+            }
+          } catch (parseErr) {
+            if (parseErr instanceof SyntaxError) continue;
+            throw parseErr;
+          }
+        }
+      }
+
       await loadBundle({ preserveActionMessage: true });
 
-      const parts: string[] = [];
-      const manual = res.manualPlacementsApplied ?? 0;
-      const auto = res.createdAssignments - manual;
-      if (manual > 0) {
-        parts.push(`${manual} manuelle + ${auto} automatische Zuweisungen.`);
-      } else if (res.createdAssignments > 0) {
-        parts.push(`${res.createdAssignments} Dienste eingetragen.`);
-      } else {
-        parts.push("Es wurden keine Dienste eingetragen.");
+      if (result) {
+        const msgParts: string[] = [];
+        const manual = result.manualPlacementsApplied ?? 0;
+        const auto = result.createdAssignments - manual;
+        if (manual > 0) {
+          msgParts.push(`${manual} manuelle + ${auto} automatische Zuweisungen.`);
+        } else if (result.createdAssignments > 0) {
+          msgParts.push(`${result.createdAssignments} Dienste eingetragen.`);
+        } else {
+          msgParts.push("Es wurden keine Dienste eingetragen.");
+        }
+        if (blockedDates.length > 0) {
+          const uniqueEmps = new Set(blockedDates.map((b) => b.employeeId)).size;
+          msgParts.push(`${blockedDates.length} Frei-Tag(e) für ${uniqueEmps} MA berücksichtigt.`);
+        }
+        const warnCount = (result.warnings?.length ?? 0);
+        const unmet = result.unmetStaffing?.length ?? 0;
+        const totalIssues = warnCount + unmet;
+        if (totalIssues > 0) {
+          msgParts.push(`${totalIssues} Warnung(en) — siehe Seitenleiste.`);
+        }
+        const hasIssue = result.createdAssignments === 0 || totalIssues > 0;
+        setActionAlertSeverity(hasIssue ? "warning" : "success");
+        setActionMsg(msgParts.join(" "));
+        setActionDebugPayload(null);
+        if (totalIssues > 0) setWarningsOpen(true);
       }
-      if (blockedDates.length > 0) {
-        const uniqueEmps = new Set(blockedDates.map((b) => b.employeeId)).size;
-        parts.push(`${blockedDates.length} Frei-Tag(e) für ${uniqueEmps} MA berücksichtigt.`);
-      }
-      const warnCount = (res.warnings?.length ?? 0);
-      const unmet = res.unmetStaffing?.length ?? 0;
-      const totalIssues = warnCount + unmet;
-      if (totalIssues > 0) {
-        parts.push(`${totalIssues} Warnung(en) — siehe Seitenleiste.`);
-      }
-
-      const hasIssue = res.createdAssignments === 0 || totalIssues > 0;
-      setActionAlertSeverity(hasIssue ? "warning" : "success");
-      setActionMsg(parts.join(" "));
-      setActionDebugPayload(null);
-      if (totalIssues > 0) setWarningsOpen(true);
     } catch (e) {
-      stageTimers.forEach(clearTimeout);
       setActionAlertSeverity("error");
-      if (e instanceof ApiError) {
-        const msg =
-          e.body &&
-          typeof e.body === "object" &&
-          e.body !== null &&
-          "error" in e.body &&
-          typeof (e.body as { error: unknown }).error === "string"
-            ? (e.body as { error: string }).error
-            : "Generierung fehlgeschlagen.";
-        setActionMsg(msg);
-        const raw = e.body;
-        const details =
-          raw &&
-          typeof raw === "object" &&
-          raw !== null &&
-          "details" in raw
-            ? (raw as { details: unknown }).details
-            : undefined;
-        setActionDebugPayload(
-          details !== undefined
-            ? { httpStatus: e.status, details }
-            : { httpStatus: e.status, responseBody: raw },
-        );
-        console.error("Entwurf füllen — API-Fehler", e.status, raw);
-      } else {
-        setActionMsg("Generierung fehlgeschlagen (Netzwerk).");
-        setActionDebugPayload({ kind: "client", message: String(e) });
-        console.error("Entwurf füllen — Client/Netzwerk", e);
-      }
+      setActionMsg(e instanceof Error ? e.message : "Generierung fehlgeschlagen (Netzwerk).");
+      setActionDebugPayload({ kind: "client", message: String(e) });
+      console.error("Entwurf füllen — Fehler", e);
     } finally {
       setGenerateBusy(false);
       setTimeout(() => setGenModalOpen(false), 600);
@@ -1548,12 +1558,19 @@ export default function SchedulePage() {
           <Box sx={{ mb: 2 }}>
             <LinearProgress
               variant="determinate"
-              value={GENERATE_STAGES[genStageIdx]?.pct ?? 100}
+              value={genProgress.pct}
               sx={{ height: 8, borderRadius: 1, mb: 1.5 }}
             />
             <Typography variant="body2" color="text.secondary">
-              {GENERATE_STAGES[genStageIdx]?.label ?? "Fertig!"}
+              {genProgress.label}
             </Typography>
+            {genProgress.solutions != null && genProgress.solutions > 0 && (
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
+                {genProgress.solutions} Lösung{genProgress.solutions > 1 ? "en" : ""} gefunden
+                {genProgress.elapsed != null ? ` · ${genProgress.elapsed.toFixed(0)}s` : ""}
+                {genProgress.objective != null ? ` · Obj: ${genProgress.objective.toFixed(0)}` : ""}
+              </Typography>
+            )}
           </Box>
         </DialogContent>
       </Dialog>

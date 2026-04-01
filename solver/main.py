@@ -5,9 +5,9 @@ from __future__ import annotations
 import logging
 
 from fastapi import FastAPI, Request
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from models import SolveRequest, SolveResponse
-from engine import solve
+from engine import solve, solve_streaming
 from scorer import score
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -28,6 +28,15 @@ async def health():
 @app.post("/solve", response_model=SolveResponse)
 async def solve_schedule(request: SolveRequest):
     return solve(request)
+
+
+@app.post("/solve-stream")
+async def solve_schedule_stream(request: SolveRequest):
+    """Stream solver progress as NDJSON lines, final line is the result."""
+    return StreamingResponse(
+        solve_streaming(request),
+        media_type="application/x-ndjson",
+    )
 
 
 @app.post("/score")

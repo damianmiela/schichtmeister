@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from datetime import date
+from typing import Generator
 
 from ortools.sat.python import cp_model
 
@@ -45,6 +47,34 @@ from constraints.soft import (
     add_preference_bonus,
     add_shift_distribution_soft,
 )
+
+
+class ProgressCallback(cp_model.CpSolverSolutionCallback):
+    """Tracks solver progress and yields NDJSON events via a shared list."""
+
+    def __init__(self, events: list[str], wall_start: float):
+        super().__init__()
+        self._events = events
+        self._wall_start = wall_start
+        self._solutions = 0
+
+    def on_solution_callback(self):
+        self._solutions += 1
+        elapsed = time.perf_counter() - self._wall_start
+        obj = self.ObjectiveValue()
+        bound = self.BestObjectiveBound()
+        gap = bound / max(obj, 1e-9) if obj > 0 else 0.0
+        event = {
+            "type": "progress",
+            "stage": "solving",
+            "label": f"Lösung #{self._solutions} gefunden (Obj: {obj:.0f})",
+            "pct": min(30 + self._solutions * 5, 85),
+            "solutions": self._solutions,
+            "objective": round(obj, 1),
+            "gap": round(gap, 4),
+            "elapsed": round(elapsed, 1),
+        }
+        self._events.append(json.dumps(event))
 
 
 def _build_variables(
@@ -474,3 +504,216 @@ def solve(request: SolveRequest) -> SolveResponse:
             wishFulfillmentRate=round(rate, 2) if rate is not None else None,
         ),
     )
+
+
+def solve_streaming(request: SolveRequest) -> Generator[str, None, None]:
+    """Like solve(), but yields NDJSON progress events during solving."""
+    wall_start = time.perf_counter()
+
+    yield json.dumps({
+        "type": "progress", "stage": "building_model",
+        "label": "Erstelle Modell & Variablen...", "pct": 5,
+    }) + "\n"
+
+    model = cp_model.CpModel()
+    shift, works_day, station_assign = _build_variables(model, request)
+
+    prof_map = {p.id: p for p in request.shiftProfiles}
+    log.info("Model: %d shift vars, %d works_day vars, %d station_assign vars",
+             len(shift), len(works_day), len(station_assign))
+
+    if not shift:
+        yield json.dumps({
+            "type": "result",
+            "data": SolveResponse(
+                status="INFEASIBLE", solveTimeMs=0,
+                reason="Keine gültigen Zuweisungsmöglichkeiten (keine Variablen erstellt).",
+            ).model_dump(),
+        }) + "\n"
+        return
+
+    yield json.dumps({
+        "type": "progress", "stage": "adding_constraints",
+        "label": "Füge Constraints hinzu...", "pct": 12,
+    }) + "\n"
+
+    # ── Hard constraints ──
+    add_one_shift_per_day(model, shift, works_day, request)
+    add_unavailability(model, shift, request)
+    add_staffing_maximum(model, shift, request, station_assign)
+    add_min_rest(model, shift, request)
+    add_max_consecutive_nights(model, shift, request)
+    add_max_consecutive_days(model, works_day, request)
+    add_manual_placements(model, shift, request, station_assign)
+    add_mini_job_cap(model, shift, request)
+    add_wbl_bl_max_one_per_week(model, shift, request)
+    add_alternating_weekends(model, works_day, request)
+    add_wbl_weekend_limit(model, works_day, request)
+    add_station_assignment(model, shift, works_day, station_assign, request)
+    add_wbl_bl_weekly(model, shift, request)
+
+    yield json.dumps({
+        "type": "progress", "stage": "adding_objectives",
+        "label": "Optimierungsziele werden gesetzt...", "pct": 18,
+    }) + "\n"
+
+    # ── Soft objectives ──
+    objective_terms: list[tuple[cp_model.IntVar, int]] = []
+    objective_terms.extend(add_staffing_minimum_soft(model, shift, request, station_assign))
+    objective_terms.extend(add_qualification_coverage_soft(model, shift, request, station_assign))
+    objective_terms.extend(add_wbl_bl_soft(model, shift, request))
+    objective_terms.extend(add_min_utilization_soft(model, shift, request))
+    objective_terms.extend(add_soll_deviation(model, shift, request))
+    objective_terms.extend(add_overtime_penalty(model, shift, request))
+    objective_terms.extend(add_undercut_penalty(model, shift, request))
+    objective_terms.extend(add_wish_fulfillment(model, shift, request))
+    objective_terms.extend(add_fairness(model, shift, request))
+    objective_terms.extend(add_preference_bonus(model, shift, request))
+    objective_terms.extend(add_shift_distribution_soft(model, shift, request))
+
+    if objective_terms:
+        model.Minimize(sum(var * weight for var, weight in objective_terms))
+
+    yield json.dumps({
+        "type": "progress", "stage": "solving_started",
+        "label": "CP-SAT Solver gestartet...", "pct": 22,
+    }) + "\n"
+
+    # ── Solve with callback ──
+    solver = cp_model.CpSolver()
+    solver.parameters.max_time_in_seconds = request.maxSolveTimeSeconds
+    solver.parameters.num_workers = 4
+
+    progress_events: list[str] = []
+    callback = ProgressCallback(progress_events, wall_start)
+
+    import threading
+
+    result_holder: list[int] = []
+
+    def _run_solver():
+        result_holder.append(solver.Solve(model, callback))
+
+    solver_thread = threading.Thread(target=_run_solver)
+    solver_thread.start()
+
+    # Poll for progress events while solver runs
+    while solver_thread.is_alive():
+        solver_thread.join(timeout=0.5)
+        while progress_events:
+            yield progress_events.pop(0) + "\n"
+
+    # Flush remaining events
+    while progress_events:
+        yield progress_events.pop(0) + "\n"
+
+    status_code = result_holder[0] if result_holder else cp_model.UNKNOWN
+    wall_ms = (time.perf_counter() - wall_start) * 1000
+
+    yield json.dumps({
+        "type": "progress", "stage": "extracting",
+        "label": "Ergebnisse werden extrahiert...", "pct": 88,
+    }) + "\n"
+
+    status_map = {
+        cp_model.OPTIMAL: "OPTIMAL",
+        cp_model.FEASIBLE: "FEASIBLE",
+        cp_model.INFEASIBLE: "INFEASIBLE",
+        cp_model.MODEL_INVALID: "INFEASIBLE",
+    }
+    status_str = status_map.get(status_code, "UNKNOWN")
+
+    if status_str in ("INFEASIBLE", "UNKNOWN"):
+        yield json.dumps({
+            "type": "result",
+            "data": SolveResponse(
+                status=status_str, solveTimeMs=round(wall_ms, 1),
+                reason="Keine zulässige Lösung gefunden. Prüfen Sie Personalbesetzung und Regeln.",
+            ).model_dump(),
+        }) + "\n"
+        return
+
+    # ── Extract assignments ──
+    solved_stations: dict[tuple[str, str], int] = {}
+    for (emp_id, ds, station), var in station_assign.items():
+        if solver.Value(var) == 1:
+            solved_stations[(emp_id, ds)] = station
+
+    assignments: list[AssignmentOutput] = []
+    for (emp_id, ds, pid), var in shift.items():
+        if solver.Value(var) == 1:
+            sn = solved_stations.get((emp_id, ds))
+            assignments.append(AssignmentOutput(
+                employeeId=emp_id, date=ds, shiftProfileId=pid,
+                stationNumber=sn,
+            ))
+
+    assignments = _resolve_stations(assignments, request)
+
+    yield json.dumps({
+        "type": "progress", "stage": "diagnostics",
+        "label": "Diagnostik wird erstellt...", "pct": 93,
+    }) + "\n"
+
+    # ── Diagnostics ──
+    profile_hours = {p.id: p.paidHours for p in request.shiftProfiles}
+    soll_map = request.monthlySollHoursByEmployee or {}
+    wd = request.monthlyWorkingDays or 22
+
+    emp_actual: dict[str, float] = {}
+    for a in assignments:
+        emp_actual[a.employeeId] = emp_actual.get(a.employeeId, 0) + profile_hours.get(a.shiftProfileId, 0)
+
+    soll_deviation: dict[str, SollDelta] = {}
+    for emp in request.employees:
+        soll = soll_map.get(emp.id)
+        if soll is None:
+            pct = emp.targetHoursPercent
+            if pct is None:
+                continue
+            soll = wd * 8.0 * (pct / 100.0)
+        actual = emp_actual.get(emp.id, 0)
+        soll_deviation[emp.id] = SollDelta(
+            soll=round(soll, 1), actual=round(actual, 1), delta=round(actual - soll, 1),
+        )
+
+    wish_ids = {w.id for w in request.wishes}
+    fulfilled_wishes: set[str] = set()
+    for w in request.wishes:
+        for a in assignments:
+            if a.employeeId != w.employeeId or a.date != w.date:
+                continue
+            if w.shiftProfileId and a.shiftProfileId != w.shiftProfileId:
+                continue
+            if w.shiftType:
+                prof = next((pr for pr in request.shiftProfiles if pr.id == a.shiftProfileId), None)
+                if prof and prof.shiftType != w.shiftType:
+                    continue
+            fulfilled_wishes.add(w.id)
+            break
+    unfulfilled = [wid for wid in wish_ids if wid not in fulfilled_wishes]
+    rate = len(fulfilled_wishes) / len(wish_ids) if wish_ids else None
+
+    deltas = [abs(sd.delta) for sd in soll_deviation.values()]
+    fairness = max(deltas) - min(deltas) if len(deltas) >= 2 else 0.0
+
+    response = SolveResponse(
+        status=status_str,
+        solveTimeMs=round(wall_ms, 1),
+        objectiveValue=solver.ObjectiveValue() if objective_terms else 0,
+        gap=solver.BestObjectiveBound() / max(solver.ObjectiveValue(), 1e-9) if objective_terms and solver.ObjectiveValue() > 0 else 0.0,
+        modelStats=ModelStats(
+            variables=model.Proto().variables.__len__(),
+            constraints=model.Proto().constraints.__len__(),
+            booleans=len(shift),
+        ),
+        assignments=assignments,
+        unfulfilledWishes=unfulfilled,
+        diagnostics=Diagnostics(
+            sollDeviation=soll_deviation,
+            fairnessSpread=round(fairness, 1),
+            wishFulfillmentRate=round(rate, 2) if rate is not None else None,
+        ),
+    )
+
+    yield json.dumps({"type": "result", "data": response.model_dump()}) + "\n"
