@@ -13,6 +13,9 @@ export function maxStaffingRule(ctx: RuleContext): RuleResult {
         if (!sameUtcCalendarDay(a.date, d)) continue;
         const profile = ctx.profilesById.get(a.shiftProfileId);
         if (!profile || profile.shiftType !== req.shiftType) continue;
+        // SH employees don't count toward station caps
+        const emp = ctx.employeesById.get(a.employeeId);
+        if (emp?.qualificationTags.includes("SH")) continue;
         if (!req.isFacilityWide) {
           const aStation = (a as any).stationNumber;
           if (aStation != null && aStation !== req.stationNumber) continue;

@@ -103,11 +103,12 @@ function matchSlots(
 
   const used = new Set<string>(); // assignment ids already slotted
 
-  // Greedily fill slots
+  // Greedily fill slots (SH employees are excluded — they don't fill requirement slots)
   for (const slot of slots) {
     const match = rows.find(
       (r) =>
         !used.has(r.assignment.id) &&
+        !r.employee?.qualificationTags?.includes("SH") &&
         employeeMatchesTag(r.employee, slot.tag),
     );
     if (match) {

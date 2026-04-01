@@ -33,6 +33,13 @@ def _emp_station_map(req: SolveRequest) -> dict[str, set[int]]:
     return {e.id: set(e.assignedStations) if e.assignedStations else set() for e in req.employees}
 
 
+def _sh_emp_ids(req: SolveRequest) -> set[str]:
+    """IDs of employees with SH (Stationshilfe) qualification.
+    These employees are excluded from station coverage counting —
+    they don't fill requirement slots or count toward station caps."""
+    return {e.id for e in req.employees if "SH" in e.qualificationTags}
+
+
 def _emp_can_cover_station(emp_stations: set[int], station: int | None, is_fw: bool) -> bool:
     if is_fw:
         return True
@@ -139,8 +146,10 @@ def add_staffing_maximum(
 
     # Per-station caps: only employees explicitly assigned to that station
     # BL profiles are excluded — BL workers don't fill station positions
+    # SH employees are excluded — they don't count toward station caps
     # Multi-station employees: only count if station_assign says they're at this station
     bl_profile_ids = {p.id for p in req.shiftProfiles if p.shiftType == "BL"}
+    sh_employees = _sh_emp_ids(req)
 
     works_type_cache: dict[tuple[str, str, str], cp_model.IntVar] = {}
 
@@ -151,6 +160,8 @@ def add_staffing_maximum(
             ds = d.isoformat()
             covering: list[cp_model.IntVar] = []
             for emp in req.employees:
+                if emp.id in sh_employees:
+                    continue  # SH don't count toward station caps
                 es = emp_stations[emp.id]
 
                 if sr.isFacilityWide:
@@ -218,6 +229,8 @@ def add_staffing_maximum(
             ds = d.isoformat()
             all_vars: list[cp_model.IntVar] = []
             for emp in req.employees:
+                if emp.id in sh_employees:
+                    continue  # SH excluded from aggregate cap
                 for p in req.shiftProfiles:
                     if p.shiftType != stype:
                         continue
@@ -245,6 +258,7 @@ def add_qualification_coverage(
 
     Uses station_assign for multi-station employees to avoid double-counting.
     BL profiles are excluded — BL workers don't fill patient-care positions.
+    SH employees are excluded — they don't fill qualification requirement slots.
     """
     dates = _dates(req)
     emp_tags: dict[str, set[str]] = {
@@ -252,6 +266,7 @@ def add_qualification_coverage(
     }
     emp_st = _emp_station_map(req)
     bl_profile_ids = {p.id for p in req.shiftProfiles if p.shiftType == "BL"}
+    sh_employees = _sh_emp_ids(req)
 
     works_type_cache: dict[tuple[str, str, str], cp_model.IntVar] = {}
 
@@ -264,6 +279,8 @@ def add_qualification_coverage(
                 ds = d.isoformat()
                 qualified_vars: list[cp_model.IntVar] = []
                 for emp in req.employees:
+                    if emp.id in sh_employees:
+                        continue  # SH don't fill qual requirement slots
                     if not any(t in emp_tags.get(emp.id, set()) for t in tags):
                         continue
 

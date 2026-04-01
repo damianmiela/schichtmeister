@@ -23,10 +23,15 @@ export function qualificationCoverageRule(ctx: RuleContext): RuleResult {
         }
         onShiftEmpIds.push(a.employeeId);
       }
+      // Filter out SH employees — they don't fill qualification requirement slots
+      const nonShEmpIds = onShiftEmpIds.filter((id) => {
+        const emp = ctx.employeesById.get(id);
+        return !emp?.qualificationTags.includes("SH");
+      });
       for (const qr of req.qualificationRequirements) {
         const tags = qr.qualificationTag.split(",").map((t) => t.trim());
         let tagCount = 0;
-        for (const empId of onShiftEmpIds) {
+        for (const empId of nonShEmpIds) {
           const emp = ctx.employeesById.get(empId);
           if (emp && tags.some((t) => emp.qualificationTags.includes(t))) {
             tagCount++;

@@ -41,6 +41,11 @@ def _emp_station_map(req: SolveRequest) -> dict[str, set[int]]:
     return {e.id: set(e.assignedStations) if e.assignedStations else set() for e in req.employees}
 
 
+def _sh_emp_ids(req: SolveRequest) -> set[str]:
+    """IDs of SH (Stationshilfe) employees — excluded from station coverage."""
+    return {e.id for e in req.employees if "SH" in e.qualificationTags}
+
+
 def _emp_can_cover_station(emp_stations: set[int], station: int | None, is_fw: bool) -> bool:
     """Check if an employee can cover a staffing requirement's station."""
     if is_fw:
@@ -77,6 +82,7 @@ def add_staffing_minimum_soft(
     """Penalize understaffing — each missing person per day per requirement costs W_STAFFING_MIN.
 
     BL profiles are excluded from station headcount.
+    SH employees are excluded — they don't count toward station coverage.
     Multi-station employees only count toward the station they are assigned to
     (via station_assign variables), preventing double-counting.
     """
@@ -84,6 +90,7 @@ def add_staffing_minimum_soft(
     dates = dates_in_range(req.periodStart, req.periodEnd)
     emp_stations = _emp_station_map(req)
     bl_profile_ids = {p.id for p in req.shiftProfiles if p.shiftType == "BL"}
+    sh_employees = _sh_emp_ids(req)
 
     # Precompute works_type[emp_id, ds, shiftType] indicator vars (cached)
     works_type_cache: dict[tuple[str, str, str], cp_model.IntVar] = {}
@@ -95,6 +102,8 @@ def add_staffing_minimum_soft(
             ds = d.isoformat()
             covering: list[cp_model.IntVar] = []
             for emp in req.employees:
+                if emp.id in sh_employees:
+                    continue  # SH don't count toward station coverage
                 es = emp_stations[emp.id]
 
                 # Collect shift vars for this employee + day + matching shiftType
@@ -153,8 +162,9 @@ def add_qualification_coverage_soft(
 ) -> list[tuple[cp_model.IntVar, int]]:
     """Penalize missing qualification coverage per day.
 
-    BL profiles excluded.  Multi-station employees only count toward
-    the station they are assigned to (via station_assign).
+    BL profiles excluded.  SH employees excluded — they don't fill
+    qualification requirement slots.  Multi-station employees only count
+    toward the station they are assigned to (via station_assign).
     """
     terms: list[tuple[cp_model.IntVar, int]] = []
     dates = dates_in_range(req.periodStart, req.periodEnd)
@@ -163,6 +173,7 @@ def add_qualification_coverage_soft(
     }
     emp_stations = _emp_station_map(req)
     bl_profile_ids = {p.id for p in req.shiftProfiles if p.shiftType == "BL"}
+    sh_employees = _sh_emp_ids(req)
 
     # Reuse works_type cache across iterations
     works_type_cache: dict[tuple[str, str, str], cp_model.IntVar] = {}
@@ -176,6 +187,8 @@ def add_qualification_coverage_soft(
                 ds = d.isoformat()
                 qualified_vars: list[cp_model.IntVar] = []
                 for emp in req.employees:
+                    if emp.id in sh_employees:
+                        continue  # SH don't fill qual requirement slots
                     if not any(t in emp_tags.get(emp.id, set()) for t in tags):
                         continue
 
