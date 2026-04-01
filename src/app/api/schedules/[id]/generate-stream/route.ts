@@ -20,7 +20,7 @@ type RouteCtx = { params: Promise<{ id: string }> };
 
 const VALID_SHIFT_TYPES = new Set(["EARLY", "LATE", "NIGHT", "BL"]);
 
-const SOLVER_URL = process.env.SOLVER_URL ?? "http://schichtmeister-solver:8000";
+const SOLVER_URL = process.env.SOLVER_URL ?? "http://solver:8000";
 
 function parseManualPlacements(raw: unknown): ManualPlacementInput[] {
   if (!Array.isArray(raw)) return [];

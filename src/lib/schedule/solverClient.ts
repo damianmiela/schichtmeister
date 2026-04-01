@@ -327,7 +327,7 @@ export class SolverError extends Error {
   }
 }
 
-const SOLVER_URL = process.env.SOLVER_URL ?? "http://schichtmeister-solver:8000";
+const SOLVER_URL = process.env.SOLVER_URL ?? "http://solver:8000";
 const SOLVER_TIMEOUT_MS = 300_000;
 const SCORER_TIMEOUT_MS = 30_000;
 
