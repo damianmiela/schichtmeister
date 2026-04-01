@@ -373,7 +373,7 @@ export type UnfulfilledWishEntry = {
 export type ManualPlacementInput = {
   employeeId: string;
   date: string;
-  stationNumber: number;
+  stationNumber?: number;
   shiftType: string;
 };
 

@@ -578,11 +578,25 @@ def add_manual_placements(
     model: cp_model.CpModel,
     shift: ShiftVar,
     req: SolveRequest,
+    station_assign: StationAssign | None = None,
 ):
+    """Lock manual placement shifts AND their station assignment.
+
+    The shift variable is forced to 1.  If the manual placement also
+    specifies a stationNumber *and* the employee has station_assign vars
+    (multi-station / floater), lock that station variable to 1 so the
+    solver doesn't freely reassign the station during optimization.
+    """
     for mp in req.manualPlacements:
         key = (mp.employeeId, mp.date, mp.shiftProfileId)
         if key in shift:
             model.Add(shift[key] == 1)
+
+        # Also lock station if specified and vars exist
+        if station_assign and mp.stationNumber is not None:
+            sa_key = (mp.employeeId, mp.date, mp.stationNumber)
+            if sa_key in station_assign:
+                model.Add(station_assign[sa_key] == 1)
 
 
 # ── H15: Mini-job monthly hour cap ─────────────────────────────────────────

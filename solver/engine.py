@@ -193,19 +193,15 @@ def _resolve_stations(
         current_count: dict[int, int] = {s: 0 for s in demands}
         placed: dict[int, int | None] = {}  # assignment index -> station
 
-        # Pass 0: account for solver-assigned stations (multi-station employees)
+        # Pass 0: manual placement stations ALWAYS win (hard override),
+        # then account for solver-assigned stations (multi-station employees).
         single_station_indices: list[int] = []
         floater_indices: list[int] = []
 
         for idx in indices:
             a = assignments[idx]
-            if a.stationNumber is not None:
-                # Already assigned by solver — subtract from remaining, add to count
-                remaining[a.stationNumber] = remaining.get(a.stationNumber, 0) - 1
-                current_count[a.stationNumber] = current_count.get(a.stationNumber, 0) + 1
-                continue
 
-            # Check for manual placement station override
+            # Manual placement station overrides EVERYTHING — even solver-assigned stations
             mp_st = mp_station.get((a.employeeId, a.date))
             if mp_st is not None:
                 result[idx] = AssignmentOutput(
@@ -216,6 +212,12 @@ def _resolve_stations(
                 )
                 remaining[mp_st] = remaining.get(mp_st, 0) - 1
                 current_count[mp_st] = current_count.get(mp_st, 0) + 1
+                continue
+
+            if a.stationNumber is not None:
+                # Already assigned by solver — subtract from remaining, add to count
+                remaining[a.stationNumber] = remaining.get(a.stationNumber, 0) - 1
+                current_count[a.stationNumber] = current_count.get(a.stationNumber, 0) + 1
                 continue
 
             emp = emp_map.get(a.employeeId)
@@ -298,7 +300,7 @@ def solve(request: SolveRequest) -> SolveResponse:
     add_min_rest(model, shift, request)
     add_max_consecutive_nights(model, shift, request)
     add_max_consecutive_days(model, works_day, request)
-    add_manual_placements(model, shift, request)
+    add_manual_placements(model, shift, request, station_assign)
     add_mini_job_cap(model, shift, request)
     add_wbl_bl_max_one_per_week(model, shift, request)
     add_alternating_weekends(model, works_day, request)

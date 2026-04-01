@@ -56,17 +56,17 @@ function parseManualPlacements(raw: unknown): ManualPlacementInput[] {
       typeof item === "object" &&
       typeof item.employeeId === "string" &&
       typeof item.date === "string" &&
-      typeof item.stationNumber === "number" &&
-      item.stationNumber >= 1 &&
-      item.stationNumber <= 3 &&
       typeof item.shiftType === "string" &&
       VALID_SHIFT_TYPES.has(item.shiftType) &&
       /^\d{4}-\d{2}-\d{2}$/.test(item.date)
     ) {
+      const sn = typeof item.stationNumber === "number" && item.stationNumber >= 1 && item.stationNumber <= 3
+        ? item.stationNumber
+        : undefined;
       out.push({
         employeeId: item.employeeId,
         date: item.date,
-        stationNumber: item.stationNumber,
+        stationNumber: sn,
         shiftType: item.shiftType,
       });
     }

@@ -78,7 +78,7 @@ type GenerateScheduleResponse = {
 type ManualPlacement = {
   employeeId: string;
   date: string;
-  stationNumber: number;
+  stationNumber?: number;
   shiftType: string;
 };
 
@@ -583,7 +583,7 @@ export default function SchedulePage() {
         return {
           employeeId: e.employeeId,
           date: e.date,
-          stationNumber: e.stationNumber,
+          stationNumber: e.stationNumber || undefined,
           shiftType: prof?.shiftType ?? "EARLY",
         };
       });
@@ -1441,6 +1441,7 @@ export default function SchedulePage() {
                         sx={{ minWidth: 90 }}
                         SelectProps={{ native: true }}
                       >
+                        <option value={0}>Egal</option>
                         <option value={1}>Station 1</option>
                         <option value={2}>Station 2</option>
                         <option value={3}>Station 3</option>
