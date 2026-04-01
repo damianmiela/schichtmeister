@@ -45,7 +45,7 @@ function serializeGenerateError(e: unknown): Record<string, unknown> {
   return { kind: "unknown", message: String(e) };
 }
 
-const VALID_SHIFT_TYPES = new Set(["EARLY", "LATE", "NIGHT"]);
+const VALID_SHIFT_TYPES = new Set(["EARLY", "LATE", "NIGHT", "BL"]);
 
 function parseManualPlacements(raw: unknown): ManualPlacementInput[] {
   if (!Array.isArray(raw)) return [];
@@ -67,6 +67,7 @@ function parseManualPlacements(raw: unknown): ManualPlacementInput[] {
         employeeId: item.employeeId,
         date: item.date,
         stationNumber: sn,
+        shiftProfileId: typeof item.shiftProfileId === "string" ? item.shiftProfileId : undefined,
         shiftType: item.shiftType,
       });
     }

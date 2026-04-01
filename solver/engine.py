@@ -204,6 +204,8 @@ def _resolve_stations(
             # Manual placement station overrides EVERYTHING — even solver-assigned stations
             mp_st = mp_station.get((a.employeeId, a.date))
             if mp_st is not None:
+                log.info("_resolve_stations: MANUAL OVERRIDE emp=%s date=%s profile=%s → station %d (was %s)",
+                         a.employeeId[:8], a.date, a.shiftProfileId[:8], mp_st, a.stationNumber)
                 result[idx] = AssignmentOutput(
                     employeeId=a.employeeId,
                     date=a.date,
@@ -281,10 +283,16 @@ def solve(request: SolveRequest) -> SolveResponse:
     model = cp_model.CpModel()
     shift, works_day, station_assign = _build_variables(model, request)
 
+    prof_map = {p.id: p for p in request.shiftProfiles}
     log.info("Model: %d shift vars, %d works_day vars, %d station_assign vars, %d employees, %d profiles, %d dates",
              len(shift), len(works_day), len(station_assign),
              len(request.employees), len(request.shiftProfiles),
              len(dates_in_range(request.periodStart, request.periodEnd)))
+    if request.manualPlacements:
+        for mp in request.manualPlacements:
+            pn = prof_map[mp.shiftProfileId].name if mp.shiftProfileId in prof_map else "UNKNOWN"
+            log.info("ManualPlacement received: emp=%s date=%s profileId=%s (%s) station=%s",
+                     mp.employeeId[:8], mp.date, mp.shiftProfileId[:8], pn, mp.stationNumber)
 
     if not shift:
         return SolveResponse(

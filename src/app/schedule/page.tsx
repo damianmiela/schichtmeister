@@ -79,6 +79,7 @@ type ManualPlacement = {
   employeeId: string;
   date: string;
   stationNumber?: number;
+  shiftProfileId: string;
   shiftType: string;
 };
 
@@ -584,6 +585,7 @@ export default function SchedulePage() {
           employeeId: e.employeeId,
           date: e.date,
           stationNumber: e.stationNumber || undefined,
+          shiftProfileId: e.shiftProfileId,
           shiftType: prof?.shiftType ?? "EARLY",
         };
       });

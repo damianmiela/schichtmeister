@@ -138,6 +138,12 @@ function resolveManualPlacementProfile(
   mp: ManualPlacementInput,
   profiles: ShiftProfile[],
 ): string | null {
+  // Use the exact profile ID from the frontend when available
+  if (mp.shiftProfileId) {
+    const exact = profiles.find((p) => p.id === mp.shiftProfileId && p.isActive);
+    if (exact) return exact.id;
+  }
+  // Fallback: first active profile matching the shift type
   const match = profiles.find(
     (p) => p.shiftType === mp.shiftType && p.isActive,
   );
@@ -415,6 +421,32 @@ function formatSolverLog(response: SolverResponse, solverPayload: SolverPayload)
     `Manual placements: ${solverPayload.manualPlacements.length}`,
     `Assignments created: ${response.assignments.length}`,
   ];
+
+  // Detail each manual placement and whether it was respected
+  if (solverPayload.manualPlacements.length > 0) {
+    const profMap = new Map(solverPayload.shiftProfiles.map((p) => [p.id, p]));
+    lines.push(`--- Manual placement details ---`);
+    for (const mp of solverPayload.manualPlacements) {
+      const prof = profMap.get(mp.shiftProfileId);
+      const profName = prof?.name ?? "?";
+      const matched = response.assignments.find(
+        (a) => a.employeeId === mp.employeeId && a.date === mp.date,
+      );
+      if (matched) {
+        const mProf = profMap.get(matched.shiftProfileId);
+        const mName = mProf?.name ?? "?";
+        const shiftOk = matched.shiftProfileId === mp.shiftProfileId;
+        const stationOk = mp.stationNumber == null || matched.stationNumber === mp.stationNumber;
+        lines.push(
+          `  ${mp.employeeId.slice(0, 8)} ${mp.date}: wanted ${profName} station=${mp.stationNumber ?? "egal"} → got ${mName} station=${matched.stationNumber ?? "?"} ${shiftOk && stationOk ? "OK" : "MISMATCH!"}`,
+        );
+      } else {
+        lines.push(
+          `  ${mp.employeeId.slice(0, 8)} ${mp.date}: wanted ${profName} station=${mp.stationNumber ?? "egal"} → NOT FOUND in assignments!`,
+        );
+      }
+    }
+  }
 
   if (response.reason) {
     lines.push(`Reason: ${response.reason}`);

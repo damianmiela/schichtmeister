@@ -6,11 +6,14 @@ Constraint IDs map 1:1 with the plan in 03-phase-02-hard-constraints.md.
 
 from __future__ import annotations
 
+import logging
 from datetime import date
 from ortools.sat.python import cp_model
 
 from models import SolveRequest, ShiftProfileInput
 from utils import dates_in_range, iso_week_key, rest_violated
+
+log = logging.getLogger(__name__)
 
 
 ShiftVar = dict[tuple[str, str, str], cp_model.IntVar]
@@ -587,16 +590,38 @@ def add_manual_placements(
     (multi-station / floater), lock that station variable to 1 so the
     solver doesn't freely reassign the station during optimization.
     """
+    prof_map = {p.id: p for p in req.shiftProfiles}
     for mp in req.manualPlacements:
+        prof = prof_map.get(mp.shiftProfileId)
+        prof_name = prof.name if prof else "?"
         key = (mp.employeeId, mp.date, mp.shiftProfileId)
         if key in shift:
             model.Add(shift[key] == 1)
+            log.info("H14 ManualPlacement LOCKED: emp=%s date=%s profile=%s (%s) station=%s",
+                      mp.employeeId[:8], mp.date, mp.shiftProfileId[:8], prof_name, mp.stationNumber)
+        else:
+            # Find what profiles DO exist for this employee+date
+            available = [
+                (pid, prof_map[pid].name if pid in prof_map else "?")
+                for (eid, ds, pid) in shift
+                if eid == mp.employeeId and ds == mp.date
+            ]
+            log.warning("H14 ManualPlacement SKIPPED (no variable): emp=%s date=%s profile=%s (%s) station=%s. "
+                        "Available profiles for this emp+date: %s",
+                        mp.employeeId[:8], mp.date, mp.shiftProfileId[:8], prof_name, mp.stationNumber,
+                        available)
 
         # Also lock station if specified and vars exist
         if station_assign and mp.stationNumber is not None:
             sa_key = (mp.employeeId, mp.date, mp.stationNumber)
             if sa_key in station_assign:
                 model.Add(station_assign[sa_key] == 1)
+                log.info("H14 ManualPlacement station LOCKED: emp=%s date=%s station=%d",
+                          mp.employeeId[:8], mp.date, mp.stationNumber)
+            else:
+                log.info("H14 ManualPlacement station not in solver vars (single-station emp, will be set post-solve): "
+                         "emp=%s date=%s station=%d",
+                          mp.employeeId[:8], mp.date, mp.stationNumber)
 
 
 # ── H15: Mini-job monthly hour cap ─────────────────────────────────────────

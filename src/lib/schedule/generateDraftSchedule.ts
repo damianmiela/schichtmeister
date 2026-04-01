@@ -374,6 +374,7 @@ export type ManualPlacementInput = {
   employeeId: string;
   date: string;
   stationNumber?: number;
+  shiftProfileId?: string;
   shiftType: string;
 };
 
