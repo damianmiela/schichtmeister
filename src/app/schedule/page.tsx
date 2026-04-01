@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import MainLayout from "@/components/layout/MainLayout";
 import MonthView from "@/components/schedule/MonthView";
 import MonthTableView, { type CellEdit } from "@/components/schedule/MonthTableView";
@@ -95,11 +95,9 @@ type PreGenEntry = {
 
 type GenProgress = {
   label: string;
-  pct: number;
   solutions?: number;
   objective?: number;
-  gap?: number;
-  elapsed?: number;
+  done?: boolean;
 };
 
 type ViewType = "month" | "week" | "day" | "employee";
@@ -155,8 +153,10 @@ export default function SchedulePage() {
   >("info");
   const [exportMenuEl, setExportMenuEl] = useState<null | HTMLElement>(null);
   const [exportBusy, setExportBusy] = useState(false);
-  const [genProgress, setGenProgress] = useState<GenProgress>({ label: "", pct: 0 });
+  const [genProgress, setGenProgress] = useState<GenProgress>({ label: "" });
   const [genModalOpen, setGenModalOpen] = useState(false);
+  const [genElapsed, setGenElapsed] = useState(0);
+  const genTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [warningsOpen, setWarningsOpen] = useState(false);
   const [clearBusy, setClearBusy] = useState(false);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
@@ -566,11 +566,18 @@ export default function SchedulePage() {
     if (!schedule) return;
     setPreGenOpen(false);
     setGenerateBusy(true);
-    setGenProgress({ label: "Starte Generierung...", pct: 1 });
+    setGenProgress({ label: "Starte Generierung..." });
+    setGenElapsed(0);
     setGenModalOpen(true);
     setActionMsg(null);
     setActionDebugPayload(null);
     setActionAlertSeverity("info");
+
+    // Start live timer (ticks every 100ms for smooth display)
+    const timerStart = performance.now();
+    genTimerRef.current = setInterval(() => {
+      setGenElapsed(Math.floor((performance.now() - timerStart) / 1000));
+    }, 1000);
 
     const manualPlacements: ManualPlacement[] = preGenEntries
       .filter((e) => e.type === "shift")
@@ -626,15 +633,12 @@ export default function SchedulePage() {
             if (event.type === "progress") {
               setGenProgress({
                 label: event.label ?? "",
-                pct: event.pct ?? 0,
                 solutions: event.solutions,
                 objective: event.objective,
-                gap: event.gap,
-                elapsed: event.elapsed,
               });
             } else if (event.type === "complete") {
               result = event.result;
-              setGenProgress({ label: "Fertig!", pct: 100 });
+              setGenProgress({ label: "Fertig!", done: true });
             } else if (event.type === "error") {
               throw new Error(event.error ?? "Generierung fehlgeschlagen.");
             }
@@ -680,8 +684,12 @@ export default function SchedulePage() {
       setActionDebugPayload({ kind: "client", message: String(e) });
       console.error("Entwurf füllen — Fehler", e);
     } finally {
+      if (genTimerRef.current) {
+        clearInterval(genTimerRef.current);
+        genTimerRef.current = null;
+      }
       setGenerateBusy(false);
-      setTimeout(() => setGenModalOpen(false), 600);
+      setTimeout(() => setGenModalOpen(false), 800);
     }
   };
 
@@ -1557,18 +1565,22 @@ export default function SchedulePage() {
         <DialogContent>
           <Box sx={{ mb: 2 }}>
             <LinearProgress
-              variant="determinate"
-              value={genProgress.pct}
-              sx={{ height: 8, borderRadius: 1, mb: 1.5 }}
+              variant={genProgress.done ? "determinate" : "indeterminate"}
+              value={genProgress.done ? 100 : undefined}
+              sx={{ height: 6, borderRadius: 1, mb: 2 }}
             />
-            <Typography variant="body2" color="text.secondary">
-              {genProgress.label}
-            </Typography>
+            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+              <Typography variant="body2" color="text.secondary">
+                {genProgress.label}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ fontVariantNumeric: "tabular-nums", ml: 2, whiteSpace: "nowrap" }}>
+                {genElapsed}s
+              </Typography>
+            </Box>
             {genProgress.solutions != null && genProgress.solutions > 0 && (
               <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
                 {genProgress.solutions} Lösung{genProgress.solutions > 1 ? "en" : ""} gefunden
-                {genProgress.elapsed != null ? ` · ${genProgress.elapsed.toFixed(0)}s` : ""}
-                {genProgress.objective != null ? ` · Obj: ${genProgress.objective.toFixed(0)}` : ""}
+                {genProgress.objective != null ? ` · Zielfunktion: ${genProgress.objective.toFixed(0)}` : ""}
               </Typography>
             )}
           </Box>
