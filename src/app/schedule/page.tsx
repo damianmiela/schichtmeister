@@ -1579,8 +1579,8 @@ export default function SchedulePage() {
             </Box>
             {genProgress.solutions != null && genProgress.solutions > 0 && (
               <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
-                {genProgress.solutions} Lösung{genProgress.solutions > 1 ? "en" : ""} gefunden
-                {genProgress.objective != null ? ` · Zielfunktion: ${genProgress.objective.toFixed(0)}` : ""}
+                Suche beste Lösung…
+                {genProgress.objective != null ? ` Aktueller Wert: ${genProgress.objective.toFixed(0)}` : ""}
               </Typography>
             )}
           </Box>

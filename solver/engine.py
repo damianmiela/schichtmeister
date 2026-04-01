@@ -67,7 +67,7 @@ class ProgressCallback(cp_model.CpSolverSolutionCallback):
         event = {
             "type": "progress",
             "stage": "solving",
-            "label": f"Lösung #{self._solutions} gefunden (Obj: {obj:.0f})",
+            "label": f"Suche beste Lösung\u2026 Aktueller Wert: {obj:.0f}",
             "pct": min(30 + self._solutions * 5, 85),
             "solutions": self._solutions,
             "objective": round(obj, 1),

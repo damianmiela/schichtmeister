@@ -160,11 +160,13 @@ export async function POST(request: Request, context: RouteCtx) {
         });
 
         // Call solver streaming endpoint
+        // Timeout = configured solve time + 60s buffer for model build + result extraction
+        const solverTimeoutMs = ((payload.maxSolveTimeSeconds ?? 120) + 60) * 1000;
         const solverResp = await fetch(`${SOLVER_URL}/solve-stream`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
-          signal: AbortSignal.timeout(300_000),
+          signal: AbortSignal.timeout(solverTimeoutMs),
         });
 
         if (!solverResp.ok || !solverResp.body) {
