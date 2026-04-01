@@ -192,6 +192,29 @@ function ColumnView({
     return m;
   }, [staffing]);
 
+  // ── Shared inline pills for qualification + shift type ──
+  const renderInfoPills = (row: EmpRow) => {
+    const shiftColor = SHIFT_TYPE_COLORS[row.profile.shiftType] ?? "#78909c";
+    return (
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, ml: 1, flexShrink: 0 }}>
+        <QualificationPills qualifications={row.employee?.qualifications} tags={row.employee?.qualificationTags ?? []} compact />
+        <Box sx={{ width: "1px", height: 14, bgcolor: "divider", mx: 0.25 }} />
+        <Chip
+          label={row.profile.name}
+          size="small"
+          sx={{
+            height: 20,
+            fontSize: 10,
+            fontWeight: 600,
+            bgcolor: alpha(shiftColor, 0.15),
+            color: shiftColor,
+            "& .MuiChip-label": { px: 0.5 },
+          }}
+        />
+      </Box>
+    );
+  };
+
   // ── Render a filled requirement pill ──
   const renderFilledReqPill = (row: EmpRow, tag: string, idx: number) => {
     const name = row.employee
@@ -250,6 +273,7 @@ function ColumnView({
           <Typography variant="body2" sx={{ fontWeight: 500, fontSize: 13 }}>
             {name}
           </Typography>
+          {renderInfoPills(row)}
         </Box>
       </Tooltip>
     );
@@ -313,7 +337,7 @@ function ColumnView({
         sx={{
           display: "flex",
           alignItems: "center",
-          gap: 0.75,
+          justifyContent: "center",
           py: 0.75,
           px: 1.5,
           border: "1px solid",
@@ -324,22 +348,10 @@ function ColumnView({
           minHeight: 40,
         }}
       >
-        <Typography variant="body2" sx={{ fontWeight: 500, fontSize: 13, flex: 1 }}>
+        <Typography variant="body2" sx={{ fontWeight: 500, fontSize: 13 }}>
           {name}
         </Typography>
-        <Chip
-          label={row.profile.name}
-          size="small"
-          sx={{
-            height: 20,
-            fontSize: 10,
-            fontWeight: 600,
-            bgcolor: alpha(SHIFT_TYPE_COLORS[row.profile.shiftType] ?? "#78909c", 0.15),
-            color: SHIFT_TYPE_COLORS[row.profile.shiftType] ?? "#78909c",
-            "& .MuiChip-label": { px: 0.5 },
-          }}
-        />
-        <QualificationPills qualifications={row.employee?.qualifications} tags={row.employee?.qualificationTags ?? []} compact />
+        {renderInfoPills(row)}
       </Box>
     );
   };
