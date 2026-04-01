@@ -84,6 +84,7 @@ model Facility {
   name                    String
   minRestHours            Decimal  @default(11) @db.Decimal(4, 2)
   miniJobMaxMonthlyHours  Decimal  @default(520) @db.Decimal(8, 2)
+  maxSolveTimeSeconds     Int      @default(120)
   ruleOverridesJson       String?
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt

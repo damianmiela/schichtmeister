@@ -46,6 +46,7 @@ export async function GET() {
   return NextResponse.json({
     minRestHours: snapshot.minRestHours,
     miniJobMaxMonthlyHours: snapshot.miniJobMaxMonthlyHours,
+    maxSolveTimeSeconds: facility.maxSolveTimeSeconds,
     rules,
   });
 }
@@ -53,6 +54,7 @@ export async function GET() {
 const patchSchema = z.object({
   minRestHours: z.number().min(0).optional(),
   miniJobMaxMonthlyHours: z.number().min(0).optional(),
+  maxSolveTimeSeconds: z.number().int().min(30).max(3600).optional(),
   ruleOverrides: z
     .record(
       z.string(),
@@ -71,7 +73,7 @@ export async function PATCH(request: NextRequest) {
 
   const parsed = await parseJsonBody(request, patchSchema);
   if (!parsed.ok) return parsed.response;
-  const { minRestHours, miniJobMaxMonthlyHours, ruleOverrides } = parsed.data;
+  const { minRestHours, miniJobMaxMonthlyHours, maxSolveTimeSeconds, ruleOverrides } = parsed.data;
 
   const facility = await prisma.facility.findUniqueOrThrow({
     where: { id: session!.user.facilityId },
@@ -87,6 +89,7 @@ export async function PATCH(request: NextRequest) {
     data: {
       ...(minRestHours !== undefined && { minRestHours }),
       ...(miniJobMaxMonthlyHours !== undefined && { miniJobMaxMonthlyHours }),
+      ...(maxSolveTimeSeconds !== undefined && { maxSolveTimeSeconds }),
       ...(ruleOverrides !== undefined && {
         ruleOverridesJson: JSON.stringify(mergedOverrides),
       }),
@@ -110,6 +113,7 @@ export async function PATCH(request: NextRequest) {
   return NextResponse.json({
     minRestHours: snapshot.minRestHours,
     miniJobMaxMonthlyHours: snapshot.miniJobMaxMonthlyHours,
+    maxSolveTimeSeconds: updated.maxSolveTimeSeconds,
     rules,
   });
 }

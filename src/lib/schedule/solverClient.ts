@@ -297,7 +297,7 @@ export function buildSolverPayload(
     scheduleId,
     periodStart: toIsoDateOnly(periodStart),
     periodEnd: toIsoDateOnly(periodEnd),
-    maxSolveTimeSeconds: 120,
+    maxSolveTimeSeconds: facility.maxSolveTimeSeconds ?? 120,
     employees,
     shiftProfiles,
     staffingRequirements,

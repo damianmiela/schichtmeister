@@ -128,7 +128,7 @@ export async function POST(request: Request, context: RouteCtx) {
 
   const facility = await prisma.facility.findUniqueOrThrow({
     where: { id: facilityId },
-    select: { minRestHours: true, miniJobMaxMonthlyHours: true, ruleOverridesJson: true },
+    select: { minRestHours: true, miniJobMaxMonthlyHours: true, maxSolveTimeSeconds: true, ruleOverridesJson: true },
   });
 
   try {
@@ -264,7 +264,7 @@ export async function POST(request: Request, context: RouteCtx) {
     try {
       const facilitySlice = await prisma.facility.findUniqueOrThrow({
         where: { id: facilityId },
-        select: { minRestHours: true, miniJobMaxMonthlyHours: true, ruleOverridesJson: true },
+        select: { minRestHours: true, miniJobMaxMonthlyHours: true, maxSolveTimeSeconds: true, ruleOverridesJson: true },
       });
       solverPayload = buildSolverPayload(
         scheduleId,

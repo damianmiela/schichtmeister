@@ -128,6 +128,7 @@ export async function POST(request: Request, context: RouteCtx) {
     select: {
       minRestHours: true,
       miniJobMaxMonthlyHours: true,
+      maxSolveTimeSeconds: true,
       ruleOverridesJson: true,
     },
   });

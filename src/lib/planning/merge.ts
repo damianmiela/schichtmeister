@@ -7,7 +7,7 @@ function decimalToNumber(value: Facility["minRestHours"]): number {
 
 export type FacilityRulesSlice = Pick<
   Facility,
-  "minRestHours" | "miniJobMaxMonthlyHours" | "ruleOverridesJson"
+  "minRestHours" | "miniJobMaxMonthlyHours" | "maxSolveTimeSeconds" | "ruleOverridesJson"
 >;
 
 type RuleOverrides = Record<string, { enabled?: boolean; params?: Record<string, unknown> }>;

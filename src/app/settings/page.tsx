@@ -84,6 +84,7 @@ type RuleEntry = {
 type FacilityRulesResponse = {
   minRestHours: number;
   miniJobMaxMonthlyHours: number;
+  maxSolveTimeSeconds: number;
   rules: RuleEntry[];
 };
 
@@ -209,6 +210,7 @@ export default function SettingsPage() {
     Record<string, { enabled: boolean; params: Record<string, string> }>
   >({});
   const [minRestHoursDraft, setMinRestHoursDraft] = useState("");
+  const [maxSolveTimeDraft, setMaxSolveTimeDraft] = useState("120");
   const [rulesSaving, setRulesSaving] = useState(false);
   const [rulesError, setRulesError] = useState<string | null>(null);
   const [rulesSuccess, setRulesSuccess] = useState(false);
@@ -281,6 +283,7 @@ export default function SettingsPage() {
         await fetchJson<FacilityRulesResponse>("/api/facility/rules");
       setRulesData(data);
       setMinRestHoursDraft(String(data.minRestHours));
+      setMaxSolveTimeDraft(String(data.maxSolveTimeSeconds ?? 120));
       const d: Record<
         string,
         { enabled: boolean; params: Record<string, string> }
@@ -653,12 +656,16 @@ export default function SettingsPage() {
       }
 
       const minRestVal = Number(minRestHoursDraft);
+      const maxSolveVal = Number(maxSolveTimeDraft);
       await fetchJson("/api/facility/rules", {
         method: "PATCH",
         body: JSON.stringify({
           ruleOverrides: overrides,
           ...(Number.isFinite(minRestVal) && minRestVal >= 0
             ? { minRestHours: minRestVal }
+            : {}),
+          ...(Number.isFinite(maxSolveVal) && maxSolveVal >= 30
+            ? { maxSolveTimeSeconds: maxSolveVal }
             : {}),
         }),
       });
@@ -1273,6 +1280,30 @@ export default function SettingsPage() {
                       onChange={(e) => setMinRestHoursDraft(e.target.value)}
                       inputProps={{ min: 0, step: 1 }}
                       sx={{ width: 200 }}
+                    />
+                  </Box>
+
+                  <Box sx={{ mb: 3, p: 2, border: "1px solid", borderColor: "divider", borderRadius: 1 }}>
+                    <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+                      Solver-Zeitlimit
+                    </Typography>
+                    <Typography
+                      variant="body2"
+                      color="text.secondary"
+                      sx={{ mb: 1.5 }}
+                    >
+                      Maximale Rechenzeit für die Dienstplan-Generierung. Mehr
+                      Zeit kann zu besseren Ergebnissen führen.
+                    </Typography>
+                    <TextField
+                      label="Zeitlimit (Sekunden)"
+                      size="small"
+                      type="number"
+                      value={maxSolveTimeDraft}
+                      onChange={(e) => setMaxSolveTimeDraft(e.target.value)}
+                      inputProps={{ min: 30, max: 3600, step: 30 }}
+                      sx={{ width: 200 }}
+                      helperText="Min. 30s, Max. 3600s (1 Stunde)"
                     />
                   </Box>
 
