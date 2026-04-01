@@ -196,6 +196,23 @@ def _resolve_stations(
 
     result = list(assignments)  # shallow copy to mutate stationNumber
 
+    # ── Pre-pass: apply manual placement station overrides unconditionally ──
+    # This runs BEFORE the group loop so it works even for shift types
+    # that have no station-specific staffing requirements.
+    mp_applied: set[int] = set()
+    for idx, a in enumerate(assignments):
+        mp_st = mp_station.get((a.employeeId, a.date))
+        if mp_st is not None:
+            log.info("_resolve_stations: MANUAL OVERRIDE emp=%s date=%s profile=%s → station %d (was %s)",
+                     a.employeeId[:8], a.date, a.shiftProfileId[:8], mp_st, a.stationNumber)
+            result[idx] = AssignmentOutput(
+                employeeId=a.employeeId,
+                date=a.date,
+                shiftProfileId=a.shiftProfileId,
+                stationNumber=mp_st,
+            )
+            mp_applied.add(idx)
+
     for (ds, shift_type), indices in groups.items():
         demands = station_demand.get(shift_type)
         if not demands:
@@ -208,27 +225,18 @@ def _resolve_stations(
         current_count: dict[int, int] = {s: 0 for s in demands}
         placed: dict[int, int | None] = {}  # assignment index -> station
 
-        # Pass 0: manual placement stations ALWAYS win (hard override),
-        # then account for solver-assigned stations (multi-station employees).
         single_station_indices: list[int] = []
         floater_indices: list[int] = []
 
         for idx in indices:
-            a = assignments[idx]
+            a = result[idx]  # use result (may have manual override applied)
 
-            # Manual placement station overrides EVERYTHING — even solver-assigned stations
-            mp_st = mp_station.get((a.employeeId, a.date))
-            if mp_st is not None:
-                log.info("_resolve_stations: MANUAL OVERRIDE emp=%s date=%s profile=%s → station %d (was %s)",
-                         a.employeeId[:8], a.date, a.shiftProfileId[:8], mp_st, a.stationNumber)
-                result[idx] = AssignmentOutput(
-                    employeeId=a.employeeId,
-                    date=a.date,
-                    shiftProfileId=a.shiftProfileId,
-                    stationNumber=mp_st,
-                )
-                remaining[mp_st] = remaining.get(mp_st, 0) - 1
-                current_count[mp_st] = current_count.get(mp_st, 0) + 1
+            # Skip manual placements — already handled in pre-pass
+            if idx in mp_applied:
+                sn = a.stationNumber
+                if sn is not None:
+                    remaining[sn] = remaining.get(sn, 0) - 1
+                    current_count[sn] = current_count.get(sn, 0) + 1
                 continue
 
             if a.stationNumber is not None:

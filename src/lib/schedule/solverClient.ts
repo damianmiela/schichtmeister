@@ -529,6 +529,25 @@ export async function runCpsatGeneration(
 
   const prismaInputs = assignmentsToPrismaInputs(response.assignments, scheduleId, userId);
 
+  // Debug: verify station numbers are preserved in Prisma inputs for manual placements
+  for (const mp of manualPlacements) {
+    const pid = resolveManualPlacementProfile(mp, genCtx.profiles);
+    const solverMatch = response.assignments.find(
+      (a) => a.employeeId === mp.employeeId && a.date === mp.date,
+    );
+    const prismaMatch = prismaInputs.find(
+      (p) => p.employeeId === mp.employeeId && p.date instanceof Date &&
+        p.date.toISOString().startsWith(mp.date),
+    );
+    console.log(
+      `[ManualPlacement DB-check] emp=${mp.employeeId.slice(0, 8)} date=${mp.date}` +
+      ` solverStation=${solverMatch?.stationNumber ?? "null"}` +
+      ` prismaStation=${prismaMatch?.stationNumber ?? "null/undefined"}` +
+      ` solverProfile=${solverMatch?.shiftProfileId?.slice(0, 8) ?? "?"}` +
+      ` wantedProfile=${pid?.slice(0, 8) ?? "?"}`,
+    );
+  }
+
   await tx.assignment.deleteMany({ where: { scheduleId } });
   if (prismaInputs.length > 0) {
     await tx.assignment.createMany({ data: prismaInputs });
