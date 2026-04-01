@@ -140,12 +140,30 @@ const EMP_STATUS_MAP: Record<string, string> = {
 
 /* ──────────────────────── grouping / sorting ──────────────────────── */
 
-function groupEmployeesByStation(employees: EmployeeJson[]): Record<number, EmployeeJson[]> {
+function groupEmployeesByStation(
+  employees: EmployeeJson[],
+  assignments: AssignmentJson[],
+): Record<number, EmployeeJson[]> {
   const grouped: Record<number, EmployeeJson[]> = { 1: [], 2: [], 3: [] };
   const added = new Set<string>();
+
+  // Build set of stations each employee actually has assignments on
+  const empAssignmentStations = new Map<string, Set<number>>();
+  for (const a of assignments) {
+    if (a.stationNumber != null && a.stationNumber >= 1 && a.stationNumber <= 3) {
+      let s = empAssignmentStations.get(a.employeeId);
+      if (!s) { s = new Set(); empAssignmentStations.set(a.employeeId, s); }
+      s.add(a.stationNumber);
+    }
+  }
+
   for (const emp of employees) {
-    const stations = emp.assignedStations ?? [];
-    if (stations.length > 0) {
+    const stations = new Set(emp.assignedStations ?? []);
+    // Also include stations from actual assignments (e.g. Dienstwunsch on different station)
+    const fromAssignments = empAssignmentStations.get(emp.id);
+    if (fromAssignments) for (const st of fromAssignments) stations.add(st);
+
+    if (stations.size > 0) {
       for (const st of stations) {
         if (st >= 1 && st <= 3 && !added.has(`${emp.id}-${st}`)) {
           grouped[st]!.push(emp);
@@ -327,8 +345,8 @@ export default function MonthTableView({
   );
 
   const stationGroups = useMemo(
-    () => groupEmployeesByStation(employees),
-    [employees],
+    () => groupEmployeesByStation(employees, assignments),
+    [employees, assignments],
   );
 
   const nightEmployees = useMemo(

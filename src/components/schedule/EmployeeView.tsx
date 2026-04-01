@@ -540,10 +540,16 @@ export default function EmployeeView({
                     </TableCell>
                     <TableCell align="center">
                       <Chip
-                        label={`St. ${employee.assignedStations?.length ? employee.assignedStations.join("+") : "alle"}`}
+                        label={`St. ${a.stationNumber ?? (employee.assignedStations?.length === 1 ? employee.assignedStations[0] : employee.assignedStations?.length ? employee.assignedStations.join("+") : "alle")}`}
                         size="small"
                         variant="outlined"
-                        sx={{ height: 20, fontSize: "0.7rem" }}
+                        sx={{
+                          height: 20,
+                          fontSize: "0.7rem",
+                          ...(a.stationNumber != null && !employee.assignedStations?.includes(a.stationNumber)
+                            ? { borderColor: "warning.main", color: "warning.main" }
+                            : {}),
+                        }}
                       />
                     </TableCell>
                     <TableCell align="center">
