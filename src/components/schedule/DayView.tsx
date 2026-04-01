@@ -62,8 +62,8 @@ const SHIFT_TYPE_COLORS: Record<string, string> = {
 };
 
 const SHIFT_LABELS: Record<string, string> = {
-  EARLY: "Frueh",
-  LATE: "Spaet",
+  EARLY: "Früh",
+  LATE: "Spät",
   NIGHT: "Nacht",
   BL: "BL",
 };
@@ -213,10 +213,11 @@ function ColumnView({
         <Box
           onClick={onEmployeeClick ? () => onEmployeeClick(row.employeeId) : undefined}
           sx={{
+            position: "relative",
             display: "flex",
             alignItems: "center",
-            gap: 0.75,
-            py: 0.75,
+            justifyContent: "center",
+            py: 1,
             px: 1.5,
             border: "2px dashed",
             borderColor: "success.light",
@@ -225,27 +226,30 @@ function ColumnView({
             cursor: onEmployeeClick ? "pointer" : "default",
             "&:hover": { bgcolor: alpha("#4caf50", 0.1) },
             minHeight: 40,
+            mt: 1,
           }}
         >
-          <Typography variant="caption" sx={{ fontWeight: 700, color: "success.dark", fontSize: 10, minWidth: 60, flexShrink: 0 }}>
+          {/* Floating label on border — MUI TextField style */}
+          <Typography
+            variant="caption"
+            sx={{
+              position: "absolute",
+              top: -9,
+              left: 10,
+              px: 0.5,
+              bgcolor: "background.paper",
+              fontWeight: 700,
+              fontSize: 10,
+              color: "success.dark",
+              lineHeight: "16px",
+              letterSpacing: 0.3,
+            }}
+          >
             {tag}
           </Typography>
-          <Typography variant="body2" sx={{ fontWeight: 500, fontSize: 13, flex: 1 }}>
+          <Typography variant="body2" sx={{ fontWeight: 500, fontSize: 13 }}>
             {name}
           </Typography>
-          <Chip
-            label={row.profile.name}
-            size="small"
-            sx={{
-              height: 20,
-              fontSize: 10,
-              fontWeight: 600,
-              bgcolor: alpha(SHIFT_TYPE_COLORS[row.profile.shiftType] ?? "#78909c", 0.15),
-              color: SHIFT_TYPE_COLORS[row.profile.shiftType] ?? "#78909c",
-              "& .MuiChip-label": { px: 0.5 },
-            }}
-          />
-          <QualificationPills qualifications={row.employee?.qualifications} tags={row.employee?.qualificationTags ?? []} compact />
         </Box>
       </Tooltip>
     );
@@ -256,23 +260,41 @@ function ColumnView({
     <Box
       key={`empty-${tag}-${idx}`}
       sx={{
+        position: "relative",
         display: "flex",
         alignItems: "center",
+        justifyContent: "center",
         gap: 0.75,
-        py: 0.75,
+        py: 1,
         px: 1.5,
         border: "2px dashed",
-        borderColor: "error.light",
+        borderColor: "error.main",
         borderRadius: 2,
-        bgcolor: alpha("#d32f2f", 0.04),
+        bgcolor: alpha("#d32f2f", 0.08),
         minHeight: 40,
+        mt: 1,
       }}
     >
-      <WarningAmberIcon sx={{ fontSize: 16, color: "error.main" }} />
-      <Typography variant="caption" sx={{ fontWeight: 700, color: "error.main", fontSize: 11 }}>
+      {/* Floating label on border */}
+      <Typography
+        variant="caption"
+        sx={{
+          position: "absolute",
+          top: -9,
+          left: 10,
+          px: 0.5,
+          bgcolor: "background.paper",
+          fontWeight: 700,
+          fontSize: 10,
+          color: "error.main",
+          lineHeight: "16px",
+          letterSpacing: 0.3,
+        }}
+      >
         {tag}
       </Typography>
-      <Typography variant="body2" sx={{ color: "text.disabled", fontStyle: "italic", fontSize: 12, ml: 0.5 }}>
+      <WarningAmberIcon sx={{ fontSize: 18, color: "error.main" }} />
+      <Typography variant="body2" sx={{ color: "error.dark", fontWeight: 600, fontStyle: "italic", fontSize: 13 }}>
         nicht besetzt
       </Typography>
     </Box>
@@ -367,9 +389,11 @@ function ColumnView({
           >
             {label}
           </Typography>
-          <Typography variant="caption" sx={{ fontSize: 11, color: totalMet ? "success.main" : "error.main", fontWeight: 600 }}>
-            {totalAssigned}/{totalRequired}
-          </Typography>
+          {totalRequired > 0 && (
+            <Typography variant="caption" sx={{ fontSize: 11, color: totalMet ? "success.main" : "error.main", fontWeight: 600 }}>
+              {totalAssigned}/{totalRequired}
+            </Typography>
+          )}
           {unfilledCount > 0 && (
             <Tooltip title={`${unfilledCount} Qualifikationsanforderung(en) nicht erfuellt`} arrow>
               <WarningAmberIcon sx={{ fontSize: 15, color: "error.main", ml: "auto" }} />
