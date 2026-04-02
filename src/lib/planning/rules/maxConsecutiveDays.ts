@@ -16,6 +16,8 @@ export function maxConsecutiveDaysRule(ctx: RuleContext): RuleResult {
 
   const byEmployee = new Map<string, string[]>();
   for (const a of ctx.assignments) {
+    // When targeted, only check the target employee (all assignments for streak calc)
+    if (ctx.targetFilter && a.employeeId !== ctx.targetFilter.employeeId) continue;
     const day = utcDayKey(a.date);
     const list = byEmployee.get(a.employeeId) ?? [];
     list.push(day);
@@ -26,9 +28,9 @@ export function maxConsecutiveDaysRule(ctx: RuleContext): RuleResult {
     const sorted = [...new Set(days)].sort();
     if (sorted.length === 0) continue;
 
-    // Per-employee override takes precedence over global setting
     const emp = ctx.employeesById.get(employeeId);
     const maxDays = emp?.maxConsecutiveDays ?? globalMaxDays;
+    const name = emp?.displayName ?? employeeId;
 
     let streakStart = 0;
 
@@ -43,7 +45,9 @@ export function maxConsecutiveDaysRule(ctx: RuleContext): RuleResult {
           errors.push({
             ruleId: "maxConsecutiveDays",
             code: "MAX_CONSECUTIVE_DAYS",
-            message: `Employee has ${streakLength} consecutive working days (max ${maxDays}).`,
+            message: ctx.targetFilter
+              ? `${name}: ${streakLength} Tage am Stück (max. ${maxDays}).`
+              : `Employee has ${streakLength} consecutive working days (max ${maxDays}).`,
             employeeIds: [employeeId],
           });
         }
@@ -53,7 +57,9 @@ export function maxConsecutiveDaysRule(ctx: RuleContext): RuleResult {
           errors.push({
             ruleId: "maxConsecutiveDays",
             code: "INSUFFICIENT_REST_AFTER_MAX_DAYS",
-            message: `Employee works on ${sorted[i]} but needs ${requiredRestDays} rest day(s) after ${maxDays} consecutive working days.`,
+            message: ctx.targetFilter
+              ? `${name}: Arbeitet am ${sorted[i]} ohne ${requiredRestDays} Ruhetag(e) nach ${maxDays} Arbeitstagen.`
+              : `Employee works on ${sorted[i]} but needs ${requiredRestDays} rest day(s) after ${maxDays} consecutive working days.`,
             employeeIds: [employeeId],
           });
         }

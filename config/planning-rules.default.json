@@ -4,6 +4,7 @@
     "enabled": false
   },
   "rules": [
+    { "id": "absenceConflict", "enabled": true },
     { "id": "noOverlap", "enabled": true },
     { "id": "minRestBetweenShifts", "enabled": true },
     { "id": "miniJobMonthlyHours", "enabled": true },

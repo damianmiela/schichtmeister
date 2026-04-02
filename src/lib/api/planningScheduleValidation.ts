@@ -4,6 +4,7 @@ import { defaultPlanningRulesConfig } from "@/lib/planning/defaultConfig";
 import { registerBuiltInPlanningRules } from "@/lib/planning/registerBuiltInRules";
 import { runAllRules, runScopedRules } from "@/lib/planning/registry";
 import type {
+  AbsenceInput,
   AssignmentInput,
   EmployeeInput,
   RuleContext,
@@ -21,7 +22,7 @@ export type PlanningValidationResult = {
 
 type DbSubset = Pick<
   PrismaClient,
-  "facility" | "employee" | "shiftProfile" | "staffingRequirement"
+  "facility" | "employee" | "shiftProfile" | "staffingRequirement" | "employeeAbsence"
 >;
 
 /** Use `prisma` or a transaction client — same model delegates. */
@@ -29,6 +30,8 @@ export type ScheduleValidationDb = DbSubset;
 
 function buildEmployeeInput(e: {
   id: string;
+  firstName: string;
+  lastName: string;
   contractType: EmployeeInput["contractType"];
   miniJobMaxMonthlyHours: Prisma.Decimal | null;
   qualificationTags: string[];
@@ -45,6 +48,7 @@ function buildEmployeeInput(e: {
     targetHoursPercent: e.targetHoursPercent != null ? Number(e.targetHoursPercent) : null,
     allowedShiftProfileIds: e.allowedShiftProfiles?.map((p) => p.id),
     maxConsecutiveDays: e.maxConsecutiveDays ?? null,
+    displayName: `${e.firstName} ${e.lastName}`,
   };
 }
 
@@ -83,12 +87,19 @@ export async function validateScheduleAssignments(
     return { ok: false, error: "Einrichtung nicht gefunden", status: 404 };
   }
 
-  const [employees, profiles, staffingRows] = await Promise.all([
+  const [employees, profiles, staffingRows, absenceRows] = await Promise.all([
     db.employee.findMany({ where: { facilityId }, include: { allowedShiftProfiles: { select: { id: true } } } }),
     db.shiftProfile.findMany({ where: { facilityId } }),
     db.staffingRequirement.findMany({
       where: { facilityId },
       include: { qualificationRequirements: true },
+    }),
+    db.employeeAbsence.findMany({
+      where: {
+        employee: { facilityId },
+        startDate: { lte: schedule.periodEnd },
+        endDate: { gte: schedule.periodStart },
+      },
     }),
   ]);
 
@@ -141,6 +152,13 @@ export async function validateScheduleAssignments(
 
   const snapshot = mergePlanningRules(facility, defaultPlanningRulesConfig);
 
+  const absences: AbsenceInput[] = absenceRows.map((a) => ({
+    employeeId: a.employeeId,
+    startDate: a.startDate,
+    endDate: a.endDate,
+    type: a.type,
+  }));
+
   const ctx: RuleContext = {
     periodStart: schedule.periodStart,
     periodEnd: schedule.periodEnd,
@@ -150,6 +168,7 @@ export async function validateScheduleAssignments(
     staffingRequirements,
     wishes: [],
     snapshot,
+    absences,
   };
 
   registerBuiltInPlanningRules();

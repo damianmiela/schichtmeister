@@ -12,6 +12,7 @@ export {
   utcMonthKey,
 } from "@/lib/planning/time";
 export type {
+  AbsenceInput,
   AssignmentInput,
   EmployeeInput,
   PlanningRulesConfig,
@@ -26,5 +27,6 @@ export type {
   QualificationRequirementInput,
   ShiftProfileInput,
   StaffingRequirementInput,
+  TargetFilter,
   WishInput,
 } from "@/lib/planning/types";

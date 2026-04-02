@@ -10,6 +10,9 @@ export function noOverlapRule(ctx: RuleContext): RuleResult {
   const byEmployee = new Map<string, { id: string; startMs: number; endMs: number }[]>();
 
   for (const a of ctx.assignments) {
+    // When targeted, only check the target employee
+    if (ctx.targetFilter && a.employeeId !== ctx.targetFilter.employeeId) continue;
+
     const profile = ctx.profilesById.get(a.shiftProfileId);
     if (!profile) {
       errors.push({
@@ -34,10 +37,18 @@ export function noOverlapRule(ctx: RuleContext): RuleResult {
         const B = sorted[j]!;
         if (B.startMs >= A.endMs) break;
         if (intervalsOverlapHalfOpen(A.startMs, A.endMs, B.startMs, B.endMs)) {
+          const emp = ctx.employeesById.get(employeeId);
+          const name = emp?.displayName ?? employeeId;
+          const profileB = [...ctx.profilesById.values()].find((p) => {
+            const iv = shiftIntervalMs(ctx.assignments.find((x) => x.id === B.id)?.date ?? new Date(), p.startTime, p.endTime);
+            return iv.startMs === B.startMs && iv.endMs === B.endMs;
+          });
           errors.push({
             ruleId: "noOverlap",
             code: "OVERLAP",
-            message: "Employee has overlapping shift assignments.",
+            message: ctx.targetFilter
+              ? `${name} hat bereits eine überlappende Schicht.`
+              : "Employee has overlapping shift assignments.",
             assignmentIds: [A.id, B.id],
             employeeIds: [employeeId],
           });

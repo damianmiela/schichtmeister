@@ -283,6 +283,19 @@ export default function SchedulePage() {
 
         setSchedule(detail.schedule);
         setAssignments(detail.assignments ?? []);
+
+        // Re-run validation on load so warnings reflect day-view edits
+        try {
+          const rv = await fetchJson<{ warnings: string[] }>(
+            `/api/schedules/${picked.id}/revalidate`,
+            { method: "POST" },
+          );
+          setSchedule((prev) =>
+            prev ? { ...prev, warnings: rv.warnings } : prev,
+          );
+        } catch {
+          // Non-critical — keep the cached warnings
+        }
       } catch {
         failLabels.push("Monatsplan");
         setSchedule(null);
@@ -329,15 +342,21 @@ export default function SchedulePage() {
     void loadBundle();
   }, [loadBundle]);
 
-  /** Lightweight refresh: re-fetch only assignments for the current schedule. */
+  /** Lightweight refresh: re-fetch assignments + revalidate warnings. */
   const refreshAssignments = useCallback(async () => {
     if (!schedule) return;
     try {
-      const detail = await fetchJson<{
-        schedule: ScheduleJson;
-        assignments?: AssignmentJson[];
-      }>(`/api/schedules/${schedule.id}?include=assignments`);
-      setSchedule(detail.schedule);
+      const [detail, rv] = await Promise.all([
+        fetchJson<{
+          schedule: ScheduleJson;
+          assignments?: AssignmentJson[];
+        }>(`/api/schedules/${schedule.id}?include=assignments`),
+        fetchJson<{ warnings: string[] }>(
+          `/api/schedules/${schedule.id}/revalidate`,
+          { method: "POST" },
+        ).catch(() => null),
+      ]);
+      setSchedule({ ...detail.schedule, warnings: rv?.warnings ?? detail.schedule.warnings });
       setAssignments(detail.assignments ?? []);
     } catch {
       // Fall back to full reload on error

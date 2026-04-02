@@ -13,6 +13,8 @@ export function maxConsecutiveNightsRule(ctx: RuleContext): RuleResult {
   const byEmployee = new Map<string, string[]>();
 
   for (const a of ctx.assignments) {
+    // When targeted, only check the target employee (but all their assignments for streak calc)
+    if (ctx.targetFilter && a.employeeId !== ctx.targetFilter.employeeId) continue;
     const profile = ctx.profilesById.get(a.shiftProfileId);
     if (!profile || profile.shiftType !== ShiftType.NIGHT) continue;
     const day = utcDayKey(a.date);
@@ -24,6 +26,7 @@ export function maxConsecutiveNightsRule(ctx: RuleContext): RuleResult {
   for (const [employeeId, days] of byEmployee) {
     const sorted = [...new Set(days)].sort();
     let streak = 1;
+    let maxStreak = 1;
 
     for (let i = 1; i < sorted.length; i++) {
       const prev = new Date(sorted[i - 1]! + "T00:00:00Z");
@@ -32,17 +35,23 @@ export function maxConsecutiveNightsRule(ctx: RuleContext): RuleResult {
 
       if (diffDays === 1) {
         streak++;
-        if (streak > maxCount) {
-          errors.push({
-            ruleId: "maxConsecutiveNights",
-            code: "MAX_CONSECUTIVE_NIGHTS",
-            message: `Employee has ${streak} consecutive night shifts (max ${maxCount}).`,
-            employeeIds: [employeeId],
-          });
-        }
+        if (streak > maxStreak) maxStreak = streak;
       } else {
         streak = 1;
       }
+    }
+
+    if (maxStreak > maxCount) {
+      const emp = ctx.employeesById.get(employeeId);
+      const name = emp?.displayName ?? employeeId;
+      errors.push({
+        ruleId: "maxConsecutiveNights",
+        code: "MAX_CONSECUTIVE_NIGHTS",
+        message: ctx.targetFilter
+          ? `${name}: ${maxStreak} Nachtschichten am Stück (max. ${maxCount}).`
+          : `Employee has ${maxStreak} consecutive night shifts (max ${maxCount}).`,
+        employeeIds: [employeeId],
+      });
     }
   }
 

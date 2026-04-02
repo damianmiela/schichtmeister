@@ -12,5 +12,3 @@ export const restAfter6DaysRule: RuleFn = () => ({ errors: [], warnings: [] });
 export const alternatingWeekendsRule: RuleFn = () => ({ errors: [], warnings: [] });
 
 export const wblWeekendLimitRule: RuleFn = () => ({ errors: [], warnings: [] });
-
-export const sollDeltaRule: RuleFn = () => ({ errors: [], warnings: [] });

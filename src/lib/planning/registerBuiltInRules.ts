@@ -1,4 +1,5 @@
 import { registerRule } from "@/lib/planning/registry";
+import { absenceConflictRule } from "@/lib/planning/rules/absenceConflict";
 import { allowedShiftProfilesRule } from "@/lib/planning/rules/allowedShiftProfiles";
 import { maxConsecutiveDaysRule } from "@/lib/planning/rules/maxConsecutiveDays";
 import { maxConsecutiveNightsRule } from "@/lib/planning/rules/maxConsecutiveNights";
@@ -8,6 +9,7 @@ import { miniJobMonthlyHoursRule } from "@/lib/planning/rules/miniJobMonthlyHour
 import { noOverlapRule } from "@/lib/planning/rules/noOverlap";
 import { overtimeExcessRule } from "@/lib/planning/rules/overtimeExcess";
 import { qualificationCoverageRule } from "@/lib/planning/rules/qualificationCoverage";
+import { sollDeltaRule } from "@/lib/planning/rules/sollDelta";
 import {
   fairnessCountersRule,
   targetHoursBalanceRule,
@@ -15,7 +17,6 @@ import {
   restAfter6DaysRule,
   alternatingWeekendsRule,
   wblWeekendLimitRule,
-  sollDeltaRule,
 } from "@/lib/planning/rules/softStubs";
 import { staffingMinimumRule } from "@/lib/planning/rules/staffingMinimum";
 
@@ -40,6 +41,10 @@ export function registerBuiltInPlanningRules(): void {
   registerRule(
     { id: "qualificationCoverage", severity: "hard", scope: "global", description: "Required qualification tags must be covered by at least one assigned employee per shift." },
     qualificationCoverageRule,
+  );
+  registerRule(
+    { id: "absenceConflict", severity: "hard", scope: "employee", description: "Employees with absences (sick, vacation) cannot be assigned shifts." },
+    absenceConflictRule,
   );
   registerRule(
     { id: "wishFulfillment", severity: "soft", scope: "global", description: "Warn when employee shift wishes are not fulfilled." },
@@ -74,6 +79,10 @@ export function registerBuiltInPlanningRules(): void {
     overtimeExcessRule,
   );
   registerRule(
+    { id: "sollDelta", severity: "hard", scope: "employee", description: "Soll-Stunden-Abweichung: Zielbereich für alle Mitarbeiter (Standard: -4h bis +8h)." },
+    sollDeltaRule,
+  );
+  registerRule(
     { id: "restAfter6Days", severity: "hard", scope: "employee", description: "Nach 6+ aufeinanderfolgenden Arbeitstagen sind zusätzliche Ruhetage erforderlich." },
     restAfter6DaysRule,
   );
@@ -84,9 +93,5 @@ export function registerBuiltInPlanningRules(): void {
   registerRule(
     { id: "wblWeekendLimit", severity: "hard", scope: "employee", description: "WBL-Mitarbeiter können max. 1,5 Wochenenden pro Monat arbeiten (max. 3 Wochenendtage)." },
     wblWeekendLimitRule,
-  );
-  registerRule(
-    { id: "sollDelta", severity: "hard", scope: "employee", description: "Soll-Stunden-Abweichung: Zielbereich für alle Mitarbeiter (Standard: -4h bis +8h)." },
-    sollDeltaRule,
   );
 }

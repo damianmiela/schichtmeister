@@ -7,6 +7,9 @@ export function miniJobMonthlyHoursRule(ctx: RuleContext): RuleResult {
   const sums = new Map<string, number>();
 
   for (const a of ctx.assignments) {
+    // When targeted, only check the target employee
+    if (ctx.targetFilter && a.employeeId !== ctx.targetFilter.employeeId) continue;
+
     const emp = ctx.employeesById.get(a.employeeId);
     if (!emp || emp.contractType !== ContractType.MINI_JOB) continue;
     const profile = ctx.profilesById.get(a.shiftProfileId);
@@ -29,10 +32,13 @@ export function miniJobMonthlyHoursRule(ctx: RuleContext): RuleResult {
     const limit =
       emp.miniJobMaxMonthlyHours ?? ctx.snapshot.miniJobMaxMonthlyHours;
     if (total > limit + 1e-6) {
+      const name = emp.displayName ?? employeeId!;
       errors.push({
         ruleId: "miniJobMonthlyHours",
         code: "MINI_JOB_CAP",
-        message: `Mini-job hours in month exceed limit (${total.toFixed(2)}h > ${limit}h).`,
+        message: ctx.targetFilter
+          ? `${name}: Minijob-Stunden ${total.toFixed(1)}h überschreiten Limit ${limit}h.`
+          : `Mini-job hours in month exceed limit (${total.toFixed(2)}h > ${limit}h).`,
         employeeIds: [employeeId!],
       });
     }

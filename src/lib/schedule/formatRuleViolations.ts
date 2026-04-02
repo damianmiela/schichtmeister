@@ -82,6 +82,12 @@ export function formatRuleViolations(
   // ── INSUFFICIENT_REST_AFTER_MAX_DAYS: group by employee, collect dates ──
   const restAfterMaxByEmp = new Map<string, { dates: string[]; restDays: number; maxDays: number }>();
 
+  // ── ABSENCE_CONFLICT: group by employee, collect dates ──
+  const absenceByEmp = new Map<string, { dates: string[]; type: string }>();
+
+  // ── SOLL_UNDER / SOLL_OVER: per employee ──
+  const sollByEmp = new Map<string, { hours: number; soll: number; min: number; max: number; direction: "under" | "over" }>();
+
   for (const msg of messages) {
     const empKey = msg.employeeIds?.[0] ?? "__none__";
 
@@ -158,6 +164,26 @@ export function formatRuleViolations(
       case "PROFILE_NOT_ALLOWED": {
         const name = eName(msg.employeeIds, employeeNames);
         out.push(`Nicht erlaubtes Schichtprofil: ${name} ist einem Profil zugewiesen, das nicht in der erlaubten Liste steht.`);
+        break;
+      }
+      case "ABSENCE_CONFLICT": {
+        const date = parseString(msg.message, /am (\d{4}-\d{2}-\d{2})/) ?? "";
+        const type = parseString(msg.message, /als "([^"]+)"/) ?? "Abwesend";
+        const prev = absenceByEmp.get(empKey);
+        if (prev) {
+          if (!prev.dates.includes(date)) prev.dates.push(date);
+        } else {
+          absenceByEmp.set(empKey, { dates: [date], type });
+        }
+        break;
+      }
+      case "SOLL_UNDER":
+      case "SOLL_OVER": {
+        const hours = parseNumber(msg.message, /(\d+\.?\d*)h geplant/) ?? 0;
+        const soll = parseNumber(msg.message, /Soll (\d+\.?\d*)h/) ?? 0;
+        const min = parseNumber(msg.message, /min\. (\d+\.?\d*)h/) ?? 0;
+        const max = parseNumber(msg.message, /max\. (\d+\.?\d*)h/) ?? 0;
+        sollByEmp.set(empKey, { hours, soll, min, max, direction: msg.code === "SOLL_UNDER" ? "under" : "over" });
         break;
       }
       case "OVERSTAFFED": {
@@ -265,6 +291,28 @@ export function formatRuleViolations(
     out.push(
       `Fehlende Ruhetage: ${name} arbeitet am ${dateList} ohne die benötigten ${restDays} Ruhetage nach ${maxDays} aufeinanderfolgenden Arbeitstagen.`,
     );
+  }
+
+  for (const [empId, { dates, type }] of absenceByEmp) {
+    const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
+    const sortedDates = [...dates].sort();
+    const dateList = sortedDates.map(fmtDate).join(", ");
+    out.push(
+      `Abwesenheitskonflikt: ${name} ist als "${type}" eingetragen, hat aber Schichtzuweisungen am ${dateList}.`,
+    );
+  }
+
+  for (const [empId, { hours, soll, direction }] of sollByEmp) {
+    const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
+    if (direction === "under") {
+      out.push(
+        `Soll-Stunden: ${name} hat ${hours.toFixed(1)}h geplant, unter dem Mindestbereich (Soll: ${soll.toFixed(1)}h).`,
+      );
+    } else {
+      out.push(
+        `Soll-Stunden: ${name} hat ${hours.toFixed(1)}h geplant, über dem Höchstbereich (Soll: ${soll.toFixed(1)}h).`,
+      );
+    }
   }
 
   return out;
