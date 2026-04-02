@@ -173,6 +173,7 @@ export default function SchedulePage() {
   const [scoreDialogOpen, setScoreDialogOpen] = useState(false);
   const [scoreContent, setScoreContent] = useState<string | null>(null);
   const [scoreLoading, setScoreLoading] = useState(false);
+  const [employeeWarnings, setEmployeeWarnings] = useState<string[]>([]);
 
   const daysInMonth = useMemo(() => {
     const { year, month } = viewState;
@@ -341,6 +342,29 @@ export default function SchedulePage() {
   useEffect(() => {
     void loadBundle();
   }, [loadBundle]);
+
+  // Fetch employee-specific warnings when viewing an employee
+  useEffect(() => {
+    if (viewState.type !== "employee" || !viewState.employeeId || !schedule?.id) {
+      setEmployeeWarnings([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/schedules/${schedule.id}/revalidate?employeeId=${encodeURIComponent(viewState.employeeId!)}`,
+          { method: "POST" },
+        );
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        if (!cancelled) setEmployeeWarnings(data.employeeWarnings ?? []);
+      } catch {
+        if (!cancelled) setEmployeeWarnings([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [viewState.type, viewState.employeeId, schedule?.id, assignments]);
 
   /** Lightweight refresh: re-fetch assignments + revalidate warnings. */
   const refreshAssignments = useCallback(async () => {
@@ -967,6 +991,11 @@ export default function SchedulePage() {
     return holidayDateMap(start, end);
   }, [viewState]);
 
+  // In employee view, show only that employee's warnings; otherwise show all
+  const displayWarnings = viewState.type === "employee"
+    ? employeeWarnings
+    : (schedule?.warnings ?? []);
+
   const addPreGenEntry = (type: "shift" | "frei") => {
     const first = sortedEmployees[0];
     if (!first || daysInMonth.length === 0) return;
@@ -1223,14 +1252,14 @@ export default function SchedulePage() {
           >
             {publishBusy ? <CircularProgress size={20} color="inherit" /> : "Veröffentlichen"}
           </Button>
-          {(schedule?.warnings?.length ?? 0) > 0 && (
+          {displayWarnings.length > 0 && (
             <Tooltip title="Warnungen anzeigen">
               <IconButton
                 color="warning"
                 onClick={() => setWarningsOpen((p) => !p)}
               >
                 <Badge
-                  badgeContent={schedule?.warnings?.length ?? 0}
+                  badgeContent={displayWarnings.length}
                   color="warning"
                 >
                   <WarningAmberIcon />
@@ -1377,7 +1406,8 @@ export default function SchedulePage() {
               onEnterEditMode={enterEditMode}
               onCancelEditMode={cancelEditMode}
               onSaveEdits={() => void onSaveEdits()}
-              scheduleId={schedule?.id}
+              employeeWarnings={employeeWarnings}
+              onWarningsClick={() => setWarningsOpen(true)}
             />
           )}
         </>
@@ -1764,7 +1794,9 @@ export default function SchedulePage() {
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             <WarningAmberIcon color="warning" />
             <Typography variant="h6" sx={{ fontSize: "1rem" }}>
-              Warnungen
+              {viewState.type === "employee" && viewState.employeeId && employeesById[viewState.employeeId]
+                ? `Warnungen — ${employeesById[viewState.employeeId].firstName} ${employeesById[viewState.employeeId].lastName}`
+                : "Warnungen"}
             </Typography>
           </Box>
           <IconButton size="small" onClick={() => setWarningsOpen(false)}>
@@ -1773,12 +1805,14 @@ export default function SchedulePage() {
         </Box>
         <Divider />
         <Box sx={{ p: 2, overflow: "auto", flex: 1 }}>
-          {(schedule?.warnings?.length ?? 0) === 0 ? (
+          {displayWarnings.length === 0 ? (
             <Typography variant="body2" color="text.secondary">
-              Keine Warnungen für diesen Monat.
+              {viewState.type === "employee"
+                ? "Keine Warnungen für diesen Mitarbeiter."
+                : "Keine Warnungen für diesen Monat."}
             </Typography>
           ) : (
-            schedule?.warnings?.map((w, i) => (
+            displayWarnings.map((w, i) => (
               <Alert
                 key={i}
                 severity="warning"

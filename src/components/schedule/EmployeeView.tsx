@@ -1,8 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
-  Alert,
   Box,
   Button,
   Card,
@@ -76,7 +75,8 @@ interface EmployeeViewProps {
   onCancelEditMode?: () => void;
   onSaveEdits?: () => void;
   /* employee-specific warnings */
-  scheduleId?: string;
+  employeeWarnings?: string[];
+  onWarningsClick?: () => void;
 }
 
 /* ──────────────────────── constants ──────────────────────── */
@@ -186,35 +186,12 @@ export default function EmployeeView({
   onEnterEditMode,
   onCancelEditMode,
   onSaveEdits,
-  scheduleId,
+  employeeWarnings,
+  onWarningsClick,
 }: EmployeeViewProps) {
   const theme = useTheme();
 
-  /* ── warnings state ── */
-  const [empWarnings, setEmpWarnings] = useState<string[]>([]);
-  const [warningsLoading, setWarningsLoading] = useState(false);
-
-  const fetchEmployeeWarnings = useCallback(async () => {
-    if (!scheduleId) return;
-    setWarningsLoading(true);
-    try {
-      const res = await fetch(
-        `/api/schedules/${scheduleId}/revalidate?employeeId=${encodeURIComponent(employee.id)}`,
-        { method: "POST" },
-      );
-      if (!res.ok) throw new Error("revalidate failed");
-      const data = await res.json();
-      setEmpWarnings(data.employeeWarnings ?? []);
-    } catch {
-      setEmpWarnings([]);
-    } finally {
-      setWarningsLoading(false);
-    }
-  }, [scheduleId, employee.id]);
-
-  useEffect(() => {
-    fetchEmployeeWarnings();
-  }, [fetchEmployeeWarnings]);
+  const empWarnings = employeeWarnings ?? [];
 
   /* ── calendar days ── */
   const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
@@ -520,30 +497,16 @@ export default function EmployeeView({
 
           {/* Employee warnings */}
           <Box sx={{ ml: "auto", display: "flex", alignItems: "center", gap: 0.5 }}>
-            {warningsLoading ? (
-              <CircularProgress size={18} />
-            ) : empWarnings.length > 0 ? (
-              <Tooltip
-                title={
-                  <Box>
-                    {empWarnings.map((w, i) => (
-                      <Typography key={i} variant="caption" display="block" sx={{ mb: 0.5 }}>
-                        {w}
-                      </Typography>
-                    ))}
-                  </Box>
-                }
-                arrow
-              >
-                <Chip
-                  icon={<WarningAmberIcon sx={{ fontSize: 16 }} />}
-                  label={`${empWarnings.length} Warnung${empWarnings.length > 1 ? "en" : ""}`}
-                  size="small"
-                  color="warning"
-                  variant="outlined"
-                  sx={{ cursor: "help" }}
-                />
-              </Tooltip>
+            {empWarnings.length > 0 ? (
+              <Chip
+                icon={<WarningAmberIcon sx={{ fontSize: 16 }} />}
+                label={`${empWarnings.length} Warnung${empWarnings.length > 1 ? "en" : ""}`}
+                size="small"
+                color="warning"
+                variant="outlined"
+                onClick={onWarningsClick}
+                sx={{ cursor: onWarningsClick ? "pointer" : "default" }}
+              />
             ) : (
               <Chip
                 icon={<CheckCircleOutlineIcon sx={{ fontSize: 16 }} />}
