@@ -298,18 +298,34 @@ export async function POST(request: Request, context: RouteCtx) {
     // Score generation is non-critical — proceed without it
   }
 
-  await prisma.schedule.update({
-    where: { id: scheduleId },
-    data: {
-      warningsJson: allWarnings.length > 0 ? JSON.stringify(allWarnings) : null,
-      generationLog: report.debugLog || null,
-      scoreReport: scoreReport || null,
-      preGenWishesJson:
-        preGenWishes.shiftWishes.length > 0 || preGenWishes.freiDates.length > 0
-          ? JSON.stringify(preGenWishes)
-          : null,
-    },
-  });
+  try {
+    await prisma.schedule.update({
+      where: { id: scheduleId },
+      data: {
+        warningsJson: allWarnings.length > 0 ? JSON.stringify(allWarnings) : null,
+        generationLog: report.debugLog || null,
+        scoreReport: scoreReport || null,
+        preGenWishesJson:
+          preGenWishes.shiftWishes.length > 0 || preGenWishes.freiDates.length > 0
+            ? JSON.stringify(preGenWishes)
+            : null,
+      },
+    });
+  } catch (e) {
+    if (
+      e instanceof Prisma.PrismaClientKnownRequestError &&
+      e.code === "P2025"
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Der Dienstplan wurde inzwischen gelöscht oder ist nicht mehr verfügbar.",
+        },
+        { status: 404 },
+      );
+    }
+    throw e;
+  }
 
   return NextResponse.json({
     createdAssignments: report.createdAssignments,

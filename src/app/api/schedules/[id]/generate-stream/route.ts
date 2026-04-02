@@ -249,11 +249,27 @@ export async function POST(request: Request, context: RouteCtx) {
           solverStatus === "INFEASIBLE" ||
           solverStatus === "UNKNOWN"
         ) {
-          // Save log even on failure
-          await prisma.schedule.update({
-            where: { id: scheduleId },
-            data: { generationLog: debugLog },
-          });
+          // Save log even on failure (schedule may have been deleted mid-run)
+          try {
+            await prisma.schedule.update({
+              where: { id: scheduleId },
+              data: { generationLog: debugLog },
+            });
+          } catch (e) {
+            if (
+              e instanceof Prisma.PrismaClientKnownRequestError &&
+              e.code === "P2025"
+            ) {
+              send({
+                type: "error",
+                error:
+                  "Der Dienstplan wurde inzwischen gelöscht oder ist nicht mehr verfügbar.",
+              });
+              controller.close();
+              return;
+            }
+            throw e;
+          }
 
           send({
             type: "complete",
@@ -424,22 +440,38 @@ export async function POST(request: Request, context: RouteCtx) {
           })),
         };
 
-        await prisma.schedule.update({
-          where: { id: scheduleId },
-          data: {
-            warningsJson:
-              allWarnings.length > 0
-                ? JSON.stringify(allWarnings)
-                : null,
-            generationLog: debugLog || null,
-            scoreReport: scoreReport || null,
-            preGenWishesJson:
-              preGenWishes.shiftWishes.length > 0 ||
-              preGenWishes.freiDates.length > 0
-                ? JSON.stringify(preGenWishes)
-                : null,
-          },
-        });
+        try {
+          await prisma.schedule.update({
+            where: { id: scheduleId },
+            data: {
+              warningsJson:
+                allWarnings.length > 0
+                  ? JSON.stringify(allWarnings)
+                  : null,
+              generationLog: debugLog || null,
+              scoreReport: scoreReport || null,
+              preGenWishesJson:
+                preGenWishes.shiftWishes.length > 0 ||
+                preGenWishes.freiDates.length > 0
+                  ? JSON.stringify(preGenWishes)
+                  : null,
+            },
+          });
+        } catch (e) {
+          if (
+            e instanceof Prisma.PrismaClientKnownRequestError &&
+            e.code === "P2025"
+          ) {
+            send({
+              type: "error",
+              error:
+                "Der Dienstplan wurde inzwischen gelöscht oder ist nicht mehr verfügbar.",
+            });
+            controller.close();
+            return;
+          }
+          throw e;
+        }
 
         send({
           type: "complete",
