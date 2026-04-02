@@ -105,6 +105,7 @@ export async function POST(request: NextRequest) {
       allowedShiftProfileIds: e.allowedShiftProfiles.map((p) => p.id),
       maxConsecutiveDays: (e as unknown as { maxConsecutiveDays?: number | null }).maxConsecutiveDays ?? null,
       displayName: `${e.firstName} ${e.lastName}`,
+      status: e.status,
     });
   }
 

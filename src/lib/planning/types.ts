@@ -37,6 +37,8 @@ export type EmployeeInput = {
   maxConsecutiveDays?: number | null;
   /** Employee name for German-language messages (optional, falls back to id). */
   displayName?: string;
+  /** Employee status — non-ACTIVE employees are excluded from planning validation. */
+  status?: string;
 };
 
 export type ShiftProfileInput = {
@@ -112,6 +114,27 @@ export type RuleResult = {
   errors: RuleMessage[];
   warnings: RuleMessage[];
 };
+
+/**
+ * Statuses that indicate an employee is not plannable and should be
+ * excluded from schedule-wide rules (sollDelta, overtimeExcess, etc.).
+ * Matches the "Nicht eingeplant" criteria in MonthTableView.
+ */
+export const NON_PLANNABLE_STATUSES = new Set([
+  "INACTIVE",
+  "KRANK",
+  "LANGZEITKRANK",
+  "MUTTERSCHUTZ",
+  "URLAUB",
+  "KUR",
+]);
+
+/** Returns true if the employee should be included in schedule-wide checks. */
+export function isPlannable(emp: EmployeeInput): boolean {
+  if (emp.status && NON_PLANNABLE_STATUSES.has(emp.status)) return false;
+  if (emp.contractType === "AUSBILDUNG") return false;
+  return true;
+}
 
 export type RuleFn = (ctx: RuleContext) => RuleResult;
 

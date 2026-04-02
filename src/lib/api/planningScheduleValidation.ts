@@ -32,6 +32,7 @@ function buildEmployeeInput(e: {
   id: string;
   firstName: string;
   lastName: string;
+  status: string;
   contractType: EmployeeInput["contractType"];
   miniJobMaxMonthlyHours: Prisma.Decimal | null;
   qualificationTags: string[];
@@ -49,6 +50,7 @@ function buildEmployeeInput(e: {
     allowedShiftProfileIds: e.allowedShiftProfiles?.map((p) => p.id),
     maxConsecutiveDays: e.maxConsecutiveDays ?? null,
     displayName: `${e.firstName} ${e.lastName}`,
+    status: e.status,
   };
 }
 

@@ -1,4 +1,5 @@
 import type { RuleContext, RuleResult } from "@/lib/planning/types";
+import { isPlannable } from "@/lib/planning/types";
 import { assignmentPaidHours } from "@/lib/planning/time";
 import { computeSollHours } from "@/lib/holidays";
 
@@ -16,6 +17,8 @@ export function overtimeExcessRule(ctx: RuleContext): RuleResult {
   for (const empId of employeeIds) {
     const emp = ctx.employeesById.get(empId);
     if (!emp) continue;
+    // Skip non-plannable employees (Inaktiv, Krank, Langzeitkrank, etc.)
+    if (!ctx.targetFilter && !isPlannable(emp)) continue;
 
     const soll = computeSollHours(year, month, emp.targetHoursPercent);
     if (soll == null) continue;
