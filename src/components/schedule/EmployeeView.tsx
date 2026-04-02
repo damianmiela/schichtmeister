@@ -1,30 +1,59 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Alert,
   Box,
+  Button,
   Card,
   CardContent,
-  Typography,
-  Avatar,
   Chip,
+  CircularProgress,
+  Divider,
+  IconButton,
   LinearProgress,
+  ListItemIcon,
+  ListItemText,
+  ListSubheader,
+  Menu,
+  MenuItem,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
+  Tooltip,
+  Typography,
   alpha,
   useTheme,
 } from "@mui/material";
 import WbSunnyIcon from "@mui/icons-material/WbSunny";
 import WbTwilightIcon from "@mui/icons-material/WbTwilight";
 import NightsStayIcon from "@mui/icons-material/NightsStay";
+import EditIcon from "@mui/icons-material/Edit";
+import SaveIcon from "@mui/icons-material/Save";
+import CloseIcon from "@mui/icons-material/Close";
+import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
+import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
+import WarningAmberIcon from "@mui/icons-material/WarningAmber";
+import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import type { AssignmentJson, EmployeeJson, ShiftProfileJson } from "@/lib/schedule/scheduleTypes";
 import { localIsoFromParts } from "@/lib/schedule/monthSchedule";
 import { shiftTypeLabel } from "@/lib/schedule/viewUtils";
 import QualificationPills from "@/components/schedule/QualificationPills";
+import { computeSollHours } from "@/lib/holidays";
+
+/* ──────────────────────── types ──────────────────────── */
+
+export type EmployeeEditCell = {
+  shiftProfileId?: string | null;
+  dayStatus?: string | null;
+  markingRow2?: string | null;
+  markingRow3?: string | null;
+};
+
+/* ──────────────────────── props ──────────────────────── */
 
 interface EmployeeViewProps {
   year: number;
@@ -35,13 +64,69 @@ interface EmployeeViewProps {
   onDayClick?: (date: Date) => void;
   shiftWishSet?: Set<string>;
   freiWishSet?: Set<string>;
+  holidayMap?: Map<string, string>;
+  /* edit mode */
+  editMode?: boolean;
+  editedCells?: Map<string, EmployeeEditCell>;
+  onCellChange?: (employeeId: string, date: string, edit: Partial<EmployeeEditCell>) => void;
+  shiftProfiles?: ShiftProfileJson[];
+  editSaving?: boolean;
+  onEnterEditMode?: () => void;
+  onCancelEditMode?: () => void;
+  onSaveEdits?: () => void;
+  /* employee-specific warnings */
+  scheduleId?: string;
 }
+
+/* ──────────────────────── constants ──────────────────────── */
 
 const SHIFT_ACCENT: Record<string, string> = {
   EARLY: "#f59e0b",
   LATE: "#3b82f6",
   NIGHT: "#6366f1",
 };
+
+const STATION_COLORS: Record<number, { main: string; light: string }> = {
+  1: { main: "#1565c0", light: "#e3f2fd" },
+  2: { main: "#2e7d32", light: "#e8f5e9" },
+  3: { main: "#e65100", light: "#fff3e0" },
+};
+
+const NIGHT_STATION_COLOR = { main: "#7e57c2", light: "#ede7f6" };
+
+const WEEKDAYS_DE = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
+
+const WISH_SHIFT_BG = "#e8f5e9";
+const WISH_FREI_BG = "#e3f2fd";
+const WEEKEND_BG = "#f8f9fa";
+const HOLIDAY_BG = "#fff5f5";
+const EDIT_CHANGED_BORDER = "2px dashed #ff9800";
+
+const EMP_STATUS_MAP: Record<string, string> = {
+  KRANK: "K", LANGZEITKRANK: "LZ", MUTTERSCHUTZ: "MS", URLAUB: "U", KUR: "KU",
+};
+
+const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
+  U: { bg: "#e3f2fd", color: "#1565c0" },
+  K: { bg: "#ffebee", color: "#c62828" },
+  LZ: { bg: "#fce4ec", color: "#ad1457" },
+  MS: { bg: "#f3e5f5", color: "#7b1fa2" },
+  KU: { bg: "#fff3e0", color: "#e65100" },
+  X: { bg: "#f5f5f5", color: "#9e9e9e" },
+};
+
+const STATUS_CODES = [
+  { code: "U", label: "Urlaub" },
+  { code: "K", label: "Krank" },
+  { code: "SCH", label: "Schule" },
+  { code: "MS", label: "Mutterschutz" },
+  { code: "LZ", label: "Langzeitkrank" },
+  { code: "KU", label: "Kur" },
+] as const;
+
+const MARKING_CODES = ["FO", "PA", "E", "BD"] as const;
+
+/* ──────────────────────── helpers ──────────────────────── */
 
 function shiftIcon(shiftType: string) {
   switch (shiftType) {
@@ -69,23 +154,18 @@ function fmtHours(h: number): string {
   return h % 1 === 0 ? String(h) : h.toFixed(1);
 }
 
-const WEEKDAYS_DE = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
+function stationColorForAssignment(
+  stationNumber: number | null | undefined,
+  shiftType: string | undefined,
+): { main: string; light: string } {
+  if (shiftType === "NIGHT") return NIGHT_STATION_COLOR;
+  if (stationNumber != null && STATION_COLORS[stationNumber]) {
+    return STATION_COLORS[stationNumber];
+  }
+  return { main: "#78909c", light: "#eceff1" };
+}
 
-const WISH_SHIFT_BG = "#e8f5e9";
-const WISH_FREI_BG = "#e3f2fd";
-
-const EMP_STATUS_MAP: Record<string, string> = {
-  KRANK: "K", LANGZEITKRANK: "LZ", MUTTERSCHUTZ: "MS", URLAUB: "U", KUR: "KU",
-};
-
-const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
-  U: { bg: "#e3f2fd", color: "#1565c0" },
-  K: { bg: "#ffebee", color: "#c62828" },
-  LZ: { bg: "#fce4ec", color: "#ad1457" },
-  MS: { bg: "#f3e5f5", color: "#7b1fa2" },
-  KU: { bg: "#fff3e0", color: "#e65100" },
-  X: { bg: "#f5f5f5", color: "#9e9e9e" },
-};
+/* ──────────────────────── component ──────────────────────── */
 
 export default function EmployeeView({
   year,
@@ -96,9 +176,51 @@ export default function EmployeeView({
   onDayClick,
   shiftWishSet,
   freiWishSet,
+  holidayMap,
+  editMode,
+  editedCells,
+  onCellChange,
+  shiftProfiles,
+  editSaving,
+  onEnterEditMode,
+  onCancelEditMode,
+  onSaveEdits,
+  scheduleId,
 }: EmployeeViewProps) {
   const theme = useTheme();
 
+  /* ── warnings state ── */
+  const [empWarnings, setEmpWarnings] = useState<string[]>([]);
+  const [warningsLoading, setWarningsLoading] = useState(false);
+
+  const fetchEmployeeWarnings = useCallback(async () => {
+    if (!scheduleId) return;
+    setWarningsLoading(true);
+    try {
+      const res = await fetch(`/api/schedules/${scheduleId}/revalidate`, {
+        method: "POST",
+      });
+      if (!res.ok) throw new Error("revalidate failed");
+      const data = await res.json();
+      const allWarnings: string[] = data.warnings ?? [];
+      // Filter to warnings mentioning this employee
+      const empName = `${employee.firstName} ${employee.lastName}`;
+      const filtered = allWarnings.filter(
+        (w) => w.includes(empName) || w.includes(employee.lastName + ","),
+      );
+      setEmpWarnings(filtered);
+    } catch {
+      setEmpWarnings([]);
+    } finally {
+      setWarningsLoading(false);
+    }
+  }, [scheduleId, employee.firstName, employee.lastName]);
+
+  useEffect(() => {
+    fetchEmployeeWarnings();
+  }, [fetchEmployeeWarnings]);
+
+  /* ── calendar days ── */
   const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
   const days = useMemo(
     () =>
@@ -112,6 +234,7 @@ export default function EmployeeView({
     [year, monthIndex, daysInMonth],
   );
 
+  /* ── assignments grouped by date ── */
   const assignmentsByDate = useMemo(() => {
     const map = new Map<string, AssignmentJson[]>();
     for (const a of assignments) {
@@ -123,6 +246,7 @@ export default function EmployeeView({
     return map;
   }, [assignments, employee.id]);
 
+  /* ── running totals ── */
   const runningTotals = useMemo(() => {
     const totals: number[] = [];
     let cumulative = 0;
@@ -137,6 +261,7 @@ export default function EmployeeView({
     return totals;
   }, [days, assignmentsByDate, profilesById]);
 
+  /* ── totals ── */
   const { totalHours, workingDays } = useMemo(() => {
     let hours = 0;
     let wDays = 0;
@@ -150,26 +275,25 @@ export default function EmployeeView({
     return { totalHours: hours, workingDays: wDays };
   }, [assignmentsByDate, profilesById]);
 
-  const FULL_TIME_DAILY = 8;
+  /* ── Soll hours (holiday-aware) ── */
   const target = useMemo(() => {
-    if (employee.targetHours == null) return null;
-    const totalDays = new Date(year, monthIndex + 1, 0).getDate();
-    let wd = 0;
-    for (let d = 1; d <= totalDays; d++) {
-      const dow = new Date(year, monthIndex, d).getDay();
-      if (dow !== 0 && dow !== 6) wd++;
-    }
     if (employee.targetHoursPercent != null && employee.targetHoursPercent > 0) {
-      return (employee.targetHoursPercent / 100) * FULL_TIME_DAILY * wd;
+      return computeSollHours(year, monthIndex, employee.targetHoursPercent);
     }
-    if (employee.targetHoursPeriod === "WEEKLY") {
-      return (employee.targetHours / 5) * wd;
+    // Fallback for employees without targetHoursPercent but with targetHours
+    if (employee.targetHours != null) {
+      const soll = computeSollHours(year, monthIndex, 100);
+      if (soll == null) return null;
+      if (employee.targetHoursPeriod === "WEEKLY") {
+        return (employee.targetHours / 5) * (soll / 8);
+      }
+      return employee.targetHours * ((soll / 8) / 21.75);
     }
-    const AVG_WD = 21.75;
-    return employee.targetHours * (wd / AVG_WD);
+    return computeSollHours(year, monthIndex, employee.targetHoursPercent);
   }, [employee.targetHours, employee.targetHoursPercent, employee.targetHoursPeriod, year, monthIndex]);
+
+  const delta = target != null ? totalHours - target : null;
   const tags = employee.qualificationTags ?? [];
-  const pct = target != null && target > 0 ? Math.round((totalHours / target) * 100) : null;
 
   let hoursColor: string;
   if (target == null) {
@@ -184,27 +308,112 @@ export default function EmployeeView({
 
   const initials = `${employee.firstName.charAt(0)}${employee.lastName.charAt(0)}`;
 
+  /* ── edit mode: shift menu state ── */
+  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
+  const [menuIso, setMenuIso] = useState<string | null>(null);
+  const [menuType, setMenuType] = useState<"shift" | "marking2" | "marking3">("shift");
+
+  const sortedProfiles = useMemo(() => {
+    if (!shiftProfiles) return [];
+    return [...shiftProfiles]
+      .filter((p) => p.isActive)
+      .sort((a, b) => {
+        const order = ["EARLY", "LATE", "NIGHT", "BL"];
+        return order.indexOf(a.shiftType) - order.indexOf(b.shiftType);
+      });
+  }, [shiftProfiles]);
+
+  const profilesByType = useMemo(() => {
+    const map: Record<string, ShiftProfileJson[]> = {};
+    for (const p of sortedProfiles) {
+      (map[p.shiftType] ??= []).push(p);
+    }
+    return map;
+  }, [sortedProfiles]);
+
+  const openShiftMenu = (ev: React.MouseEvent<HTMLElement>, iso: string) => {
+    ev.stopPropagation();
+    setMenuIso(iso);
+    setMenuType("shift");
+    setMenuAnchor(ev.currentTarget);
+  };
+
+  const openMarkingMenu = (ev: React.MouseEvent<HTMLElement>, iso: string, row: "marking2" | "marking3") => {
+    ev.stopPropagation();
+    setMenuIso(iso);
+    setMenuType(row);
+    setMenuAnchor(ev.currentTarget);
+  };
+
+  const handleMenuSelect = (value: string | null) => {
+    if (!menuIso || !onCellChange) return;
+    if (menuType === "shift") {
+      if (value === null) {
+        // Remove assignment
+        onCellChange(employee.id, menuIso, { shiftProfileId: null, dayStatus: null });
+      } else if (STATUS_CODES.some((s) => s.code === value)) {
+        onCellChange(employee.id, menuIso, { shiftProfileId: null, dayStatus: value });
+      } else {
+        onCellChange(employee.id, menuIso, { shiftProfileId: value, dayStatus: null });
+      }
+    } else if (menuType === "marking2") {
+      onCellChange(employee.id, menuIso, { markingRow2: value });
+    } else {
+      onCellChange(employee.id, menuIso, { markingRow3: value });
+    }
+    setMenuAnchor(null);
+    setMenuIso(null);
+  };
+
+  /* Helper: resolve what's displayed for a day (merges edits over real data) */
+  function getEffectiveDay(iso: string): {
+    shiftProfileId: string | null;
+    dayStatus: string | null;
+    markingRow2: string | null;
+    markingRow3: string | null;
+  } {
+    const cellKey = `${employee.id}|${iso}`;
+    const edit = editedCells?.get(cellKey);
+    const original = (assignmentsByDate.get(iso) ?? [])[0] ?? null;
+
+    const pid = edit?.shiftProfileId !== undefined
+      ? edit.shiftProfileId
+      : (original?.shiftProfileId ?? null);
+    const status = edit?.dayStatus !== undefined
+      ? edit.dayStatus
+      : (original?.dayStatus ?? null);
+    const m2 = edit?.markingRow2 !== undefined
+      ? edit.markingRow2
+      : (original?.markingRow2 ?? null);
+    const m3 = edit?.markingRow3 !== undefined
+      ? edit.markingRow3
+      : (original?.markingRow3 ?? null);
+
+    return { shiftProfileId: pid, dayStatus: status, markingRow2: m2, markingRow3: m3 };
+  }
+
   return (
     <Box>
       {/* Employee header card */}
-      <Card
-        variant="outlined"
-        sx={{ mb: 2, borderRadius: 2, overflow: "hidden" }}
-      >
+      <Card variant="outlined" sx={{ mb: 2, borderRadius: 2, overflow: "hidden" }}>
         <CardContent sx={{ py: 2 }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
-            <Avatar
+            <Box
               sx={{
                 width: 48,
                 height: 48,
+                borderRadius: "50%",
                 bgcolor: alpha(theme.palette.primary.main, 0.12),
                 color: theme.palette.primary.main,
                 fontWeight: 700,
                 fontSize: 18,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
               }}
             >
               {initials}
-            </Avatar>
+            </Box>
             <Box sx={{ flex: 1, minWidth: 180 }}>
               <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
                 <Typography variant="h6" fontWeight={700} sx={{ lineHeight: 1.3 }}>
@@ -216,14 +425,7 @@ export default function EmployeeView({
                 {employee.targetHoursPercent ?? 100}% · Station {employee.assignedStations?.length ? employee.assignedStations.join("+") : "alle"} · Soll: {target != null ? `${fmtHours(target)}h` : "n/a"}
               </Typography>
             </Box>
-            <Box
-              sx={{
-                display: "flex",
-                gap: 1.5,
-                flexWrap: "wrap",
-                alignItems: "center",
-              }}
-            >
+            <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center" }}>
               <Chip
                 label={`${workingDays} Arbeitstage`}
                 size="small"
@@ -236,16 +438,12 @@ export default function EmployeeView({
                     : `${fmtHours(totalHours)} Std`
                 }
                 size="small"
-                sx={{
-                  fontWeight: 600,
-                  color: hoursColor,
-                  borderColor: hoursColor,
-                }}
+                sx={{ fontWeight: 600, color: hoursColor, borderColor: hoursColor }}
                 variant="outlined"
               />
-              {pct != null && (
+              {delta != null && (
                 <Chip
-                  label={`${pct}%`}
+                  label={`${delta >= 0 ? "+" : ""}${fmtHours(delta)}h`}
                   size="small"
                   sx={{
                     fontWeight: 700,
@@ -260,7 +458,7 @@ export default function EmployeeView({
             <Box sx={{ mt: 1.5, display: "flex", alignItems: "center", gap: 1.5 }}>
               <LinearProgress
                 variant="determinate"
-                value={Math.min(pct ?? 0, 100)}
+                value={Math.min(Math.round((totalHours / target) * 100), 100)}
                 sx={{
                   flex: 1,
                   height: 6,
@@ -269,13 +467,87 @@ export default function EmployeeView({
                   "& .MuiLinearProgress-bar": { bgcolor: hoursColor, borderRadius: 3 },
                 }}
               />
-              <Typography variant="caption" sx={{ fontWeight: 700, color: hoursColor, minWidth: 40, textAlign: "right" }}>
-                {pct}%
+              <Typography variant="caption" sx={{ fontWeight: 700, color: hoursColor, minWidth: 48, textAlign: "right" }}>
+                {delta != null ? `${delta >= 0 ? "+" : ""}${fmtHours(delta)}h` : ""}
               </Typography>
             </Box>
           )}
         </CardContent>
       </Card>
+
+      {/* Edit mode toolbar */}
+      {onEnterEditMode && (
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
+          {!editMode ? (
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<EditIcon />}
+              onClick={onEnterEditMode}
+            >
+              Bearbeiten
+            </Button>
+          ) : (
+            <>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={onCancelEditMode}
+                disabled={editSaving}
+              >
+                Abbrechen
+              </Button>
+              <Button
+                variant="contained"
+                size="small"
+                color="primary"
+                startIcon={editSaving ? <CircularProgress size={16} color="inherit" /> : <SaveIcon />}
+                disabled={editSaving}
+                onClick={onSaveEdits}
+              >
+                Speichern
+              </Button>
+            </>
+          )}
+
+          {/* Employee warnings */}
+          <Box sx={{ ml: "auto", display: "flex", alignItems: "center", gap: 0.5 }}>
+            {warningsLoading ? (
+              <CircularProgress size={18} />
+            ) : empWarnings.length > 0 ? (
+              <Tooltip
+                title={
+                  <Box>
+                    {empWarnings.map((w, i) => (
+                      <Typography key={i} variant="caption" display="block" sx={{ mb: 0.5 }}>
+                        {w}
+                      </Typography>
+                    ))}
+                  </Box>
+                }
+                arrow
+              >
+                <Chip
+                  icon={<WarningAmberIcon sx={{ fontSize: 16 }} />}
+                  label={`${empWarnings.length} Warnung${empWarnings.length > 1 ? "en" : ""}`}
+                  size="small"
+                  color="warning"
+                  variant="outlined"
+                  sx={{ cursor: "help" }}
+                />
+              </Tooltip>
+            ) : (
+              <Chip
+                icon={<CheckCircleOutlineIcon sx={{ fontSize: 16 }} />}
+                label="Keine Warnungen"
+                size="small"
+                color="success"
+                variant="outlined"
+              />
+            )}
+          </Box>
+        </Box>
+      )}
 
       {/* Vertical calendar */}
       <TableContainer
@@ -289,86 +561,51 @@ export default function EmployeeView({
         <Table size="small" stickyHeader>
           <TableHead>
             <TableRow>
-              <TableCell
-                sx={{
-                  fontWeight: 700,
-                  width: 50,
-                  bgcolor: "background.paper",
-                }}
-              >
+              <TableCell sx={{ fontWeight: 700, width: 42, bgcolor: "background.paper" }}>
                 Tag
               </TableCell>
-              <TableCell
-                sx={{
-                  fontWeight: 700,
-                  width: 44,
-                  bgcolor: "background.paper",
-                }}
-              >
+              <TableCell sx={{ fontWeight: 700, width: 36, bgcolor: "background.paper" }}>
                 WT
               </TableCell>
               <TableCell sx={{ fontWeight: 700, bgcolor: "background.paper" }}>
                 Schicht
               </TableCell>
-              <TableCell
-                sx={{
-                  fontWeight: 700,
-                  width: 70,
-                  bgcolor: "background.paper",
-                }}
-                align="center"
-              >
-                Station
+              <TableCell sx={{ fontWeight: 700, width: 50, bgcolor: "background.paper" }} align="center">
+                St.
               </TableCell>
-              <TableCell
-                sx={{
-                  fontWeight: 700,
-                  width: 110,
-                  bgcolor: "background.paper",
-                }}
-                align="center"
-              >
+              <TableCell sx={{ fontWeight: 700, width: 100, bgcolor: "background.paper" }} align="center">
                 Uhrzeit
               </TableCell>
-              <TableCell
-                sx={{
-                  fontWeight: 700,
-                  width: 70,
-                  bgcolor: "background.paper",
-                }}
-                align="right"
-              >
+              <TableCell sx={{ fontWeight: 700, width: 65, bgcolor: "background.paper" }} align="right">
                 Stunden
               </TableCell>
-              <TableCell
-                sx={{
-                  fontWeight: 700,
-                  width: 70,
-                  bgcolor: "background.paper",
-                }}
-                align="right"
-              >
+              <TableCell sx={{ fontWeight: 700, width: 65, bgcolor: "background.paper" }} align="right">
                 Kum.
               </TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {days.map(({ day, iso, dateObj, dow, weekday }, dayIdx) => {
-              const dayAssignments = assignmentsByDate.get(iso) ?? [];
               const isWeekend = dow === 0 || dow === 6;
-              const isFree = dayAssignments.length === 0;
+              const holidayName = holidayMap?.get(iso);
+              const isHoliday = !!holidayName;
               const wishKey = `${employee.id}|${iso}`;
-              const isShiftWish = shiftWishSet?.has(wishKey) && !isFree;
-              const isFreiWish = freiWishSet?.has(wishKey);
               const isToday = (() => {
                 const t = new Date();
-                return (
-                  t.getFullYear() === year &&
-                  t.getMonth() === monthIndex &&
-                  t.getDate() === day
-                );
+                return t.getFullYear() === year && t.getMonth() === monthIndex && t.getDate() === day;
               })();
+              const cellKey = `${employee.id}|${iso}`;
+              const isChanged = editMode && editedCells?.has(cellKey);
 
+              // In edit mode, use effective (merged) data
+              const effective = editMode ? getEffectiveDay(iso) : null;
+
+              // Base row background
+              let rowBg: string | undefined;
+              if (isHoliday) rowBg = HOLIDAY_BG;
+              else if (isWeekend) rowBg = WEEKEND_BG;
+
+              // Employee global status (KRANK, URLAUB etc.) — full-row override
               const statusCode = EMP_STATUS_MAP[employee.status ?? ""] ?? null;
               if (employee.status && employee.status !== "ACTIVE" && statusCode) {
                 const sc = STATUS_COLORS[statusCode] ?? STATUS_COLORS.X;
@@ -393,195 +630,390 @@ export default function EmployeeView({
                 );
               }
 
-              if (isFree) {
+              const dayAssignments = assignmentsByDate.get(iso) ?? [];
+              const isFreiWish = freiWishSet?.has(wishKey);
+              const isShiftWish = shiftWishSet?.has(wishKey) && dayAssignments.length > 0;
+
+              if (isFreiWish && !rowBg) rowBg = WISH_FREI_BG;
+              if (isShiftWish && !rowBg) rowBg = WISH_SHIFT_BG;
+
+              const isFree = dayAssignments.length === 0 && !(editMode && effective?.shiftProfileId);
+
+              // --- EDIT MODE: day status set via edit ---
+              if (editMode && effective?.dayStatus && !effective?.shiftProfileId) {
+                const sc = STATUS_COLORS[effective.dayStatus] ?? STATUS_COLORS.X;
                 return (
                   <TableRow
                     key={iso}
-                    hover
-                    onClick={() => onDayClick?.(dateObj)}
                     sx={{
-                      cursor: onDayClick ? "pointer" : "default",
-                      bgcolor: isFreiWish
-                        ? WISH_FREI_BG
-                        : isWeekend
-                          ? alpha(theme.palette.action.hover, 0.3)
-                          : undefined,
-                      ...(isToday && {
-                        borderLeft: `3px solid ${theme.palette.primary.main}`,
-                      }),
+                      bgcolor: sc.bg,
+                      ...(isToday && { borderLeft: `3px solid ${theme.palette.primary.main}` }),
+                      ...(isChanged && { outline: EDIT_CHANGED_BORDER, outlineOffset: -2 }),
                     }}
                   >
-                    <TableCell sx={{ fontWeight: isToday ? 700 : 500 }}>
-                      {day}.
-                    </TableCell>
+                    <TableCell sx={{ fontWeight: isToday ? 700 : 500 }}>{day}.</TableCell>
                     <TableCell>
-                      <Typography
-                        variant="caption"
-                        sx={{
-                          color: isWeekend
-                            ? theme.palette.error.main
-                            : "text.secondary",
-                          fontWeight: isWeekend ? 600 : 400,
-                        }}
-                      >
+                      <Typography variant="caption" sx={{ color: isWeekend || isHoliday ? theme.palette.error.main : "text.secondary", fontWeight: isWeekend || isHoliday ? 600 : 400 }}>
                         {weekday}
                       </Typography>
                     </TableCell>
                     <TableCell colSpan={3}>
-                      <Typography
-                        variant="body2"
+                      <Chip
+                        label={effective.dayStatus}
+                        size="small"
                         sx={{
-                          color: isFreiWish ? "#1565c0" : STATUS_COLORS.X.color,
-                          fontStyle: isFreiWish ? "italic" : "normal",
-                          fontSize: "0.8rem",
-                          fontWeight: isFreiWish ? 600 : 500,
+                          bgcolor: sc.bg,
+                          color: sc.color,
+                          fontWeight: 600,
+                          cursor: editMode ? "pointer" : "default",
                         }}
-                      >
-                        {isFreiWish ? "Frei (Wunsch)" : "X"}
-                      </Typography>
+                        onClick={(ev) => editMode && openShiftMenu(ev as unknown as React.MouseEvent<HTMLElement>, iso)}
+                      />
                     </TableCell>
                     <TableCell align="right">
-                      <Typography variant="body2" color="text.disabled">
-                        —
-                      </Typography>
+                      <Typography variant="body2" color="text.disabled">—</Typography>
                     </TableCell>
                     <TableCell align="right">
-                      <Typography variant="body2" color="text.disabled">
-                        {fmtHours(runningTotals[dayIdx])}h
-                      </Typography>
+                      <Typography variant="body2" color="text.disabled">{fmtHours(runningTotals[dayIdx])}h</Typography>
                     </TableCell>
                   </TableRow>
                 );
               }
 
-              return dayAssignments.map((a, aIdx) => {
-                const prof = profilesById[a.shiftProfileId];
-                const accent =
-                  SHIFT_ACCENT[prof?.shiftType ?? ""] ??
-                  theme.palette.grey[500];
-                const hours = prof ? paidHours(prof) : 0;
-
+              // --- FREE DAY ---
+              if (isFree) {
                 return (
-                  <TableRow
-                    key={a.id}
-                    hover
-                    onClick={() => onDayClick?.(dateObj)}
-                    sx={{
-                      cursor: onDayClick ? "pointer" : "default",
-                      bgcolor: isShiftWish
-                        ? WISH_SHIFT_BG
-                        : isWeekend
-                          ? alpha(theme.palette.action.hover, 0.3)
-                          : undefined,
-                      ...(isToday && {
-                        borderLeft: `3px solid ${theme.palette.primary.main}`,
-                      }),
-                      ...(aIdx > 0 && {
-                        "& td": { borderTop: "none", pt: 0 },
-                      }),
-                    }}
-                    title={isShiftWish ? "Dienstwunsch" : undefined}
-                  >
-                    {aIdx === 0 ? (
-                      <>
-                        <TableCell
-                          rowSpan={dayAssignments.length}
-                          sx={{ fontWeight: isToday ? 700 : 500, verticalAlign: "top" }}
+                  <Tooltip key={iso} title={holidayName ?? (isFreiWish ? "Frei-Wunsch" : "")} arrow disableHoverListener={!isHoliday && !isFreiWish}>
+                    <TableRow
+                      onClick={() => {
+                        if (!editMode) onDayClick?.(dateObj);
+                      }}
+                      sx={{
+                        cursor: !editMode && onDayClick ? "pointer" : "default",
+                        bgcolor: rowBg,
+                        ...(isToday && { borderLeft: `3px solid ${theme.palette.primary.main}` }),
+                        ...(isHoliday && { borderLeft: `3px solid ${theme.palette.error.light}` }),
+                        ...(isChanged && { outline: EDIT_CHANGED_BORDER, outlineOffset: -2 }),
+                      }}
+                    >
+                      <TableCell sx={{ fontWeight: isToday ? 700 : 500, color: isHoliday ? theme.palette.error.main : undefined }}>
+                        {day}.
+                      </TableCell>
+                      <TableCell>
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            color: isWeekend || isHoliday ? theme.palette.error.main : "text.secondary",
+                            fontWeight: isWeekend || isHoliday ? 600 : 400,
+                          }}
                         >
-                          {day}.
-                        </TableCell>
-                        <TableCell
-                          rowSpan={dayAssignments.length}
-                          sx={{ verticalAlign: "top" }}
-                        >
+                          {weekday}
+                        </Typography>
+                      </TableCell>
+                      <TableCell colSpan={3}>
+                        {editMode ? (
+                          <Chip
+                            icon={<AddCircleOutlineIcon sx={{ fontSize: 16 }} />}
+                            label="Schicht zuweisen"
+                            size="small"
+                            variant="outlined"
+                            sx={{ cursor: "pointer", borderStyle: "dashed", color: "text.secondary" }}
+                            onClick={(ev) => openShiftMenu(ev as unknown as React.MouseEvent<HTMLElement>, iso)}
+                          />
+                        ) : (
                           <Typography
-                            variant="caption"
+                            variant="body2"
                             sx={{
-                              color: isWeekend
-                                ? theme.palette.error.main
-                                : "text.secondary",
-                              fontWeight: isWeekend ? 600 : 400,
+                              color: isFreiWish ? "#1565c0" : STATUS_COLORS.X.color,
+                              fontStyle: isFreiWish ? "italic" : "normal",
+                              fontSize: "0.8rem",
+                              fontWeight: isFreiWish ? 600 : 500,
                             }}
                           >
-                            {weekday}
+                            {isFreiWish ? "Frei (Wunsch)" : "X"}
                           </Typography>
-                        </TableCell>
-                      </>
-                    ) : null}
-                    <TableCell>
-                      <Box
-                        sx={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 0.8,
-                          px: 1,
-                          py: 0.25,
-                          borderRadius: 1,
-                          bgcolor: alpha(accent, 0.08),
-                          borderLeft: `3px solid ${accent}`,
-                        }}
-                      >
-                        <Box sx={{ color: accent, display: "flex" }}>
-                          {shiftIcon(prof?.shiftType ?? "")}
-                        </Box>
-                        <Typography
-                          variant="body2"
-                          fontWeight={600}
-                          sx={{ color: accent }}
-                        >
-                          {prof?.name ?? "?"}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {prof ? shiftTypeLabel(prof.shiftType) : ""}
-                        </Typography>
-                        {a.markingRow2 && <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.65rem", ml: 1 }}>{a.markingRow2}</Typography>}
-                        {a.markingRow3 && <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.65rem", ml: 0.5 }}>{a.markingRow3}</Typography>}
-                      </Box>
-                    </TableCell>
-                    <TableCell align="center">
-                      <Chip
-                        label={`St. ${a.stationNumber ?? (employee.assignedStations?.length === 1 ? employee.assignedStations[0] : employee.assignedStations?.length ? employee.assignedStations.join("+") : "alle")}`}
-                        size="small"
-                        variant="outlined"
-                        sx={{
-                          height: 20,
-                          fontSize: "0.7rem",
-                          ...(a.stationNumber != null && !employee.assignedStations?.includes(a.stationNumber)
-                            ? { borderColor: "warning.main", color: "warning.main" }
-                            : {}),
-                        }}
-                      />
-                    </TableCell>
-                    <TableCell align="center">
-                      <Typography variant="body2" color="text.secondary" sx={{ fontSize: "0.8rem" }}>
-                        {prof
-                          ? `${prof.startTime}\u2013${prof.endTime}`
-                          : "—"}
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="right">
-                      <Typography
-                        variant="body2"
-                        fontWeight={500}
-                        sx={{ color: accent }}
-                      >
-                        {fmtHours(hours)}h
-                      </Typography>
-                    </TableCell>
-                    {aIdx === 0 && (
-                      <TableCell align="right" rowSpan={dayAssignments.length}>
-                        <Typography variant="body2" color="text.secondary" fontWeight={500}>
+                        )}
+                      </TableCell>
+                      <TableCell align="right">
+                        <Typography variant="body2" color="text.disabled">—</Typography>
+                      </TableCell>
+                      <TableCell align="right">
+                        <Typography variant="body2" color="text.disabled">
                           {fmtHours(runningTotals[dayIdx])}h
                         </Typography>
                       </TableCell>
-                    )}
-                  </TableRow>
+                    </TableRow>
+                  </Tooltip>
+                );
+              }
+
+              // --- ASSIGNED DAY ---
+              // In edit mode show only effective first assignment; in read mode show all
+              const renderAssignments = editMode
+                ? [{ ...((dayAssignments[0] as AssignmentJson | undefined) ?? { id: "__edit__", date: iso, shiftProfileId: effective!.shiftProfileId!, employeeId: employee.id, scheduleId: "" }), ...(effective ?? {}) }]
+                : dayAssignments;
+
+              return renderAssignments.map((a, aIdx) => {
+                const profId = editMode ? (effective?.shiftProfileId ?? a.shiftProfileId) : a.shiftProfileId;
+                const prof = profId ? profilesById[profId] : undefined;
+                const accent = SHIFT_ACCENT[prof?.shiftType ?? ""] ?? theme.palette.grey[500];
+                const hours = prof ? paidHours(prof) : 0;
+                const stationNum = a.stationNumber ?? (employee.assignedStations?.length === 1 ? employee.assignedStations[0] : null);
+                const stColor = stationColorForAssignment(stationNum, prof?.shiftType);
+                const m2 = editMode ? effective?.markingRow2 : a.markingRow2;
+                const m3 = editMode ? effective?.markingRow3 : a.markingRow3;
+
+                return (
+                  <Tooltip key={a.id ?? `${iso}-${aIdx}`} title={holidayName ?? (isShiftWish ? "Dienstwunsch" : "")} arrow disableHoverListener={!isHoliday && !isShiftWish}>
+                    <TableRow
+                      onClick={() => {
+                        if (!editMode) onDayClick?.(dateObj);
+                      }}
+                      sx={{
+                        cursor: !editMode && onDayClick ? "pointer" : "default",
+                        bgcolor: rowBg,
+                        ...(isToday && { borderLeft: `3px solid ${theme.palette.primary.main}` }),
+                        ...(isHoliday && !isToday && { borderLeft: `3px solid ${theme.palette.error.light}` }),
+                        ...(aIdx > 0 && { "& td": { borderTop: "none", pt: 0 } }),
+                        ...(isChanged && { outline: EDIT_CHANGED_BORDER, outlineOffset: -2 }),
+                      }}
+                    >
+                      {aIdx === 0 ? (
+                        <>
+                          <TableCell
+                            rowSpan={renderAssignments.length}
+                            sx={{
+                              fontWeight: isToday ? 700 : 500,
+                              verticalAlign: "top",
+                              color: isHoliday ? theme.palette.error.main : undefined,
+                            }}
+                          >
+                            {day}.
+                          </TableCell>
+                          <TableCell rowSpan={renderAssignments.length} sx={{ verticalAlign: "top" }}>
+                            <Typography
+                              variant="caption"
+                              sx={{
+                                color: isWeekend || isHoliday ? theme.palette.error.main : "text.secondary",
+                                fontWeight: isWeekend || isHoliday ? 600 : 400,
+                              }}
+                            >
+                              {weekday}
+                            </Typography>
+                          </TableCell>
+                        </>
+                      ) : null}
+
+                      {/* Schicht cell with pills */}
+                      <TableCell>
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap" }}>
+                          {/* Main shift pill */}
+                          <Box
+                            sx={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 0.5,
+                              px: 1,
+                              py: 0.25,
+                              borderRadius: 1,
+                              bgcolor: alpha(accent, 0.08),
+                              borderLeft: `3px solid ${accent}`,
+                              cursor: editMode ? "pointer" : "inherit",
+                              "&:hover": editMode ? { bgcolor: alpha(accent, 0.16) } : undefined,
+                            }}
+                            onClick={(ev) => editMode && openShiftMenu(ev, iso)}
+                          >
+                            <Box sx={{ color: accent, display: "flex" }}>{shiftIcon(prof?.shiftType ?? "")}</Box>
+                            <Typography variant="body2" fontWeight={600} sx={{ color: accent }}>
+                              {prof?.name ?? "?"}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {prof ? shiftTypeLabel(prof.shiftType) : ""}
+                            </Typography>
+                          </Box>
+
+                          {/* Marking pills */}
+                          {m2 ? (
+                            <Chip
+                              label={m2}
+                              size="small"
+                              sx={{
+                                height: 20,
+                                fontSize: "0.65rem",
+                                fontWeight: 600,
+                                bgcolor: alpha(theme.palette.info.main, 0.08),
+                                color: theme.palette.info.dark,
+                                cursor: editMode ? "pointer" : "default",
+                              }}
+                              onClick={(ev) => editMode && openMarkingMenu(ev as unknown as React.MouseEvent<HTMLElement>, iso, "marking2")}
+                              {...(editMode ? { onDelete: () => onCellChange?.(employee.id, iso, { markingRow2: null }) } : {})}
+                              deleteIcon={editMode ? <CloseIcon sx={{ fontSize: 14 }} /> : undefined}
+                            />
+                          ) : editMode ? (
+                            <Chip
+                              icon={<AddCircleOutlineIcon sx={{ fontSize: 14 }} />}
+                              label="M2"
+                              size="small"
+                              variant="outlined"
+                              sx={{ height: 20, fontSize: "0.6rem", borderStyle: "dashed", cursor: "pointer", opacity: 0.5 }}
+                              onClick={(ev) => openMarkingMenu(ev as unknown as React.MouseEvent<HTMLElement>, iso, "marking2")}
+                            />
+                          ) : null}
+
+                          {m3 ? (
+                            <Chip
+                              label={m3}
+                              size="small"
+                              sx={{
+                                height: 20,
+                                fontSize: "0.65rem",
+                                fontWeight: 600,
+                                bgcolor: alpha(theme.palette.secondary.main, 0.08),
+                                color: theme.palette.secondary.dark,
+                                cursor: editMode ? "pointer" : "default",
+                              }}
+                              onClick={(ev) => editMode && openMarkingMenu(ev as unknown as React.MouseEvent<HTMLElement>, iso, "marking3")}
+                              {...(editMode ? { onDelete: () => onCellChange?.(employee.id, iso, { markingRow3: null }) } : {})}
+                              deleteIcon={editMode ? <CloseIcon sx={{ fontSize: 14 }} /> : undefined}
+                            />
+                          ) : editMode ? (
+                            <Chip
+                              icon={<AddCircleOutlineIcon sx={{ fontSize: 14 }} />}
+                              label="M3"
+                              size="small"
+                              variant="outlined"
+                              sx={{ height: 20, fontSize: "0.6rem", borderStyle: "dashed", cursor: "pointer", opacity: 0.5 }}
+                              onClick={(ev) => openMarkingMenu(ev as unknown as React.MouseEvent<HTMLElement>, iso, "marking3")}
+                            />
+                          ) : null}
+
+                          {/* Remove button in edit mode */}
+                          {editMode && (
+                            <IconButton
+                              size="small"
+                              sx={{ p: 0.25, ml: 0.5 }}
+                              onClick={(ev) => {
+                                ev.stopPropagation();
+                                onCellChange?.(employee.id, iso, { shiftProfileId: null, dayStatus: null, markingRow2: null, markingRow3: null });
+                              }}
+                            >
+                              <RemoveCircleOutlineIcon sx={{ fontSize: 16, color: "text.disabled" }} />
+                            </IconButton>
+                          )}
+                        </Box>
+                      </TableCell>
+
+                      {/* Station */}
+                      <TableCell align="center">
+                        <Box
+                          sx={{
+                            width: 28,
+                            height: 28,
+                            borderRadius: "50%",
+                            bgcolor: stColor.light,
+                            color: stColor.main,
+                            fontWeight: 700,
+                            fontSize: "0.85rem",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            border: `1.5px solid ${alpha(stColor.main, 0.3)}`,
+                          }}
+                        >
+                          {stationNum ?? "–"}
+                        </Box>
+                      </TableCell>
+
+                      {/* Uhrzeit */}
+                      <TableCell align="center">
+                        <Typography variant="body2" color="text.secondary" sx={{ fontSize: "0.8rem" }}>
+                          {prof ? `${prof.startTime}\u2013${prof.endTime}` : "—"}
+                        </Typography>
+                      </TableCell>
+
+                      {/* Stunden */}
+                      <TableCell align="right">
+                        <Typography variant="body2" fontWeight={500} sx={{ color: accent }}>
+                          {fmtHours(hours)}h
+                        </Typography>
+                      </TableCell>
+
+                      {/* Kumulativ */}
+                      {aIdx === 0 && (
+                        <TableCell align="right" rowSpan={renderAssignments.length}>
+                          <Typography variant="body2" color="text.secondary" fontWeight={500}>
+                            {fmtHours(runningTotals[dayIdx])}h
+                          </Typography>
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  </Tooltip>
                 );
               });
             })}
           </TableBody>
         </Table>
       </TableContainer>
+
+      {/* ── Shift / Status Menu ── */}
+      <Menu
+        anchorEl={menuAnchor}
+        open={!!menuAnchor && menuType === "shift"}
+        onClose={() => setMenuAnchor(null)}
+        slotProps={{ paper: { sx: { maxHeight: 400, minWidth: 200 } } }}
+      >
+        {Object.entries(profilesByType).map(([type, profiles]) => [
+          <ListSubheader key={`hdr-${type}`} sx={{ lineHeight: "28px", fontWeight: 700 }}>
+            {shiftTypeLabel(type)}
+          </ListSubheader>,
+          ...profiles.map((p) => (
+            <MenuItem key={p.id} onClick={() => handleMenuSelect(p.id)} dense>
+              <ListItemIcon sx={{ minWidth: 28 }}>
+                {shiftIcon(p.shiftType)}
+              </ListItemIcon>
+              <ListItemText primary={p.name} secondary={`${p.startTime}–${p.endTime}`} />
+            </MenuItem>
+          )),
+        ])}
+        <Divider />
+        <ListSubheader sx={{ lineHeight: "28px", fontWeight: 700 }}>Status</ListSubheader>
+        {STATUS_CODES.map(({ code, label }) => (
+          <MenuItem key={code} onClick={() => handleMenuSelect(code)} dense>
+            <ListItemIcon sx={{ minWidth: 28 }}>
+              <Box sx={{ width: 14, height: 14, borderRadius: "50%", bgcolor: STATUS_COLORS[code]?.bg, border: `1px solid ${STATUS_COLORS[code]?.color}` }} />
+            </ListItemIcon>
+            <ListItemText primary={`${code} – ${label}`} />
+          </MenuItem>
+        ))}
+        <Divider />
+        <MenuItem onClick={() => handleMenuSelect(null)} dense>
+          <ListItemIcon sx={{ minWidth: 28 }}>
+            <RemoveCircleOutlineIcon fontSize="small" color="error" />
+          </ListItemIcon>
+          <ListItemText primary="Entfernen" sx={{ color: "error.main" }} />
+        </MenuItem>
+      </Menu>
+
+      {/* ── Marking Menu ── */}
+      <Menu
+        anchorEl={menuAnchor}
+        open={!!menuAnchor && (menuType === "marking2" || menuType === "marking3")}
+        onClose={() => setMenuAnchor(null)}
+        slotProps={{ paper: { sx: { minWidth: 120 } } }}
+      >
+        {MARKING_CODES.map((code) => (
+          <MenuItem key={code} onClick={() => handleMenuSelect(code)} dense>
+            <ListItemText primary={code} />
+          </MenuItem>
+        ))}
+        <Divider />
+        <MenuItem onClick={() => handleMenuSelect(null)} dense>
+          <ListItemIcon sx={{ minWidth: 28 }}>
+            <RemoveCircleOutlineIcon fontSize="small" color="error" />
+          </ListItemIcon>
+          <ListItemText primary="Entfernen" sx={{ color: "error.main" }} />
+        </MenuItem>
+      </Menu>
     </Box>
   );
 }

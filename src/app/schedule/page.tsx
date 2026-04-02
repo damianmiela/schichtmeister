@@ -959,7 +959,7 @@ export default function SchedulePage() {
   );
 
   const holidays = useMemo(() => {
-    if (viewState.type !== "month") return new Map<string, string>();
+    if (viewState.type !== "month" && viewState.type !== "employee") return new Map<string, string>();
     const start = new Date(Date.UTC(viewState.year, viewState.month, 1));
     const end = new Date(Date.UTC(viewState.year, viewState.month + 1, 0));
     return holidayDateMap(start, end);
@@ -1363,9 +1363,19 @@ export default function SchedulePage() {
               employee={employeesById[viewState.employeeId]}
               assignments={assignments}
               profilesById={profilesById}
-              shiftWishSet={shiftWishSet}
-              freiWishSet={freiWishSet}
+              shiftWishSet={editMode ? editedShiftWishSet : shiftWishSet}
+              freiWishSet={editMode ? editedFreiWishSet : freiWishSet}
               onDayClick={handleDayClick}
+              holidayMap={holidays}
+              editMode={editMode}
+              editedCells={editedCells}
+              onCellChange={handleCellChange}
+              shiftProfiles={allProfiles}
+              editSaving={editSaving}
+              onEnterEditMode={enterEditMode}
+              onCancelEditMode={cancelEditMode}
+              onSaveEdits={() => void onSaveEdits()}
+              scheduleId={schedule?.id}
             />
           )}
         </>
