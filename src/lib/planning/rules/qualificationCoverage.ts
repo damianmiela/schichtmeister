@@ -9,6 +9,14 @@ export function qualificationCoverageRule(ctx: RuleContext): RuleResult {
   const errors: RuleResult["errors"] = [];
   const dates = datesInPeriodUtc(ctx.periodStart, ctx.periodEnd);
 
+  // Build a set of all qualification tags that actually exist on facility employees.
+  // Skip qualification requirements whose tags don't match ANY employee — these are
+  // misconfigured (e.g. "Hilfskraft" when no employee carries that tag).
+  const allEmpTags = new Set<string>();
+  for (const emp of ctx.employeesById.values()) {
+    for (const t of emp.qualificationTags) allEmpTags.add(t);
+  }
+
   for (const req of ctx.staffingRequirements) {
     if (req.qualificationRequirements.length === 0) continue;
     for (const d of dates) {
@@ -30,6 +38,8 @@ export function qualificationCoverageRule(ctx: RuleContext): RuleResult {
       });
       for (const qr of req.qualificationRequirements) {
         const tags = qr.qualificationTag.split(",").map((t) => t.trim());
+        // Skip if none of the required tags exist on any employee in the facility
+        if (!tags.some((t) => allEmpTags.has(t))) continue;
         let tagCount = 0;
         for (const empId of nonShEmpIds) {
           const emp = ctx.employeesById.get(empId);

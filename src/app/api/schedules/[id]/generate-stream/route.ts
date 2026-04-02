@@ -421,13 +421,7 @@ export async function POST(request: Request, context: RouteCtx) {
           );
         }).length;
 
-        const generatorWarnings = (solverStatus === "FEASIBLE"
-          ? [
-              "CP-SAT: Zeitlimit erreicht — Lösung ist gut, aber möglicherweise nicht optimal.",
-            ]
-          : []
-        );
-        const allWarnings = [...generatorWarnings, ...ruleWarnings];
+        const allWarnings = [...ruleWarnings];
 
         const preGenWishes = {
           shiftWishes: manualPlacements.map((mp) => ({

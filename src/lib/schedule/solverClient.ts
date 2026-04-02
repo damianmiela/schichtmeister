@@ -563,9 +563,6 @@ export async function runCpsatGeneration(
   }).length;
 
   const warnings: string[] = [];
-  if (response.status === "FEASIBLE") {
-    warnings.push("CP-SAT: Zeitlimit erreicht — Lösung ist gut, aber möglicherweise nicht optimal.");
-  }
 
   const wishMap = new Map(genCtx.wishes.map((w) => [w.id, w]));
   const unfulfilledWishes = response.unfulfilledWishes
