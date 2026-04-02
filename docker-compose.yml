@@ -30,6 +30,7 @@ services:
 
   postgres:
     image: postgres:16-alpine
+    container_name: schichtmeister-postgres-dev
     environment:
       - POSTGRES_DB=${POSTGRES_DB}
       - POSTGRES_USER=${POSTGRES_USER}
@@ -44,4 +45,6 @@ services:
     restart: unless-stopped
 
 volumes:
+  # Explicit name so local/dev compose never mounts production data (schichtmeister_postgres_data).
   postgres_data:
+    name: schichtmeister_postgres_dev_data
