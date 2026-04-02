@@ -16,6 +16,7 @@ type IncomingAssignment = {
   markingRow2?: string | null;
   markingRow3?: string | null;
   dayStatus?: string | null;
+  stationNumber?: number | null;
 };
 
 type IncomingWishes = {
@@ -42,6 +43,7 @@ function parseAssignments(raw: unknown): IncomingAssignment[] {
         markingRow2: typeof item.markingRow2 === "string" ? item.markingRow2 : null,
         markingRow3: typeof item.markingRow3 === "string" ? item.markingRow3 : null,
         dayStatus: typeof item.dayStatus === "string" ? item.dayStatus : null,
+        stationNumber: typeof item.stationNumber === "number" ? item.stationNumber : null,
       });
     }
   }
@@ -83,7 +85,7 @@ export async function POST(request: Request, context: RouteCtx) {
   }
 
   const toCreate: IncomingAssignment[] = [];
-  const toUpdate: { id: string; shiftProfileId: string; markingRow2: string | null; markingRow3: string | null; dayStatus: string | null }[] = [];
+  const toUpdate: { id: string; shiftProfileId: string; markingRow2: string | null; markingRow3: string | null; dayStatus: string | null; stationNumber: number | null }[] = [];
   const toDeleteIds: string[] = [];
 
   for (const [key, inc] of incomingByKey) {
@@ -94,7 +96,8 @@ export async function POST(request: Request, context: RouteCtx) {
       ex.shiftProfileId !== inc.shiftProfileId ||
       (ex.markingRow2 ?? null) !== (inc.markingRow2 ?? null) ||
       (ex.markingRow3 ?? null) !== (inc.markingRow3 ?? null) ||
-      (ex.dayStatus ?? null) !== (inc.dayStatus ?? null)
+      (ex.dayStatus ?? null) !== (inc.dayStatus ?? null) ||
+      (ex.stationNumber ?? null) !== (inc.stationNumber ?? null)
     ) {
       toUpdate.push({
         id: ex.id,
@@ -102,6 +105,7 @@ export async function POST(request: Request, context: RouteCtx) {
         markingRow2: inc.markingRow2 ?? null,
         markingRow3: inc.markingRow3 ?? null,
         dayStatus: inc.dayStatus ?? null,
+        stationNumber: inc.stationNumber ?? null,
       });
     }
   }
@@ -127,6 +131,7 @@ export async function POST(request: Request, context: RouteCtx) {
           markingRow2: u.markingRow2,
           markingRow3: u.markingRow3,
           dayStatus: u.dayStatus,
+          stationNumber: u.stationNumber,
         },
       });
     }
@@ -141,6 +146,7 @@ export async function POST(request: Request, context: RouteCtx) {
           markingRow2: a.markingRow2 ?? null,
           markingRow3: a.markingRow3 ?? null,
           dayStatus: a.dayStatus ?? null,
+          stationNumber: a.stationNumber ?? null,
           createdByUserId: userId,
         })),
       });

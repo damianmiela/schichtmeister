@@ -864,7 +864,7 @@ export default function SchedulePage() {
     setActionDebugPayload(null);
     setActionAlertSeverity("info");
 
-    const merged: { employeeId: string; date: string; shiftProfileId: string; markingRow2?: string | null; markingRow3?: string | null; dayStatus?: string | null }[] = [];
+    const merged: { employeeId: string; date: string; shiftProfileId: string; markingRow2?: string | null; markingRow3?: string | null; dayStatus?: string | null; stationNumber?: number | null }[] = [];
     const seen = new Set<string>();
 
     for (const [key, cell] of editedCells) {
@@ -880,6 +880,7 @@ export default function SchedulePage() {
           markingRow2: cell.markingRow2 !== undefined ? cell.markingRow2 : (original?.markingRow2 ?? null),
           markingRow3: cell.markingRow3 !== undefined ? cell.markingRow3 : (original?.markingRow3 ?? null),
           dayStatus: cell.dayStatus !== undefined ? cell.dayStatus : (original?.dayStatus ?? null),
+          stationNumber: cell.stationNumber !== undefined ? cell.stationNumber : (original?.stationNumber ?? null),
         });
       }
     }
@@ -893,6 +894,7 @@ export default function SchedulePage() {
           markingRow2: a.markingRow2 ?? null,
           markingRow3: a.markingRow3 ?? null,
           dayStatus: a.dayStatus ?? null,
+          stationNumber: a.stationNumber ?? null,
         });
       }
     }

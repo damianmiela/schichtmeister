@@ -30,6 +30,7 @@ export type CellEdit = {
   dayStatus?: string | null;
   markingRow2?: string | null;
   markingRow3?: string | null;
+  stationNumber?: number | null;
 };
 
 /* ──────────────────────── props ──────────────────────── */

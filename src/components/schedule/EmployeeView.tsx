@@ -51,6 +51,7 @@ export type EmployeeEditCell = {
   dayStatus?: string | null;
   markingRow2?: string | null;
   markingRow3?: string | null;
+  stationNumber?: number | null;
 };
 
 /* ──────────────────────── props ──────────────────────── */
@@ -197,24 +198,19 @@ export default function EmployeeView({
     if (!scheduleId) return;
     setWarningsLoading(true);
     try {
-      const res = await fetch(`/api/schedules/${scheduleId}/revalidate`, {
-        method: "POST",
-      });
+      const res = await fetch(
+        `/api/schedules/${scheduleId}/revalidate?employeeId=${encodeURIComponent(employee.id)}`,
+        { method: "POST" },
+      );
       if (!res.ok) throw new Error("revalidate failed");
       const data = await res.json();
-      const allWarnings: string[] = data.warnings ?? [];
-      // Filter to warnings mentioning this employee
-      const empName = `${employee.firstName} ${employee.lastName}`;
-      const filtered = allWarnings.filter(
-        (w) => w.includes(empName) || w.includes(employee.lastName + ","),
-      );
-      setEmpWarnings(filtered);
+      setEmpWarnings(data.employeeWarnings ?? []);
     } catch {
       setEmpWarnings([]);
     } finally {
       setWarningsLoading(false);
     }
-  }, [scheduleId, employee.firstName, employee.lastName]);
+  }, [scheduleId, employee.id]);
 
   useEffect(() => {
     fetchEmployeeWarnings();
@@ -308,10 +304,10 @@ export default function EmployeeView({
 
   const initials = `${employee.firstName.charAt(0)}${employee.lastName.charAt(0)}`;
 
-  /* ── edit mode: shift menu state ── */
+  /* ── edit mode: menu state ── */
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const [menuIso, setMenuIso] = useState<string | null>(null);
-  const [menuType, setMenuType] = useState<"shift" | "marking2" | "marking3">("shift");
+  const [menuType, setMenuType] = useState<"shift" | "marking2" | "marking3" | "station">("shift");
 
   const sortedProfiles = useMemo(() => {
     if (!shiftProfiles) return [];
@@ -345,11 +341,17 @@ export default function EmployeeView({
     setMenuAnchor(ev.currentTarget);
   };
 
+  const openStationMenu = (ev: React.MouseEvent<HTMLElement>, iso: string) => {
+    ev.stopPropagation();
+    setMenuIso(iso);
+    setMenuType("station");
+    setMenuAnchor(ev.currentTarget);
+  };
+
   const handleMenuSelect = (value: string | null) => {
     if (!menuIso || !onCellChange) return;
     if (menuType === "shift") {
       if (value === null) {
-        // Remove assignment
         onCellChange(employee.id, menuIso, { shiftProfileId: null, dayStatus: null });
       } else if (STATUS_CODES.some((s) => s.code === value)) {
         onCellChange(employee.id, menuIso, { shiftProfileId: null, dayStatus: value });
@@ -358,8 +360,10 @@ export default function EmployeeView({
       }
     } else if (menuType === "marking2") {
       onCellChange(employee.id, menuIso, { markingRow2: value });
-    } else {
+    } else if (menuType === "marking3") {
       onCellChange(employee.id, menuIso, { markingRow3: value });
+    } else if (menuType === "station") {
+      onCellChange(employee.id, menuIso, { stationNumber: value != null ? Number(value) : null });
     }
     setMenuAnchor(null);
     setMenuIso(null);
@@ -371,6 +375,7 @@ export default function EmployeeView({
     dayStatus: string | null;
     markingRow2: string | null;
     markingRow3: string | null;
+    stationNumber: number | null;
   } {
     const cellKey = `${employee.id}|${iso}`;
     const edit = editedCells?.get(cellKey);
@@ -388,8 +393,11 @@ export default function EmployeeView({
     const m3 = edit?.markingRow3 !== undefined
       ? edit.markingRow3
       : (original?.markingRow3 ?? null);
+    const stn = edit?.stationNumber !== undefined
+      ? edit.stationNumber
+      : (original?.stationNumber ?? null);
 
-    return { shiftProfileId: pid, dayStatus: status, markingRow2: m2, markingRow3: m3 };
+    return { shiftProfileId: pid, dayStatus: status, markingRow2: m2, markingRow3: m3, stationNumber: stn };
   }
 
   return (
@@ -467,8 +475,8 @@ export default function EmployeeView({
                   "& .MuiLinearProgress-bar": { bgcolor: hoursColor, borderRadius: 3 },
                 }}
               />
-              <Typography variant="caption" sx={{ fontWeight: 700, color: hoursColor, minWidth: 48, textAlign: "right" }}>
-                {delta != null ? `${delta >= 0 ? "+" : ""}${fmtHours(delta)}h` : ""}
+              <Typography variant="caption" sx={{ fontWeight: 700, color: hoursColor, minWidth: 40, textAlign: "right" }}>
+                {target > 0 ? `${Math.round((totalHours / target) * 100)}%` : ""}
               </Typography>
             </Box>
           )}
@@ -570,8 +578,8 @@ export default function EmployeeView({
               <TableCell sx={{ fontWeight: 700, bgcolor: "background.paper" }}>
                 Schicht
               </TableCell>
-              <TableCell sx={{ fontWeight: 700, width: 50, bgcolor: "background.paper" }} align="center">
-                St.
+              <TableCell sx={{ fontWeight: 700, width: 56, bgcolor: "background.paper" }} align="center">
+                Station
               </TableCell>
               <TableCell sx={{ fontWeight: 700, width: 100, bgcolor: "background.paper" }} align="center">
                 Uhrzeit
@@ -758,8 +766,10 @@ export default function EmployeeView({
                 const prof = profId ? profilesById[profId] : undefined;
                 const accent = SHIFT_ACCENT[prof?.shiftType ?? ""] ?? theme.palette.grey[500];
                 const hours = prof ? paidHours(prof) : 0;
-                const stationNum = a.stationNumber ?? (employee.assignedStations?.length === 1 ? employee.assignedStations[0] : null);
-                const stColor = stationColorForAssignment(stationNum, prof?.shiftType);
+                const rawStation = editMode ? (effective?.stationNumber ?? a.stationNumber) : a.stationNumber;
+                const stationNum = rawStation ?? (employee.assignedStations?.length === 1 ? employee.assignedStations[0] : null);
+                const isNight = prof?.shiftType === "NIGHT";
+                const stColor = stationColorForAssignment(isNight ? null : stationNum, prof?.shiftType);
                 const m2 = editMode ? effective?.markingRow2 : a.markingRow2;
                 const m3 = editMode ? effective?.markingRow3 : a.markingRow3;
 
@@ -906,6 +916,9 @@ export default function EmployeeView({
                       {/* Station */}
                       <TableCell align="center">
                         <Box
+                          onClick={(ev) => {
+                            if (editMode && !isNight) openStationMenu(ev, iso);
+                          }}
                           sx={{
                             width: 28,
                             height: 28,
@@ -918,9 +931,11 @@ export default function EmployeeView({
                             alignItems: "center",
                             justifyContent: "center",
                             border: `1.5px solid ${alpha(stColor.main, 0.3)}`,
+                            cursor: editMode && !isNight ? "pointer" : "default",
+                            "&:hover": editMode && !isNight ? { boxShadow: `0 0 0 2px ${alpha(stColor.main, 0.25)}` } : undefined,
                           }}
                         >
-                          {stationNum ?? "–"}
+                          {isNight ? "N" : (stationNum ?? "–")}
                         </Box>
                       </TableCell>
 
@@ -1013,6 +1028,42 @@ export default function EmployeeView({
           </ListItemIcon>
           <ListItemText primary="Entfernen" sx={{ color: "error.main" }} />
         </MenuItem>
+      </Menu>
+
+      {/* ── Station Menu ── */}
+      <Menu
+        anchorEl={menuAnchor}
+        open={!!menuAnchor && menuType === "station"}
+        onClose={() => setMenuAnchor(null)}
+        slotProps={{ paper: { sx: { minWidth: 140 } } }}
+      >
+        {[1, 2, 3].map((stn) => {
+          const sc = STATION_COLORS[stn] ?? { main: "#78909c", light: "#eceff1" };
+          return (
+            <MenuItem key={stn} onClick={() => handleMenuSelect(String(stn))} dense>
+              <ListItemIcon sx={{ minWidth: 32 }}>
+                <Box
+                  sx={{
+                    width: 22,
+                    height: 22,
+                    borderRadius: "50%",
+                    bgcolor: sc.light,
+                    color: sc.main,
+                    fontWeight: 700,
+                    fontSize: "0.75rem",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    border: `1.5px solid ${alpha(sc.main, 0.3)}`,
+                  }}
+                >
+                  {stn}
+                </Box>
+              </ListItemIcon>
+              <ListItemText primary={`Station ${stn}`} />
+            </MenuItem>
+          );
+        })}
       </Menu>
     </Box>
   );
