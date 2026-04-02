@@ -102,6 +102,25 @@ export function monthlyWorkingDaysWithHolidays(year: number, month: number): num
   return wd - holidays.length;
 }
 
+/**
+ * Compute Soll-Stunden for an employee in a given month.
+ * Uses German holidays (Rheinland-Pfalz) to calculate working days.
+ *
+ * @param year           Calendar year
+ * @param month          0-indexed month (0 = January)
+ * @param targetPercent  Employee's targetHoursPercent (e.g. 100 for full-time)
+ * @returns Soll hours, or null if targetPercent is null/undefined
+ */
+export function computeSollHours(
+  year: number,
+  month: number,
+  targetPercent: number | null | undefined,
+): number | null {
+  if (targetPercent == null) return null;
+  const workingDays = monthlyWorkingDaysWithHolidays(year, month);
+  return workingDays * 8 * (targetPercent / 100);
+}
+
 /** ISO date string set for holidays in a date range (for UI indicators). */
 export function holidayDateMap(start: Date, end: Date): Map<string, string> {
   const map = new Map<string, string>();

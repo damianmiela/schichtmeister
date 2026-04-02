@@ -4,6 +4,7 @@ import { requirePlanner } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 import { parseIsoDateOnly, toIsoDateOnly } from "@/lib/api/dateOnly";
 import { assignmentPaidHours } from "@/lib/planning/time";
+import { computeSollHours, monthlyWorkingDaysWithHolidays } from "@/lib/holidays";
 
 /**
  * GET /api/employees/available?scheduleId=...&date=YYYY-MM-DD
@@ -72,18 +73,12 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // Compute working days in month (Mon-Fri)
-  let workingDays = 0;
-  const cur = new Date(monthStart);
-  while (cur <= monthEnd) {
-    const dow = cur.getUTCDay();
-    if (dow >= 1 && dow <= 5) workingDays++;
-    cur.setUTCDate(cur.getUTCDate() + 1);
-  }
+  // Compute working days in month (Mon-Fri minus German holidays)
+  const workingDays = monthlyWorkingDaysWithHolidays(date.getUTCFullYear(), date.getUTCMonth());
 
   const result = employees.map((emp) => {
     const pct = emp.targetHoursPercent != null ? Number(emp.targetHoursPercent) : null;
-    const sollHours = pct != null ? (workingDays * 8 * pct) / 100 : null;
+    const sollHours = computeSollHours(date.getUTCFullYear(), date.getUTCMonth(), pct);
     const istHours = istByEmployee.get(emp.id) ?? 0;
     const deltaHours = sollHours != null ? Math.round((istHours - sollHours) * 100) / 100 : null;
 

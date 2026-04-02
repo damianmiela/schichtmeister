@@ -1,18 +1,12 @@
 import type { RuleContext, RuleResult } from "@/lib/planning/types";
 import { assignmentPaidHours } from "@/lib/planning/time";
+import { computeSollHours } from "@/lib/holidays";
 
 export function overtimeExcessRule(ctx: RuleContext): RuleResult {
   const warnings: RuleResult["warnings"] = [];
 
-  const start = ctx.periodStart;
-  const year = start.getUTCFullYear();
-  const month = start.getUTCMonth();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  let workingDays = 0;
-  for (let d = 1; d <= daysInMonth; d++) {
-    const dow = new Date(year, month, d).getDay();
-    if (dow !== 0 && dow !== 6) workingDays++;
-  }
+  const year = ctx.periodStart.getUTCFullYear();
+  const month = ctx.periodStart.getUTCMonth();
 
   // When targeted, only check the target employee
   const employeeIds = ctx.targetFilter
@@ -22,9 +16,9 @@ export function overtimeExcessRule(ctx: RuleContext): RuleResult {
   for (const empId of employeeIds) {
     const emp = ctx.employeesById.get(empId);
     if (!emp) continue;
-    const pct = emp.targetHoursPercent;
-    if (pct == null) continue;
-    const soll = workingDays * 8 * (pct / 100);
+
+    const soll = computeSollHours(year, month, emp.targetHoursPercent);
+    if (soll == null) continue;
 
     let hours = 0;
     for (const a of ctx.assignments) {

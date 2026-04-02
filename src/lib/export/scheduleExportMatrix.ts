@@ -1,6 +1,7 @@
 import type { Employee, ShiftProfile } from "@prisma/client";
 import { toIsoDateOnly } from "@/lib/api/dateOnly";
 import type { AssignmentWithRelations } from "@/lib/export/scheduleExportContext";
+import { getWeekdayHolidays } from "@/lib/holidays";
 
 const EMP_STATUS_MAP: Record<string, string> = {
   KRANK: "K",
@@ -27,6 +28,9 @@ export function paidHoursForShift(profile: ShiftProfile): number {
 }
 
 export function workingDaysInIsoRange(isoDates: string[]): number {
+  if (isoDates.length === 0) return 0;
+
+  // Count weekdays
   let count = 0;
   for (const iso of isoDates) {
     const parts = iso.split("-").map(Number);
@@ -36,7 +40,15 @@ export function workingDaysInIsoRange(isoDates: string[]): number {
     const dow = new Date(y, m - 1, d).getDay();
     if (dow !== 0 && dow !== 6) count++;
   }
-  return count;
+
+  // Subtract German holidays that fall on weekdays within the range
+  const firstParts = isoDates[0]!.split("-").map(Number);
+  const lastParts = isoDates[isoDates.length - 1]!.split("-").map(Number);
+  const start = new Date(Date.UTC(firstParts[0]!, firstParts[1]! - 1, firstParts[2]!));
+  const end = new Date(Date.UTC(lastParts[0]!, lastParts[1]! - 1, lastParts[2]!));
+  const holidays = getWeekdayHolidays(start, end);
+
+  return count - holidays.length;
 }
 
 export function targetHoursForPeriod(emp: Employee, workDays: number): number | null {
