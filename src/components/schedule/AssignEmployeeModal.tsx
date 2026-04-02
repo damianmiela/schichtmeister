@@ -96,14 +96,18 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
 };
 
 function formatDate(d: Date): string {
-  const dd = String(d.getUTCDate()).padStart(2, "0");
-  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const yyyy = d.getUTCFullYear();
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yyyy = d.getFullYear();
   return `${dd}.${mm}.${yyyy}`;
 }
 
+/** Local-timezone ISO date string (YYYY-MM-DD), matching how the app stores/compares dates. */
 function isoDate(d: Date): string {
-  return d.toISOString().slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 function qualSortKey(tags: string[]): number {
@@ -267,9 +271,12 @@ export default function AssignEmployeeModal({
           force: true,
         }),
       });
-      if (res.ok) {
+      if (res.ok || res.status === 201) {
         handleClose();
         onSuccess();
+      } else {
+        const errBody = await res.json().catch(() => ({}));
+        console.error("Assignment creation failed:", res.status, errBody);
       }
     } finally {
       setSubmitting(false);
