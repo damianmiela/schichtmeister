@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Box,
   Typography,
@@ -10,10 +10,21 @@ import {
   useTheme,
   ToggleButtonGroup,
   ToggleButton,
+  IconButton,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
 } from "@mui/material";
 import ViewColumnIcon from "@mui/icons-material/ViewColumn";
 import TimelineIcon from "@mui/icons-material/Timeline";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
+import AddIcon from "@mui/icons-material/Add";
+import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
+import CloseIcon from "@mui/icons-material/Close";
+import AssignEmployeeModal from "@/components/schedule/AssignEmployeeModal";
+import type { AssignModalMode } from "@/components/schedule/AssignEmployeeModal";
 import type {
   AssignmentJson,
   EmployeeJson,
@@ -32,6 +43,10 @@ interface DayViewProps {
   onEmployeeClick?: (employeeId: string) => void;
   shiftWishSet?: Set<string>;
   freiWishSet?: Set<string>;
+  /** Required for add/replace/remove features */
+  scheduleId?: string;
+  /** Called after assignment mutation to refresh data */
+  onAssignmentChange?: () => void;
 }
 
 type DayViewMode = "columns" | "timeline";
@@ -129,13 +144,100 @@ function ColumnView({
   profilesById,
   staffing,
   onEmployeeClick,
+  date,
+  scheduleId,
+  allProfiles,
+  onAssignmentChange,
 }: {
   dayAssignments: AssignmentJson[];
   employeesById: Record<string, EmployeeJson>;
   profilesById: Record<string, ShiftProfileJson>;
   staffing?: StaffingJson[];
   onEmployeeClick?: (employeeId: string) => void;
+  date: Date;
+  scheduleId?: string;
+  allProfiles?: ShiftProfileJson[];
+  onAssignmentChange?: () => void;
 }) {
+  // ── Modal state for add / replace ──
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState<AssignModalMode>("add");
+  const [modalShiftType, setModalShiftType] = useState("EARLY");
+  const [modalStation, setModalStation] = useState<number | null>(null);
+  const [modalReplaceId, setModalReplaceId] = useState<string | undefined>(undefined);
+  const [modalReplaceName, setModalReplaceName] = useState<string | undefined>(undefined);
+
+  // ── Remove confirmation dialog state ──
+  const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState<{
+    assignmentId: string;
+    employeeName: string;
+    shiftLabel: string;
+    stationLabel: string;
+  } | null>(null);
+  const [removing, setRemoving] = useState(false);
+
+  const openAddModal = useCallback(
+    (shiftType: string, stationNum: number | null) => {
+      setModalMode("add");
+      setModalShiftType(shiftType);
+      setModalStation(stationNum);
+      setModalReplaceId(undefined);
+      setModalReplaceName(undefined);
+      setModalOpen(true);
+    },
+    [],
+  );
+
+  const openReplaceModal = useCallback(
+    (row: EmpRow, stationNum: number | null) => {
+      setModalMode("replace");
+      setModalShiftType(row.profile.shiftType);
+      setModalStation(stationNum);
+      setModalReplaceId(row.assignment.id);
+      const name = row.employee
+        ? `${row.employee.firstName} ${row.employee.lastName}`
+        : row.employeeId.slice(0, 8);
+      setModalReplaceName(name);
+      setModalOpen(true);
+    },
+    [],
+  );
+
+  const handleRemoveClick = useCallback(
+    (row: EmpRow, shiftLabel: string, stationLabel: string) => {
+      const name = row.employee
+        ? `${row.employee.firstName} ${row.employee.lastName}`
+        : row.employeeId.slice(0, 8);
+      setRemoveTarget({
+        assignmentId: row.assignment.id,
+        employeeName: name,
+        shiftLabel,
+        stationLabel,
+      });
+      setRemoveDialogOpen(true);
+    },
+    [],
+  );
+
+  const handleRemoveConfirm = useCallback(async () => {
+    if (!removeTarget) return;
+    setRemoving(true);
+    try {
+      const res = await fetch(`/api/assignments/${removeTarget.assignmentId}`, {
+        method: "DELETE",
+      });
+      if (res.ok || res.status === 204) {
+        onAssignmentChange?.();
+      }
+    } finally {
+      setRemoving(false);
+      setRemoveDialogOpen(false);
+      setRemoveTarget(null);
+    }
+  }, [removeTarget, onAssignmentChange]);
+
+  const canEdit = !!scheduleId;
   // Group by station and shift type
   const { stationData, nightRows } = useMemo(() => {
     const stations: Record<number, { early: EmpRow[]; late: EmpRow[]; bl: EmpRow[] }> = {
@@ -216,8 +318,47 @@ function ColumnView({
     );
   };
 
+  // ── Hover action buttons for pills ──
+  const renderHoverActions = (row: EmpRow, stationNum: number | null, shiftLabel: string, stationLabel: string) => {
+    if (!canEdit) return null;
+    return (
+      <Box
+        className="pill-hover-actions"
+        sx={{
+          display: "none",
+          position: "absolute",
+          right: 4,
+          top: "50%",
+          transform: "translateY(-50%)",
+          gap: 0.25,
+          alignItems: "center",
+          zIndex: 3,
+        }}
+      >
+        <Tooltip title="Ersetzen" arrow>
+          <IconButton
+            size="small"
+            onClick={(e) => { e.stopPropagation(); openReplaceModal(row, stationNum); }}
+            sx={{ p: 0.25, bgcolor: "background.paper", boxShadow: 1, "&:hover": { bgcolor: "primary.50" } }}
+          >
+            <SwapHorizIcon sx={{ fontSize: 16 }} />
+          </IconButton>
+        </Tooltip>
+        <Tooltip title="Entfernen" arrow>
+          <IconButton
+            size="small"
+            onClick={(e) => { e.stopPropagation(); handleRemoveClick(row, shiftLabel, stationLabel); }}
+            sx={{ p: 0.25, bgcolor: "background.paper", boxShadow: 1, "&:hover": { bgcolor: "error.50" } }}
+          >
+            <CloseIcon sx={{ fontSize: 16, color: "error.main" }} />
+          </IconButton>
+        </Tooltip>
+      </Box>
+    );
+  };
+
   // ── Render a filled requirement pill ──
-  const renderFilledReqPill = (row: EmpRow, tag: string, idx: number) => {
+  const renderFilledReqPill = (row: EmpRow, tag: string, idx: number, stationNum: number | null, shiftLabel: string, stationLabel: string) => {
     const name = row.employee
       ? `${row.employee.lastName}, ${row.employee.firstName}`
       : row.employeeId.slice(0, 8);
@@ -248,7 +389,10 @@ function ColumnView({
             borderRadius: 2,
             bgcolor: alpha("#4caf50", 0.04),
             cursor: onEmployeeClick ? "pointer" : "default",
-            "&:hover": { bgcolor: alpha("#4caf50", 0.1) },
+            "&:hover": {
+              bgcolor: alpha("#4caf50", 0.1),
+              "& .pill-hover-actions": { display: "flex" },
+            },
             minHeight: 40,
             mt: 1,
           }}
@@ -275,6 +419,7 @@ function ColumnView({
             {name}
           </Typography>
           {renderInfoPills(row)}
+          {renderHoverActions(row, stationNum, shiftLabel, stationLabel)}
         </Box>
       </Tooltip>
     );
@@ -326,7 +471,7 @@ function ColumnView({
   );
 
   // ── Render a regular (extra) employee pill ──
-  const renderExtraPill = (row: EmpRow) => {
+  const renderExtraPill = (row: EmpRow, stationNum: number | null, shiftLabel: string, stationLabel: string) => {
     const name = row.employee
       ? `${row.employee.lastName}, ${row.employee.firstName}`
       : row.employeeId.slice(0, 8);
@@ -336,6 +481,7 @@ function ColumnView({
         key={row.assignment.id}
         onClick={onEmployeeClick ? () => onEmployeeClick(row.employeeId) : undefined}
         sx={{
+          position: "relative",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -345,7 +491,10 @@ function ColumnView({
           borderColor: "divider",
           borderRadius: 2,
           cursor: onEmployeeClick ? "pointer" : "default",
-          "&:hover": { bgcolor: "action.hover" },
+          "&:hover": {
+            bgcolor: "action.hover",
+            "& .pill-hover-actions": { display: "flex" },
+          },
           minHeight: 40,
         }}
       >
@@ -353,6 +502,7 @@ function ColumnView({
           {name}
         </Typography>
         {renderInfoPills(row)}
+        {renderHoverActions(row, stationNum, shiftLabel, stationLabel)}
       </Box>
     );
   };
@@ -418,7 +568,7 @@ function ColumnView({
         <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5, px: 1, py: 0.75 }}>
           {slots.map((slot, i) =>
             slot.filled
-              ? renderFilledReqPill(slot.filled, slot.displayTag, i)
+              ? renderFilledReqPill(slot.filled, slot.displayTag, i, stationNum === "fw" ? null : stationNum, label, stationNum === "fw" ? "Nacht" : `Station ${stationNum}`)
               : renderEmptyReqPill(slot.displayTag, i),
           )}
 
@@ -428,13 +578,46 @@ function ColumnView({
           )}
 
           {/* Extra people beyond requirements */}
-          {extra.map((r) => renderExtraPill(r))}
+          {extra.map((r) => renderExtraPill(r, stationNum === "fw" ? null : stationNum, label, stationNum === "fw" ? "Nacht" : `Station ${stationNum}`))}
 
           {/* Nothing at all */}
           {rows.length === 0 && slots.length === 0 && (
             <Typography variant="body2" color="text.disabled" sx={{ px: 1, py: 0.5, fontSize: 12, fontStyle: "italic" }}>
               Keine Zuweisungen
             </Typography>
+          )}
+
+          {/* Add employee pill */}
+          {canEdit && (
+            <Box
+              onClick={() => openAddModal(shiftType, stationNum === "fw" ? null : stationNum)}
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 0.75,
+                py: 0.5,
+                px: 1.5,
+                border: "1px dashed",
+                borderColor: alpha(color, 0.35),
+                borderRadius: 2,
+                cursor: "pointer",
+                minHeight: 32,
+                mt: 0.25,
+                color: alpha(color, 0.6),
+                "&:hover": {
+                  bgcolor: alpha(color, 0.06),
+                  borderColor: color,
+                  color,
+                },
+                transition: "all 0.15s",
+              }}
+            >
+              <AddIcon sx={{ fontSize: 18 }} />
+              <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500 }}>
+                Mitarbeiter
+              </Typography>
+            </Box>
           )}
         </Box>
       </Box>
@@ -567,6 +750,47 @@ function ColumnView({
         </Box>
         {renderShiftGroup(SHIFT_LABELS.NIGHT, "NIGHT", nightRows, "fw")}
       </Box>
+
+      {/* ── Assign Employee Modal ── */}
+      {scheduleId && allProfiles && (
+        <AssignEmployeeModal
+          open={modalOpen}
+          onClose={() => setModalOpen(false)}
+          mode={modalMode}
+          scheduleId={scheduleId}
+          date={date}
+          shiftType={modalShiftType}
+          stationNumber={modalStation}
+          profiles={allProfiles}
+          replaceAssignmentId={modalReplaceId}
+          replaceEmployeeName={modalReplaceName}
+          onSuccess={() => onAssignmentChange?.()}
+        />
+      )}
+
+      {/* ── Remove Confirmation Dialog ── */}
+      <Dialog open={removeDialogOpen} onClose={() => setRemoveDialogOpen(false)} maxWidth="xs">
+        <DialogTitle>Zuweisung entfernen</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">
+            <strong>{removeTarget?.employeeName}</strong> von{" "}
+            <strong>{removeTarget?.shiftLabel}</strong> ({removeTarget?.stationLabel}) entfernen?
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRemoveDialogOpen(false)} color="inherit">
+            Abbrechen
+          </Button>
+          <Button
+            onClick={handleRemoveConfirm}
+            color="error"
+            variant="contained"
+            disabled={removing}
+          >
+            Entfernen
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
@@ -858,6 +1082,8 @@ export default function DayView({
   staffing,
   onEmployeeClick,
   shiftWishSet,
+  scheduleId,
+  onAssignmentChange,
 }: DayViewProps) {
   const [viewMode, setViewMode] = useState<DayViewMode>("columns");
   const iso = localIsoDate(date);
@@ -867,16 +1093,10 @@ export default function DayView({
     [assignments, iso],
   );
 
-  if (dayAssignments.length === 0) {
-    return (
-      <Box sx={{ p: 3, textAlign: "center" }}>
-        <Typography color="text.secondary">
-          Keine Zuweisungen fuer{" "}
-          {date.toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long" })}.
-        </Typography>
-      </Box>
-    );
-  }
+  const allProfiles = useMemo(
+    () => Object.values(profilesById),
+    [profilesById],
+  );
 
   return (
     <Box>
@@ -910,6 +1130,10 @@ export default function DayView({
           profilesById={profilesById}
           staffing={staffing}
           onEmployeeClick={onEmployeeClick}
+          date={date}
+          scheduleId={scheduleId}
+          allProfiles={allProfiles}
+          onAssignmentChange={onAssignmentChange}
         />
       ) : (
         <TimelineView

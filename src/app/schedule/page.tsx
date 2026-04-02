@@ -329,6 +329,22 @@ export default function SchedulePage() {
     void loadBundle();
   }, [loadBundle]);
 
+  /** Lightweight refresh: re-fetch only assignments for the current schedule. */
+  const refreshAssignments = useCallback(async () => {
+    if (!schedule) return;
+    try {
+      const detail = await fetchJson<{
+        schedule: ScheduleJson;
+        assignments?: AssignmentJson[];
+      }>(`/api/schedules/${schedule.id}?include=assignments`);
+      setSchedule(detail.schedule);
+      setAssignments(detail.assignments ?? []);
+    } catch {
+      // Fall back to full reload on error
+      loadBundle();
+    }
+  }, [schedule, loadBundle]);
+
   const handlePrevious = () => {
     if (viewState.type === "month" || viewState.type === "employee") {
       const newMonth = viewState.month - 1;
@@ -1316,6 +1332,8 @@ export default function SchedulePage() {
               onEmployeeClick={handleEmployeeClick}
               shiftWishSet={shiftWishSet}
               freiWishSet={freiWishSet}
+              scheduleId={schedule?.id}
+              onAssignmentChange={refreshAssignments}
             />
           )}
 

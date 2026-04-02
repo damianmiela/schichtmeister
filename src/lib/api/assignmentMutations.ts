@@ -20,6 +20,35 @@ function toInputs(rows: Assignment[]): AssignmentInput[] {
   }));
 }
 
+/** Load any schedule (DRAFT or PUBLISHED) for the facility. */
+export async function loadScheduleForFacility(
+  tx: DbTx,
+  scheduleId: string,
+  facilityId: string,
+): Promise<
+  | { ok: true; schedule: { id: string; status: string; periodStart: Date; periodEnd: Date } }
+  | { ok: false; failure: AssignmentOpFailure }
+> {
+  const schedule = await tx.schedule.findFirst({
+    where: { id: scheduleId, facilityId },
+  });
+  if (!schedule) {
+    return {
+      ok: false,
+      failure: { kind: "http", status: 404, error: "Dienstplan nicht gefunden." },
+    };
+  }
+  return {
+    ok: true,
+    schedule: {
+      id: schedule.id,
+      status: schedule.status,
+      periodStart: schedule.periodStart,
+      periodEnd: schedule.periodEnd,
+    },
+  };
+}
+
 export async function loadDraftScheduleForFacility(
   tx: DbTx,
   scheduleId: string,

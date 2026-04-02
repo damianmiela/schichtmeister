@@ -20,7 +20,6 @@ import {
 } from "@/lib/audit";
 import { requirePlanner } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
-import { ScheduleStatus } from "@prisma/client";
 
 function serializeAssignment(a: {
   id: string;
@@ -173,13 +172,8 @@ export async function DELETE(_request: NextRequest, context: RouteCtx) {
           error: "Zuweisung nicht gefunden.",
         });
       }
-      if (row.schedule.status !== ScheduleStatus.DRAFT) {
-        throw new AssignmentOpRejected({
-          kind: "http",
-          status: 409,
-          error: "Nur Entwürfe können bearbeitet werden.",
-        });
-      }
+      // Allow deletion on both DRAFT and PUBLISHED schedules
+      // (manual corrections after publishing are allowed)
       await writeAuditLog(tx, {
         entityType: AUDIT_ENTITY_ASSIGNMENT,
         entityId: assignmentId,

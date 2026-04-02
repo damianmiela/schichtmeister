@@ -6,6 +6,7 @@ import {
 import { assignmentCreateBodySchema } from "@/lib/api/assignmentSchemas";
 import {
   loadDraftScheduleForFacility,
+  loadScheduleForFacility,
   requireActiveProfile,
   requireEmployee,
   validateNewAssignmentInTx,
@@ -59,11 +60,10 @@ export async function POST(request: NextRequest) {
 
   try {
     const created = await prisma.$transaction(async (tx) => {
-      const sched = await loadDraftScheduleForFacility(
-        tx,
-        parsed.data.scheduleId,
-        facilityId,
-      );
+      // force=true allows modifying published schedules and skips rule validation
+      const sched = parsed.data.force
+        ? await loadScheduleForFacility(tx, parsed.data.scheduleId, facilityId)
+        : await loadDraftScheduleForFacility(tx, parsed.data.scheduleId, facilityId);
       if (!sched.ok) {
         throw new AssignmentOpRejected(sched.failure);
       }
@@ -74,12 +74,14 @@ export async function POST(request: NextRequest) {
       const emp = await requireEmployee(tx, parsed.data.employeeId, facilityId);
       if (!emp.ok) throw new AssignmentOpRejected(emp.failure);
 
-      const rules = await validateNewAssignmentInTx(tx, facilityId, sched.schedule, {
-        date,
-        shiftProfileId: parsed.data.shiftProfileId,
-        employeeId: parsed.data.employeeId,
-      });
-      if (!rules.ok) throw new AssignmentOpRejected(rules.failure);
+      if (!parsed.data.force) {
+        const rules = await validateNewAssignmentInTx(tx, facilityId, sched.schedule, {
+          date,
+          shiftProfileId: parsed.data.shiftProfileId,
+          employeeId: parsed.data.employeeId,
+        });
+        if (!rules.ok) throw new AssignmentOpRejected(rules.failure);
+      }
 
       const row = await tx.assignment.create({
         data: {

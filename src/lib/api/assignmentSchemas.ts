@@ -7,6 +7,8 @@ export const assignmentCreateBodySchema = z.object({
   date: isoDate,
   shiftProfileId: z.string().min(1),
   employeeId: z.string().min(1),
+  /** Skip rule validation and force-create the assignment. */
+  force: z.boolean().optional(),
 });
 
 export const assignmentPatchBodySchema = z
