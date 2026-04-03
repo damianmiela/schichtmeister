@@ -155,6 +155,9 @@ function fmtHours(h: number): string {
   return h % 1 === 0 ? String(h) : h.toFixed(1);
 }
 
+const FULL_TIME_DAILY_HOURS = 8;
+const ABSENCE_STATUS_CODES = new Set(["K", "U"]);
+
 function stationColorForAssignment(
   stationNumber: number | null | undefined,
   shiftType: string | undefined,
@@ -219,6 +222,12 @@ export default function EmployeeView({
     return map;
   }, [assignments, employee.id]);
 
+  /* ── absence daily hours for this employee ── */
+  const absenceDailyHours = useMemo(() => {
+    const pct = employee.targetHoursPercent ?? 100;
+    return FULL_TIME_DAILY_HOURS * (pct / 100);
+  }, [employee.targetHoursPercent]);
+
   /* ── running totals ── */
   const runningTotals = useMemo(() => {
     const totals: number[] = [];
@@ -226,13 +235,18 @@ export default function EmployeeView({
     for (const { iso } of days) {
       const dayAssignments = assignmentsByDate.get(iso) ?? [];
       for (const a of dayAssignments) {
+        if (a.dayStatus && ABSENCE_STATUS_CODES.has(a.dayStatus)) {
+          cumulative += absenceDailyHours;
+          continue;
+        }
+        if (a.dayStatus) continue;
         const p = profilesById[a.shiftProfileId];
         if (p) cumulative += paidHours(p);
       }
       totals.push(cumulative);
     }
     return totals;
-  }, [days, assignmentsByDate, profilesById]);
+  }, [days, assignmentsByDate, profilesById, absenceDailyHours]);
 
   /* ── totals ── */
   const { totalHours, workingDays } = useMemo(() => {
@@ -241,12 +255,17 @@ export default function EmployeeView({
     for (const [, dayAssignments] of assignmentsByDate) {
       wDays++;
       for (const a of dayAssignments) {
+        if (a.dayStatus && ABSENCE_STATUS_CODES.has(a.dayStatus)) {
+          hours += absenceDailyHours;
+          continue;
+        }
+        if (a.dayStatus) continue;
         const p = profilesById[a.shiftProfileId];
         if (p) hours += paidHours(p);
       }
     }
     return { totalHours: hours, workingDays: wDays };
-  }, [assignmentsByDate, profilesById]);
+  }, [assignmentsByDate, profilesById, absenceDailyHours]);
 
   /* ── Soll hours (holiday-aware) ── */
   const target = useMemo(() => {

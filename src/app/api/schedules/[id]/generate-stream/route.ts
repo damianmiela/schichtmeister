@@ -347,11 +347,44 @@ export async function POST(request: Request, context: RouteCtx) {
           userId,
         );
 
+        // Build K/U absence assignment records (show as K/U in plan, count toward Ist hours)
+        const absenceInputs: Prisma.AssignmentCreateManyInput[] = [];
+        if (clientAbsences.length > 0) {
+          // Need a placeholder shiftProfileId (required field) — use the first active profile
+          const fallbackProfileId = genCtx.profiles.find((p) => p.isActive)?.id;
+          if (fallbackProfileId) {
+            for (const abs of clientAbsences) {
+              const statusCode = abs.type === "KRANK" ? "K" : "U";
+              const [sy, sm, sd] = abs.startDate.split("-").map(Number);
+              const [ey, em, ed] = abs.endDate.split("-").map(Number);
+              let t = Date.UTC(sy!, sm! - 1, sd!);
+              const end = Date.UTC(ey!, em! - 1, ed!);
+              while (t <= end) {
+                const dt = new Date(t);
+                absenceInputs.push({
+                  scheduleId,
+                  date: dt,
+                  shiftProfileId: fallbackProfileId,
+                  employeeId: abs.employeeId,
+                  createdByUserId: userId,
+                  dayStatus: statusCode,
+                  stationNumber: null,
+                  markingRow2: null,
+                  markingRow3: null,
+                });
+                t += 24 * 60 * 60 * 1000;
+              }
+            }
+          }
+        }
+
+        const allInputs = [...prismaInputs, ...absenceInputs];
+
         await prisma.$transaction(
           async (tx) => {
             await tx.assignment.deleteMany({ where: { scheduleId } });
-            if (prismaInputs.length > 0) {
-              await tx.assignment.createMany({ data: prismaInputs });
+            if (allInputs.length > 0) {
+              await tx.assignment.createMany({ data: allInputs });
             }
           },
           { maxWait: 20_000, timeout: 300_000 },

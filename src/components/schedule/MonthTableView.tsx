@@ -73,6 +73,7 @@ function formatHours(h: number): string {
 }
 
 const FULL_TIME_DAILY_HOURS = 8;
+const ABSENCE_STATUS_CODES = new Set(["K", "U"]);
 
 function workingDaysInMonth(year: number, monthIndex: number): number {
   return monthlyWorkingDaysWithHolidays(year, monthIndex);
@@ -365,6 +366,16 @@ export default function MonthTableView({
     return grouped;
   }, [shiftProfiles]);
 
+  // Map employeeId → daily absence hours (8h * percentage)
+  const empAbsenceDailyHours = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const emp of employees) {
+      const pct = emp.targetHoursPercent ?? 100;
+      map.set(emp.id, FULL_TIME_DAILY_HOURS * (pct / 100));
+    }
+    return map;
+  }, [employees]);
+
   const empPlannedHours = useMemo(() => {
     const hours = new Map<string, number>();
     const editedKeys = new Set<string>();
@@ -372,8 +383,16 @@ export default function MonthTableView({
     if (editMode && editedCells) {
       for (const [key, edit] of editedCells) {
         editedKeys.add(key);
-        if (edit.dayStatus) continue;
         const eid = key.split("|")[0]!;
+        const effectiveStatus = edit.dayStatus !== undefined
+          ? edit.dayStatus
+          : byEmpDay.get(key)?.dayStatus ?? null;
+        if (effectiveStatus && ABSENCE_STATUS_CODES.has(effectiveStatus)) {
+          const absH = empAbsenceDailyHours.get(eid) ?? FULL_TIME_DAILY_HOURS;
+          hours.set(eid, (hours.get(eid) ?? 0) + absH);
+          continue;
+        }
+        if (effectiveStatus) continue;
         let pid: string | null = null;
         if (edit.shiftProfileId !== undefined) {
           pid = edit.shiftProfileId ?? null;
@@ -391,6 +410,11 @@ export default function MonthTableView({
     for (const a of assignments) {
       const key = `${a.employeeId}|${a.date}`;
       if (editedKeys.has(key)) continue;
+      if (a.dayStatus && ABSENCE_STATUS_CODES.has(a.dayStatus)) {
+        const absH = empAbsenceDailyHours.get(a.employeeId) ?? FULL_TIME_DAILY_HOURS;
+        hours.set(a.employeeId, (hours.get(a.employeeId) ?? 0) + absH);
+        continue;
+      }
       if (a.dayStatus) continue;
       const p = profilesById[a.shiftProfileId];
       if (!p) continue;
@@ -398,7 +422,7 @@ export default function MonthTableView({
     }
 
     return hours;
-  }, [assignments, editMode, editedCells, byEmpDay, profilesById]);
+  }, [assignments, editMode, editedCells, byEmpDay, profilesById, empAbsenceDailyHours]);
 
   /* ──── menu helpers ──── */
 
