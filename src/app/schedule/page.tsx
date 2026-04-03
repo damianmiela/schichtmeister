@@ -33,6 +33,8 @@ import {
   Divider,
   Autocomplete,
   TextField,
+  ListItemIcon,
+  ListItemText,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
@@ -53,6 +55,8 @@ import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import CloseIcon from "@mui/icons-material/Close";
 import DescriptionIcon from "@mui/icons-material/Description";
 import SickIcon from "@mui/icons-material/Sick";
+import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
+import CleaningServicesIcon from "@mui/icons-material/CleaningServices";
 import { ApiError, fetchJson } from "@/lib/api/fetchJson";
 import {
   monthRangeIso,
@@ -155,6 +159,8 @@ export default function SchedulePage() {
   >("info");
   const [exportMenuEl, setExportMenuEl] = useState<null | HTMLElement>(null);
   const [exportBusy, setExportBusy] = useState(false);
+  const [adminMenuEl, setAdminMenuEl] = useState<null | HTMLElement>(null);
+  const [cleanAbsencesBusy, setCleanAbsencesBusy] = useState(false);
   const [genProgress, setGenProgress] = useState<GenProgress>({ label: "" });
   const [genModalOpen, setGenModalOpen] = useState(false);
   const [genElapsed, setGenElapsed] = useState(0);
@@ -821,6 +827,34 @@ export default function SchedulePage() {
     }
   };
 
+  const onCleanAbsences = async () => {
+    setAdminMenuEl(null);
+    setCleanAbsencesBusy(true);
+    setActionMsg(null);
+    setActionAlertSeverity("info");
+    try {
+      const res = await fetchJson<{ deleted: number }>(
+        "/api/admin/clean-absences",
+        { method: "POST" },
+      );
+      setActionAlertSeverity("success");
+      setActionMsg(
+        res.deleted > 0
+          ? `${res.deleted} Abwesenheitseinträge bereinigt.`
+          : "Keine Abwesenheitseinträge vorhanden.",
+      );
+    } catch (e) {
+      setActionAlertSeverity("error");
+      setActionMsg(
+        e instanceof ApiError
+          ? ((e.body as { error?: string })?.error ?? "Bereinigung fehlgeschlagen.")
+          : "Bereinigung fehlgeschlagen (Netzwerk).",
+      );
+    } finally {
+      setCleanAbsencesBusy(false);
+    }
+  };
+
   const onClearSchedule = async () => {
     if (!schedule) return;
     setClearConfirmOpen(false);
@@ -1196,30 +1230,48 @@ export default function SchedulePage() {
                 >
                   PDF
                 </MenuItem>
+              </Menu>
+
+              <Button
+                variant="outlined"
+                startIcon={<AdminPanelSettingsIcon />}
+                disabled={loading || !schedule || editMode}
+                onClick={(e) => setAdminMenuEl(e.currentTarget)}
+              >
+                Admin
+              </Button>
+              <Menu
+                anchorEl={adminMenuEl}
+                open={Boolean(adminMenuEl)}
+                onClose={() => setAdminMenuEl(null)}
+              >
                 <MenuItem
-                  onClick={() => { setExportMenuEl(null); void onViewScore(); }}
-                  disabled={exportBusy}
+                  onClick={() => { setAdminMenuEl(null); void onViewLogs(); }}
                 >
-                  Qualitätsbericht
+                  <ListItemIcon><DescriptionIcon fontSize="small" /></ListItemIcon>
+                  <ListItemText>Generator-Protokoll</ListItemText>
                 </MenuItem>
                 <MenuItem
-                  onClick={() => void downloadExport("debug")}
-                  disabled={exportBusy}
+                  onClick={() => { setAdminMenuEl(null); void onViewScore(); }}
                 >
-                  Debug JSON
+                  <ListItemIcon><DescriptionIcon fontSize="small" /></ListItemIcon>
+                  <ListItemText>Qualitätsbericht</ListItemText>
+                </MenuItem>
+                <MenuItem
+                  onClick={() => { setAdminMenuEl(null); void downloadExport("debug"); }}
+                >
+                  <ListItemIcon><DownloadIcon fontSize="small" /></ListItemIcon>
+                  <ListItemText>Debug JSON</ListItemText>
+                </MenuItem>
+                <Divider />
+                <MenuItem
+                  onClick={() => void onCleanAbsences()}
+                  disabled={cleanAbsencesBusy}
+                >
+                  <ListItemIcon><CleaningServicesIcon fontSize="small" /></ListItemIcon>
+                  <ListItemText>Abwesenheiten bereinigen</ListItemText>
                 </MenuItem>
               </Menu>
-              <Tooltip title="Generator-Protokoll anzeigen">
-                <Button
-                  variant="outlined"
-                  size="small"
-                  startIcon={<DescriptionIcon />}
-                  disabled={loading || !schedule || editMode}
-                  onClick={() => void onViewLogs()}
-                >
-                  Logs
-                </Button>
-              </Tooltip>
               <Button
                 variant="outlined"
                 startIcon={<AutoAwesomeIcon />}

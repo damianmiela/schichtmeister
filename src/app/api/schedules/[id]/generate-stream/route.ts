@@ -180,21 +180,9 @@ export async function POST(request: Request, context: RouteCtx) {
     payload.maxSolveTimeSeconds = clientMaxSolveTime;
   }
 
-  // Persist absences to DB so they are respected in future generations too
-  if (clientAbsences.length > 0) {
-    for (const abs of clientAbsences) {
-      const [sy, sm, sd] = abs.startDate.split("-").map(Number);
-      const [ey, em, ed] = abs.endDate.split("-").map(Number);
-      await prisma.employeeAbsence.create({
-        data: {
-          employeeId: abs.employeeId,
-          type: abs.type as "KRANK" | "URLAUB",
-          startDate: new Date(Date.UTC(sy!, sm! - 1, sd!)),
-          endDate: new Date(Date.UTC(ey!, em! - 1, ed!)),
-        },
-      });
-    }
-  }
+  // NOTE: Absences are NOT persisted to EmployeeAbsence table.
+  // They are passed as blockedDates to the solver and stored as K/U
+  // assignment records. "Leeren" clears assignments, giving a clean slate.
 
   const encoder = new TextEncoder();
 
