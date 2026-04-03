@@ -75,6 +75,34 @@ function parseBlockedDates(raw: unknown): BlockedDateInput[] {
   return out;
 }
 
+type AbsenceInput = { employeeId: string; type: "KRANK" | "URLAUB"; startDate: string; endDate: string };
+
+function parseAbsences(raw: unknown): AbsenceInput[] {
+  if (!Array.isArray(raw)) return [];
+  const out: AbsenceInput[] = [];
+  for (const item of raw) {
+    if (
+      item &&
+      typeof item === "object" &&
+      typeof item.employeeId === "string" &&
+      typeof item.type === "string" &&
+      (item.type === "KRANK" || item.type === "URLAUB") &&
+      typeof item.startDate === "string" &&
+      typeof item.endDate === "string" &&
+      /^\d{4}-\d{2}-\d{2}$/.test(item.startDate) &&
+      /^\d{4}-\d{2}-\d{2}$/.test(item.endDate)
+    ) {
+      out.push({
+        employeeId: item.employeeId,
+        type: item.type,
+        startDate: item.startDate,
+        endDate: item.endDate,
+      });
+    }
+  }
+  return out;
+}
+
 /** Helper to resolve manual placement profile ID. */
 function resolveManualPlacementProfile(
   mp: ManualPlacementInput,
@@ -108,6 +136,7 @@ export async function POST(request: Request, context: RouteCtx) {
   const body = await request.json().catch(() => ({}));
   const manualPlacements = parseManualPlacements(body?.manualPlacements);
   const blockedDates = parseBlockedDates(body?.blockedDates);
+  const clientAbsences = parseAbsences(body?.absences);
   const clientMaxSolveTime = typeof body?.maxSolveTimeSeconds === "number"
     ? Math.max(30, Math.min(3600, body.maxSolveTimeSeconds))
     : null;
@@ -149,6 +178,22 @@ export async function POST(request: Request, context: RouteCtx) {
   // Allow client to override solve time limit per generation
   if (clientMaxSolveTime != null) {
     payload.maxSolveTimeSeconds = clientMaxSolveTime;
+  }
+
+  // Persist absences to DB so they are respected in future generations too
+  if (clientAbsences.length > 0) {
+    for (const abs of clientAbsences) {
+      const [sy, sm, sd] = abs.startDate.split("-").map(Number);
+      const [ey, em, ed] = abs.endDate.split("-").map(Number);
+      await prisma.employeeAbsence.create({
+        data: {
+          employeeId: abs.employeeId,
+          type: abs.type as "KRANK" | "URLAUB",
+          startDate: new Date(Date.UTC(sy!, sm! - 1, sd!)),
+          endDate: new Date(Date.UTC(ey!, em! - 1, ed!)),
+        },
+      });
+    }
   }
 
   const encoder = new TextEncoder();

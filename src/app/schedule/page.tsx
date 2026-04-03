@@ -52,6 +52,7 @@ import DeleteSweepIcon from "@mui/icons-material/DeleteSweep";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import CloseIcon from "@mui/icons-material/Close";
 import DescriptionIcon from "@mui/icons-material/Description";
+import SickIcon from "@mui/icons-material/Sick";
 import { ApiError, fetchJson } from "@/lib/api/fetchJson";
 import {
   monthRangeIso,
@@ -85,12 +86,13 @@ type ManualPlacement = {
 
 type PreGenEntry = {
   employeeId: string;
-  type: "shift" | "frei";
+  type: "shift" | "frei" | "absence";
   date: string;
   shiftProfileId: string;
   stationNumber: number;
   dateFrom: string;
   dateTo: string;
+  absenceType: "KRANK" | "URLAUB";
 };
 
 type GenProgress = {
@@ -656,17 +658,31 @@ export default function SchedulePage() {
           shiftType: prof?.shiftType ?? "EARLY",
         };
       });
-    const blockedDates = preGenEntries
+    const freiBlockedDates = preGenEntries
       .filter((e) => e.type === "frei")
       .flatMap((e) => expandDateRange(e.employeeId, e.dateFrom, e.dateTo));
+    const absenceBlockedDates = preGenEntries
+      .filter((e) => e.type === "absence")
+      .flatMap((e) => expandDateRange(e.employeeId, e.dateFrom, e.dateTo));
+    const blockedDates = [...freiBlockedDates, ...absenceBlockedDates];
+    const absences = preGenEntries
+      .filter((e) => e.type === "absence")
+      .map((e) => ({
+        employeeId: e.employeeId,
+        type: e.absenceType,
+        startDate: e.dateFrom,
+        endDate: e.dateTo,
+      }));
     const solveTimeVal = Number(solveTimeDraft);
     const body: {
       manualPlacements?: ManualPlacement[];
       blockedDates?: { employeeId: string; date: string }[];
+      absences?: { employeeId: string; type: string; startDate: string; endDate: string }[];
       maxSolveTimeSeconds?: number;
     } = {};
     if (manualPlacements.length > 0) body.manualPlacements = manualPlacements;
     if (blockedDates.length > 0) body.blockedDates = blockedDates;
+    if (absences.length > 0) body.absences = absences;
     if (solveTimeVal >= 30 && solveTimeVal <= 3600) body.maxSolveTimeSeconds = solveTimeVal;
 
     try {
@@ -730,9 +746,13 @@ export default function SchedulePage() {
         } else {
           msgParts.push("Es wurden keine Dienste eingetragen.");
         }
-        if (blockedDates.length > 0) {
-          const uniqueEmps = new Set(blockedDates.map((b) => b.employeeId)).size;
-          msgParts.push(`${blockedDates.length} Frei-Tag(e) für ${uniqueEmps} MA berücksichtigt.`);
+        if (freiBlockedDates.length > 0) {
+          const uniqueEmps = new Set(freiBlockedDates.map((b) => b.employeeId)).size;
+          msgParts.push(`${freiBlockedDates.length} Frei-Tag(e) für ${uniqueEmps} MA berücksichtigt.`);
+        }
+        if (absences.length > 0) {
+          const uniqueAbsEmps = new Set(absences.map((a) => a.employeeId)).size;
+          msgParts.push(`${absences.length} Abwesenheit(en) für ${uniqueAbsEmps} MA berücksichtigt.`);
         }
         const warnCount = (result.warnings?.length ?? 0);
         const unmet = result.unmetStaffing?.length ?? 0;
@@ -1005,7 +1025,7 @@ export default function SchedulePage() {
     ? employeeWarnings
     : (schedule?.warnings ?? []);
 
-  const addPreGenEntry = (type: "shift" | "frei") => {
+  const addPreGenEntry = (type: "shift" | "frei" | "absence") => {
     const first = sortedEmployees[0];
     if (!first || daysInMonth.length === 0) return;
     const firstDay = daysInMonth[0]!.iso;
@@ -1019,6 +1039,7 @@ export default function SchedulePage() {
         stationNumber: first.assignedStations?.[0] ?? 1,
         dateFrom: firstDay,
         dateTo: firstDay,
+        absenceType: "KRANK",
       },
     ]);
   };
@@ -1472,7 +1493,7 @@ export default function SchedulePage() {
                     flexWrap: "wrap",
                     p: 1.5,
                     borderRadius: 1,
-                    bgcolor: entry.type === "frei" ? "action.hover" : "transparent",
+                    bgcolor: entry.type === "frei" ? "action.hover" : entry.type === "absence" ? "#fff5f5" : "transparent",
                     border: "1px solid",
                     borderColor: "divider",
                   }}
@@ -1498,14 +1519,15 @@ export default function SchedulePage() {
                     label="Typ"
                     value={entry.type}
                     onChange={(e) => {
-                      const newType = e.target.value as "shift" | "frei";
+                      const newType = e.target.value as "shift" | "frei" | "absence";
                       updateEntry(idx, { type: newType });
                     }}
-                    sx={{ minWidth: 130 }}
+                    sx={{ minWidth: 150 }}
                     SelectProps={{ native: true }}
                   >
                     <option value="shift">Dienstwunsch</option>
                     <option value="frei">Frei-Wunsch</option>
+                    <option value="absence">Abwesenheit</option>
                   </TextField>
 
                   {entry.type === "shift" ? (
@@ -1553,6 +1575,61 @@ export default function SchedulePage() {
                         <option value={1}>Station 1</option>
                         <option value={2}>Station 2</option>
                         <option value={3}>Station 3</option>
+                      </TextField>
+                    </>
+                  ) : entry.type === "absence" ? (
+                    <>
+                      <TextField
+                        select
+                        size="small"
+                        label="Art"
+                        value={entry.absenceType}
+                        onChange={(e) => updateEntry(idx, { absenceType: e.target.value as "KRANK" | "URLAUB" })}
+                        sx={{ minWidth: 110 }}
+                        SelectProps={{ native: true }}
+                      >
+                        <option value="KRANK">Krank</option>
+                        <option value="URLAUB">Urlaub</option>
+                      </TextField>
+                      <TextField
+                        select
+                        size="small"
+                        label="Von"
+                        value={entry.dateFrom}
+                        onChange={(e) => {
+                          const from = e.target.value;
+                          const patch: Partial<PreGenEntry> = { dateFrom: from };
+                          if (from > entry.dateTo) patch.dateTo = from;
+                          updateEntry(idx, patch);
+                        }}
+                        sx={{ minWidth: 110 }}
+                        SelectProps={{ native: true }}
+                      >
+                        {daysInMonth.map((d) => (
+                          <option key={d.iso} value={d.iso}>
+                            {d.label}
+                          </option>
+                        ))}
+                      </TextField>
+                      <TextField
+                        select
+                        size="small"
+                        label="Bis"
+                        value={entry.dateTo}
+                        onChange={(e) => {
+                          const to = e.target.value;
+                          const patch: Partial<PreGenEntry> = { dateTo: to };
+                          if (to < entry.dateFrom) patch.dateFrom = to;
+                          updateEntry(idx, patch);
+                        }}
+                        sx={{ minWidth: 110 }}
+                        SelectProps={{ native: true }}
+                      >
+                        {daysInMonth.map((d) => (
+                          <option key={d.iso} value={d.iso}>
+                            {d.label}
+                          </option>
+                        ))}
                       </TextField>
                     </>
                   ) : (
@@ -1632,6 +1709,16 @@ export default function SchedulePage() {
             >
               Frei-Wunsch
             </Button>
+            <Button
+              size="small"
+              variant="outlined"
+              color="error"
+              startIcon={<SickIcon />}
+              onClick={() => addPreGenEntry("absence")}
+              disabled={sortedEmployees.length === 0}
+            >
+              Abwesenheit
+            </Button>
           </Box>
 
           <Divider sx={{ my: 2 }} />
@@ -1688,18 +1775,14 @@ export default function SchedulePage() {
             />
             <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
               <Typography variant="body2" color="text.secondary">
-                {genProgress.label}
+                {genProgress.solutions != null && genProgress.solutions > 0
+                  ? `Suche beste Lösung…${genProgress.objective != null ? ` Aktueller Wert: ${genProgress.objective.toFixed(0)}` : ""}`
+                  : genProgress.label}
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ fontVariantNumeric: "tabular-nums", ml: 2, whiteSpace: "nowrap" }}>
-                {genElapsed}s
+                {genElapsed}/{solveTimeDraft}s
               </Typography>
             </Box>
-            {genProgress.solutions != null && genProgress.solutions > 0 && (
-              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
-                Suche beste Lösung…
-                {genProgress.objective != null ? ` Aktueller Wert: ${genProgress.objective.toFixed(0)}` : ""}
-              </Typography>
-            )}
           </Box>
         </DialogContent>
       </Dialog>

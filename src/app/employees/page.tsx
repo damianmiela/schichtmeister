@@ -284,16 +284,6 @@ export default function EmployeesPage() {
   const [globalMaxConsecDays, setGlobalMaxConsecDays] = useState(7);
   const [shiftDistribution, setShiftDistribution] = useState<Record<string, string>>({});
 
-  const [absences, setAbsences] = useState<Absence[]>([]);
-  const [absencesLoading, setAbsencesLoading] = useState(false);
-  const [absenceType, setAbsenceType] = useState<"KRANK" | "URLAUB">("KRANK");
-  const [absenceStart, setAbsenceStart] = useState("");
-  const [absenceEnd, setAbsenceEnd] = useState("");
-  const [absenceNote, setAbsenceNote] = useState("");
-  const [absenceSaving, setAbsenceSaving] = useState(false);
-  const [absenceError, setAbsenceError] = useState<string | null>(null);
-  const [absenceEditId, setAbsenceEditId] = useState<string | null>(null);
-
   const [deleteTarget, setDeleteTarget] = useState<EmployeeRow | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [sortKey, setSortKey] = useState<"name" | "contract">("name");
@@ -329,21 +319,6 @@ export default function EmployeesPage() {
   useEffect(() => {
     void load();
   }, [load]);
-
-  const loadAbsences = useCallback(async (empId: string) => {
-    setAbsencesLoading(true);
-    setAbsenceError(null);
-    try {
-      const res = await fetchJson<{ absences: Absence[] }>(
-        `/api/employees/${empId}/absences`,
-      );
-      setAbsences(res.absences ?? []);
-    } catch (e) {
-      setAbsenceError(extractApiError(e, "Abwesenheiten laden fehlgeschlagen."));
-    } finally {
-      setAbsencesLoading(false);
-    }
-  }, []);
 
   const filtered = employees.filter((e) => {
     if (!search.trim()) return true;
@@ -416,17 +391,6 @@ export default function EmployeesPage() {
     setMaxConsecOverride(false);
     setMaxConsecDays(String(globalMaxConsecDays));
     setShiftDistribution({});
-    setAbsences([]);
-    setAbsenceError(null);
-    resetAbsenceForm();
-  };
-
-  const resetAbsenceForm = () => {
-    setAbsenceType("KRANK");
-    setAbsenceStart("");
-    setAbsenceEnd("");
-    setAbsenceNote("");
-    setAbsenceEditId(null);
   };
 
   useEffect(() => {
@@ -482,7 +446,6 @@ export default function EmployeesPage() {
     }
     setShiftDistribution(distStrs);
     setDialogOpen(true);
-    void loadAbsences(e.id);
   };
 
   const buildPayload = ():
@@ -581,46 +544,6 @@ export default function EmployeesPage() {
       setFormError(extractApiError(e, "Speichern fehlgeschlagen."));
     } finally {
       setSaving(false);
-    }
-  };
-
-  const submitAbsence = async () => {
-    if (!editingId) return;
-    if (!absenceStart || !absenceEnd) {
-      setAbsenceError("Datum Von und Bis sind erforderlich.");
-      return;
-    }
-    setAbsenceSaving(true);
-    setAbsenceError(null);
-    try {
-      await fetchJson(`/api/employees/${editingId}/absences`, {
-        method: "POST",
-        body: JSON.stringify({
-          type: absenceType,
-          startDate: absenceStart,
-          endDate: absenceEnd,
-          note: absenceNote.trim() || undefined,
-        }),
-      });
-      resetAbsenceForm();
-      await loadAbsences(editingId);
-    } catch (e) {
-      setAbsenceError(extractApiError(e, "Abwesenheit speichern fehlgeschlagen."));
-    } finally {
-      setAbsenceSaving(false);
-    }
-  };
-
-  const deleteAbsence = async (absenceId: string) => {
-    if (!editingId) return;
-    setAbsenceError(null);
-    try {
-      await fetchJson(`/api/employees/${editingId}/absences/${absenceId}`, {
-        method: "DELETE",
-      });
-      await loadAbsences(editingId);
-    } catch (e) {
-      setAbsenceError(extractApiError(e, "Abwesenheit löschen fehlgeschlagen."));
     }
   };
 
@@ -1205,189 +1128,6 @@ export default function EmployeesPage() {
             </Box>
           )}
 
-          {editingId && (
-            <>
-              <Divider sx={{ mt: 2 }} />
-              <Typography variant="subtitle1" fontWeight={600}>
-                Abwesenheiten
-              </Typography>
-
-              {absenceError && (
-                <Alert
-                  severity="error"
-                  onClose={() => setAbsenceError(null)}
-                >
-                  {absenceError}
-                </Alert>
-              )}
-
-              {absencesLoading ? (
-                <Box
-                  sx={{ display: "flex", justifyContent: "center", py: 2 }}
-                >
-                  <CircularProgress size={24} />
-                </Box>
-              ) : (
-                <TableContainer>
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Typ</TableCell>
-                        <TableCell>Von</TableCell>
-                        <TableCell>Bis</TableCell>
-                        <TableCell>Notiz</TableCell>
-                        <TableCell align="right">Aktionen</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {absences.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={5}>
-                            <Typography
-                              variant="caption"
-                              color="text.secondary"
-                            >
-                              Keine Abwesenheiten.
-                            </Typography>
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        absences.map((a) => (
-                          <TableRow key={a.id}>
-                            <TableCell>
-                              <Chip
-                                label={
-                                  ABSENCE_TYPE_LABELS[a.type] ?? a.type
-                                }
-                                size="small"
-                                color={
-                                  a.type === "KRANK" ? "error" : "info"
-                                }
-                                variant="filled"
-                                sx={{ fontWeight: 600 }}
-                              />
-                            </TableCell>
-                            <TableCell>{a.startDate}</TableCell>
-                            <TableCell>{a.endDate}</TableCell>
-                            <TableCell>
-                              {a.note || (
-                                <Typography
-                                  variant="caption"
-                                  color="text.secondary"
-                                >
-                                  —
-                                </Typography>
-                              )}
-                            </TableCell>
-                            <TableCell align="right">
-                              <IconButton
-                                size="small"
-                                aria-label="Abwesenheit bearbeiten"
-                                onClick={() => {
-                                  setAbsenceEditId(a.id);
-                                  setAbsenceType(
-                                    a.type as "KRANK" | "URLAUB",
-                                  );
-                                  setAbsenceStart(a.startDate);
-                                  setAbsenceEnd(a.endDate);
-                                  setAbsenceNote(a.note ?? "");
-                                }}
-                              >
-                                <EditIcon fontSize="small" />
-                              </IconButton>
-                              <IconButton
-                                size="small"
-                                aria-label="Abwesenheit löschen"
-                                color="error"
-                                onClick={() => void deleteAbsence(a.id)}
-                              >
-                                <DeleteIcon fontSize="small" />
-                              </IconButton>
-                            </TableCell>
-                          </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              )}
-
-              <Box
-                sx={{
-                  display: "flex",
-                  gap: 1.5,
-                  flexWrap: "wrap",
-                  alignItems: "flex-start",
-                  mt: 1,
-                }}
-              >
-                <TextField
-                  select
-                  label="Typ"
-                  value={absenceType}
-                  onChange={(e) =>
-                    setAbsenceType(e.target.value as "KRANK" | "URLAUB")
-                  }
-                  size="small"
-                  sx={{ minWidth: 120 }}
-                  disabled={absenceSaving}
-                >
-                  <MenuItem value="KRANK">Krank</MenuItem>
-                  <MenuItem value="URLAUB">Urlaub</MenuItem>
-                </TextField>
-                <TextField
-                  label="Von"
-                  type="date"
-                  value={absenceStart}
-                  onChange={(e) => setAbsenceStart(e.target.value)}
-                  size="small"
-                  InputLabelProps={{ shrink: true }}
-                  disabled={absenceSaving}
-                />
-                <TextField
-                  label="Bis"
-                  type="date"
-                  value={absenceEnd}
-                  onChange={(e) => setAbsenceEnd(e.target.value)}
-                  size="small"
-                  InputLabelProps={{ shrink: true }}
-                  disabled={absenceSaving}
-                />
-                <TextField
-                  label="Notiz"
-                  value={absenceNote}
-                  onChange={(e) => setAbsenceNote(e.target.value)}
-                  size="small"
-                  sx={{ flex: 1, minWidth: 120 }}
-                  disabled={absenceSaving}
-                />
-                <Button
-                  variant="outlined"
-                  size="small"
-                  sx={{ mt: 0.5 }}
-                  disabled={absenceSaving}
-                  onClick={() => void submitAbsence()}
-                >
-                  {absenceSaving ? (
-                    <CircularProgress size={18} />
-                  ) : absenceEditId ? (
-                    "Aktualisieren"
-                  ) : (
-                    "Neue Abwesenheit"
-                  )}
-                </Button>
-                {absenceEditId && (
-                  <Button
-                    size="small"
-                    sx={{ mt: 0.5 }}
-                    onClick={resetAbsenceForm}
-                  >
-                    Abbrechen
-                  </Button>
-                )}
-              </Box>
-            </>
-          )}
         </DialogContent>
         <DialogActions>
           <Button
