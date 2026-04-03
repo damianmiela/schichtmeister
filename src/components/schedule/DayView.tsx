@@ -248,6 +248,8 @@ function ColumnView({
     const nights: EmpRow[] = [];
 
     for (const a of dayAssignments) {
+      // Skip absence entries (K, U) — these employees are not working
+      if (a.dayStatus === "K" || a.dayStatus === "U") continue;
       const profile = profilesById[a.shiftProfileId];
       if (!profile) continue;
       const employee = employeesById[a.employeeId];

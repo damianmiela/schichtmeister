@@ -21,7 +21,7 @@ import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
 import { localIsoFromParts } from "@/lib/schedule/monthSchedule";
 import type { AssignmentJson, EmployeeJson, ShiftProfileJson } from "@/lib/schedule/scheduleTypes";
 import QualificationPills from "@/components/schedule/QualificationPills";
-import { monthlyWorkingDaysWithHolidays } from "@/lib/holidays";
+import { monthlyWorkingDaysWithHolidays, absenceDailyHours } from "@/lib/holidays";
 
 /* ──────────────────────── exported type ──────────────────────── */
 
@@ -366,15 +366,16 @@ export default function MonthTableView({
     return grouped;
   }, [shiftProfiles]);
 
-  // Map employeeId → daily absence hours (8h * percentage)
-  const empAbsenceDailyHours = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const emp of employees) {
-      const pct = emp.targetHoursPercent ?? 100;
-      map.set(emp.id, FULL_TIME_DAILY_HOURS * (pct / 100));
+  // Count K/U absence days per employee (for Soll reduction)
+  const empAbsenceDays = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const a of assignments) {
+      if (a.dayStatus && ABSENCE_STATUS_CODES.has(a.dayStatus)) {
+        counts.set(a.employeeId, (counts.get(a.employeeId) ?? 0) + 1);
+      }
     }
-    return map;
-  }, [employees]);
+    return counts;
+  }, [assignments]);
 
   const empPlannedHours = useMemo(() => {
     const hours = new Map<string, number>();
@@ -383,16 +384,8 @@ export default function MonthTableView({
     if (editMode && editedCells) {
       for (const [key, edit] of editedCells) {
         editedKeys.add(key);
+        if (edit.dayStatus) continue;
         const eid = key.split("|")[0]!;
-        const effectiveStatus = edit.dayStatus !== undefined
-          ? edit.dayStatus
-          : byEmpDay.get(key)?.dayStatus ?? null;
-        if (effectiveStatus && ABSENCE_STATUS_CODES.has(effectiveStatus)) {
-          const absH = empAbsenceDailyHours.get(eid) ?? FULL_TIME_DAILY_HOURS;
-          hours.set(eid, (hours.get(eid) ?? 0) + absH);
-          continue;
-        }
-        if (effectiveStatus) continue;
         let pid: string | null = null;
         if (edit.shiftProfileId !== undefined) {
           pid = edit.shiftProfileId ?? null;
@@ -410,11 +403,6 @@ export default function MonthTableView({
     for (const a of assignments) {
       const key = `${a.employeeId}|${a.date}`;
       if (editedKeys.has(key)) continue;
-      if (a.dayStatus && ABSENCE_STATUS_CODES.has(a.dayStatus)) {
-        const absH = empAbsenceDailyHours.get(a.employeeId) ?? FULL_TIME_DAILY_HOURS;
-        hours.set(a.employeeId, (hours.get(a.employeeId) ?? 0) + absH);
-        continue;
-      }
       if (a.dayStatus) continue;
       const p = profilesById[a.shiftProfileId];
       if (!p) continue;
@@ -422,7 +410,7 @@ export default function MonthTableView({
     }
 
     return hours;
-  }, [assignments, editMode, editedCells, byEmpDay, profilesById, empAbsenceDailyHours]);
+  }, [assignments, editMode, editedCells, byEmpDay, profilesById]);
 
   /* ──── menu helpers ──── */
 
@@ -546,7 +534,9 @@ export default function MonthTableView({
           <TableBody>
             {sorted.map((emp) => {
               const planned = empPlannedHours.get(emp.id) ?? 0;
-              const target = monthlyTargetForMonth(emp, year, monthIndex);
+              const rawTarget = monthlyTargetForMonth(emp, year, monthIndex);
+              const absDays = empAbsenceDays.get(emp.id) ?? 0;
+              const target = rawTarget != null ? rawTarget - absDays * absenceDailyHours(emp.targetHoursPercent) : null;
               const tags = emp.qualificationTags ?? [];
               const contractPct = emp.targetHoursPercent ?? 100;
 

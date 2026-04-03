@@ -41,7 +41,7 @@ import type { AssignmentJson, EmployeeJson, ShiftProfileJson } from "@/lib/sched
 import { localIsoFromParts } from "@/lib/schedule/monthSchedule";
 import { shiftTypeLabel } from "@/lib/schedule/viewUtils";
 import QualificationPills from "@/components/schedule/QualificationPills";
-import { computeSollHours } from "@/lib/holidays";
+import { computeSollHours, absenceDailyHours } from "@/lib/holidays";
 
 /* ──────────────────────── types ──────────────────────── */
 
@@ -222,12 +222,6 @@ export default function EmployeeView({
     return map;
   }, [assignments, employee.id]);
 
-  /* ── absence daily hours for this employee ── */
-  const absenceDailyHours = useMemo(() => {
-    const pct = employee.targetHoursPercent ?? 100;
-    return FULL_TIME_DAILY_HOURS * (pct / 100);
-  }, [employee.targetHoursPercent]);
-
   /* ── running totals ── */
   const runningTotals = useMemo(() => {
     const totals: number[] = [];
@@ -235,10 +229,6 @@ export default function EmployeeView({
     for (const { iso } of days) {
       const dayAssignments = assignmentsByDate.get(iso) ?? [];
       for (const a of dayAssignments) {
-        if (a.dayStatus && ABSENCE_STATUS_CODES.has(a.dayStatus)) {
-          cumulative += absenceDailyHours;
-          continue;
-        }
         if (a.dayStatus) continue;
         const p = profilesById[a.shiftProfileId];
         if (p) cumulative += paidHours(p);
@@ -246,7 +236,7 @@ export default function EmployeeView({
       totals.push(cumulative);
     }
     return totals;
-  }, [days, assignmentsByDate, profilesById, absenceDailyHours]);
+  }, [days, assignmentsByDate, profilesById]);
 
   /* ── totals ── */
   const { totalHours, workingDays } = useMemo(() => {
@@ -255,34 +245,46 @@ export default function EmployeeView({
     for (const [, dayAssignments] of assignmentsByDate) {
       wDays++;
       for (const a of dayAssignments) {
-        if (a.dayStatus && ABSENCE_STATUS_CODES.has(a.dayStatus)) {
-          hours += absenceDailyHours;
-          continue;
-        }
         if (a.dayStatus) continue;
         const p = profilesById[a.shiftProfileId];
         if (p) hours += paidHours(p);
       }
     }
     return { totalHours: hours, workingDays: wDays };
-  }, [assignmentsByDate, profilesById, absenceDailyHours]);
+  }, [assignmentsByDate, profilesById]);
 
-  /* ── Soll hours (holiday-aware) ── */
-  const target = useMemo(() => {
-    if (employee.targetHoursPercent != null && employee.targetHoursPercent > 0) {
-      return computeSollHours(year, monthIndex, employee.targetHoursPercent);
-    }
-    // Fallback for employees without targetHoursPercent but with targetHours
-    if (employee.targetHours != null) {
-      const soll = computeSollHours(year, monthIndex, 100);
-      if (soll == null) return null;
-      if (employee.targetHoursPeriod === "WEEKLY") {
-        return (employee.targetHours / 5) * (soll / 8);
+  /* ── count K/U absence days ── */
+  const absenceDayCount = useMemo(() => {
+    let count = 0;
+    for (const [, dayAssignments] of assignmentsByDate) {
+      for (const a of dayAssignments) {
+        if (a.dayStatus && ABSENCE_STATUS_CODES.has(a.dayStatus)) count++;
       }
-      return employee.targetHours * ((soll / 8) / 21.75);
     }
-    return computeSollHours(year, monthIndex, employee.targetHoursPercent);
-  }, [employee.targetHours, employee.targetHoursPercent, employee.targetHoursPeriod, year, monthIndex]);
+    return count;
+  }, [assignmentsByDate]);
+
+  /* ── Soll hours (holiday-aware, reduced by absence days) ── */
+  const target = useMemo(() => {
+    let raw: number | null = null;
+    if (employee.targetHoursPercent != null && employee.targetHoursPercent > 0) {
+      raw = computeSollHours(year, monthIndex, employee.targetHoursPercent);
+    } else if (employee.targetHours != null) {
+      const soll = computeSollHours(year, monthIndex, 100);
+      if (soll != null) {
+        if (employee.targetHoursPeriod === "WEEKLY") {
+          raw = (employee.targetHours / 5) * (soll / 8);
+        } else {
+          raw = employee.targetHours * ((soll / 8) / 21.75);
+        }
+      }
+    } else {
+      raw = computeSollHours(year, monthIndex, employee.targetHoursPercent);
+    }
+    if (raw == null) return null;
+    // Reduce Soll by absence days so K/U doesn't cause delta shift
+    return raw - absenceDayCount * absenceDailyHours(employee.targetHoursPercent);
+  }, [employee.targetHours, employee.targetHoursPercent, employee.targetHoursPeriod, year, monthIndex, absenceDayCount]);
 
   const delta = target != null ? totalHours - target : null;
   const tags = employee.qualificationTags ?? [];
@@ -621,6 +623,32 @@ export default function EmployeeView({
               }
 
               const dayAssignments = assignmentsByDate.get(iso) ?? [];
+
+              // Check for assignment-level absence status (K/U from generation)
+              const absAssignment = !editMode && dayAssignments.find(a => a.dayStatus && ABSENCE_STATUS_CODES.has(a.dayStatus));
+              if (absAssignment) {
+                const sc = STATUS_COLORS[absAssignment.dayStatus!] ?? STATUS_COLORS.X;
+                return (
+                  <TableRow key={iso} sx={{ bgcolor: sc.bg, ...(isToday && { borderLeft: `3px solid ${theme.palette.primary.main}` }) }}>
+                    <TableCell sx={{ fontWeight: isToday ? 700 : 500 }}>{day}.</TableCell>
+                    <TableCell>
+                      <Typography variant="caption" sx={{ color: isWeekend || isHoliday ? theme.palette.error.main : "text.secondary", fontWeight: isWeekend || isHoliday ? 600 : 400 }}>
+                        {weekday}
+                      </Typography>
+                    </TableCell>
+                    <TableCell colSpan={3}>
+                      <Typography variant="body2" sx={{ color: sc.color, fontWeight: 600 }}>{absAssignment.dayStatus}</Typography>
+                    </TableCell>
+                    <TableCell align="right">
+                      <Typography variant="body2" color="text.disabled">—</Typography>
+                    </TableCell>
+                    <TableCell align="right">
+                      <Typography variant="body2" color="text.disabled">{fmtHours(runningTotals[dayIdx])}h</Typography>
+                    </TableCell>
+                  </TableRow>
+                );
+              }
+
               const isFreiWish = freiWishSet?.has(wishKey);
               const isShiftWish = shiftWishSet?.has(wishKey) && dayAssignments.length > 0;
 

@@ -121,6 +121,17 @@ export function computeSollHours(
   return workingDays * 8 * (targetPercent / 100);
 }
 
+/**
+ * Hours credited per absence day (K/U) for a given employee percentage.
+ * Formula: 8h * (targetPercent / 100).  E.g. 75% → 6h per day.
+ */
+export function absenceDailyHours(
+  targetPercent: number | null | undefined,
+): number {
+  const pct = targetPercent ?? 100;
+  return 8 * (pct / 100);
+}
+
 /** ISO date string set for holidays in a date range (for UI indicators). */
 export function holidayDateMap(start: Date, end: Date): Map<string, string> {
   const map = new Map<string, string>();
