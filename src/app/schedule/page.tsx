@@ -162,6 +162,7 @@ export default function SchedulePage() {
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [preGenOpen, setPreGenOpen] = useState(false);
   const [preGenEntries, setPreGenEntries] = useState<PreGenEntry[]>([]);
+  const [solveTimeDraft, setSolveTimeDraft] = useState("120");
   const [editMode, setEditMode] = useState(false);
   const [editedCells, setEditedCells] = useState<Map<string, CellEdit>>(new Map());
   const [editedShiftWishSet, setEditedShiftWishSet] = useState<Set<string>>(new Set());
@@ -233,12 +234,17 @@ export default function SchedulePage() {
     const failLabels: string[] = [];
 
     try {
-    const [s0, s1, s2, s3] = await Promise.allSettled([
+    const [s0, s1, s2, s3, s4] = await Promise.allSettled([
       fetchJson<{ schedules: ScheduleSummary[] }>("/api/schedules"),
       fetchJson<{ employees: EmployeeJson[] }>("/api/employees"),
       fetchJson<{ shiftProfiles: ShiftProfileJson[] }>("/api/shift-profiles"),
       fetchJson<{ staffingRequirements: StaffingJson[] }>("/api/staffing-requirements"),
+      fetchJson<{ maxSolveTimeSeconds?: number }>("/api/facility/rules"),
     ]);
+
+    if (s4.status === "fulfilled" && s4.value.maxSolveTimeSeconds != null) {
+      setSolveTimeDraft(String(s4.value.maxSolveTimeSeconds));
+    }
 
     if (s1.status === "fulfilled") {
       setEmployees(s1.value.employees ?? []);
@@ -653,12 +659,15 @@ export default function SchedulePage() {
     const blockedDates = preGenEntries
       .filter((e) => e.type === "frei")
       .flatMap((e) => expandDateRange(e.employeeId, e.dateFrom, e.dateTo));
+    const solveTimeVal = Number(solveTimeDraft);
     const body: {
       manualPlacements?: ManualPlacement[];
       blockedDates?: { employeeId: string; date: string }[];
+      maxSolveTimeSeconds?: number;
     } = {};
     if (manualPlacements.length > 0) body.manualPlacements = manualPlacements;
     if (blockedDates.length > 0) body.blockedDates = blockedDates;
+    if (solveTimeVal >= 30 && solveTimeVal <= 3600) body.maxSolveTimeSeconds = solveTimeVal;
 
     try {
       const resp = await fetch(`/api/schedules/${schedule.id}/generate-stream`, {
@@ -1199,7 +1208,7 @@ export default function SchedulePage() {
                   setPreGenOpen(true);
                 }}
               >
-                {generateBusy ? <CircularProgress size={20} /> : "Entwurf füllen"}
+                {generateBusy ? <CircularProgress size={20} /> : "Generieren"}
               </Button>
               <Button
                 variant="outlined"
@@ -1623,6 +1632,35 @@ export default function SchedulePage() {
             >
               Frei-Wunsch
             </Button>
+          </Box>
+
+          <Divider sx={{ my: 2 }} />
+
+          {/* Solver time limit */}
+          <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+            <Box sx={{ flex: 1 }}>
+              <Typography variant="subtitle2" sx={{ mb: 0.25 }}>
+                Solver-Zeitlimit
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Mehr Zeit kann zu besseren Ergebnissen führen.
+              </Typography>
+            </Box>
+            <TextField
+              size="small"
+              type="number"
+              value={solveTimeDraft}
+              onChange={(e) => setSolveTimeDraft(e.target.value)}
+              inputProps={{ min: 30, max: 3600, step: 30 }}
+              sx={{ width: 130 }}
+              InputProps={{
+                endAdornment: (
+                  <Typography variant="caption" color="text.secondary" sx={{ ml: 0.5, whiteSpace: "nowrap" }}>
+                    Sek.
+                  </Typography>
+                ),
+              }}
+            />
           </Box>
         </DialogContent>
         <DialogActions>

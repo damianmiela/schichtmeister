@@ -1283,30 +1283,6 @@ export default function SettingsPage() {
                     />
                   </Box>
 
-                  <Box sx={{ mb: 3, p: 2, border: "1px solid", borderColor: "divider", borderRadius: 1 }}>
-                    <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
-                      Solver-Zeitlimit
-                    </Typography>
-                    <Typography
-                      variant="body2"
-                      color="text.secondary"
-                      sx={{ mb: 1.5 }}
-                    >
-                      Maximale Rechenzeit für die Dienstplan-Generierung. Mehr
-                      Zeit kann zu besseren Ergebnissen führen.
-                    </Typography>
-                    <TextField
-                      label="Zeitlimit (Sekunden)"
-                      size="small"
-                      type="number"
-                      value={maxSolveTimeDraft}
-                      onChange={(e) => setMaxSolveTimeDraft(e.target.value)}
-                      inputProps={{ min: 30, max: 3600, step: 30 }}
-                      sx={{ width: 200 }}
-                      helperText="Min. 30s, Max. 3600s (1 Stunde)"
-                    />
-                  </Box>
-
                   {visibleRules
                     .filter((r) => r.id !== "minRestBetweenShifts")
                     .map((rule) => {

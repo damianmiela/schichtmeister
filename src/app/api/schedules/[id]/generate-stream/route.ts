@@ -108,6 +108,9 @@ export async function POST(request: Request, context: RouteCtx) {
   const body = await request.json().catch(() => ({}));
   const manualPlacements = parseManualPlacements(body?.manualPlacements);
   const blockedDates = parseBlockedDates(body?.blockedDates);
+  const clientMaxSolveTime = typeof body?.maxSolveTimeSeconds === "number"
+    ? Math.max(30, Math.min(3600, body.maxSolveTimeSeconds))
+    : null;
 
   const schedule = await prisma.schedule.findFirst({
     where: { id: scheduleId, facilityId },
@@ -142,6 +145,11 @@ export async function POST(request: Request, context: RouteCtx) {
     manualPlacements,
     blockedDates,
   );
+
+  // Allow client to override solve time limit per generation
+  if (clientMaxSolveTime != null) {
+    payload.maxSolveTimeSeconds = clientMaxSolveTime;
+  }
 
   const encoder = new TextEncoder();
 
