@@ -13,6 +13,7 @@ import type { GenEmployee, MergedStaffingEntry, ManualPlacementInput } from "./g
 import { monthlyWorkingDays, monthlySollHours } from "./generateDraftSchedule";
 
 type BlockedDateInput = { employeeId: string; date: string };
+type AbsenceInput = { employeeId: string; type: "KRANK" | "URLAUB"; startDate: string; endDate: string };
 
 // ── Solver request types (mirror Python models.py) ──────────────────────────
 
@@ -166,6 +167,7 @@ export function buildSolverPayload(
   facility: FacilityRulesSlice,
   manualPlacements: ManualPlacementInput[],
   blockedDates: BlockedDateInput[],
+  absences: AbsenceInput[] = [],
 ): SolverPayload {
   const snapshot = mergePlanningRules(facility, defaultPlanningRulesConfig);
 
@@ -215,10 +217,30 @@ export function buildSolverPayload(
   const startMonth = periodStart.getUTCMonth();
   const wd = monthlyWorkingDays(startYear, startMonth);
 
+  // Count absence days per employee for proportional Soll reduction
+  const absenceDaysByEmployee: Record<string, number> = {};
+  for (const abs of absences) {
+    const [sy, sm, sd] = abs.startDate.split("-").map(Number);
+    const [ey, em, ed] = abs.endDate.split("-").map(Number);
+    let t = Date.UTC(sy!, sm! - 1, sd!);
+    const end = Date.UTC(ey!, em! - 1, ed!);
+    while (t <= end) {
+      absenceDaysByEmployee[abs.employeeId] = (absenceDaysByEmployee[abs.employeeId] ?? 0) + 1;
+      t += 86_400_000;
+    }
+  }
+
+  const calendarDays = new Date(startYear, startMonth + 1, 0).getDate();
+
   const sollByEmployee: Record<string, number> = {};
   const employees: SolverEmployee[] = genCtx.employees.map((e) => {
     if (e.targetHoursPercent != null) {
-      sollByEmployee[e.id] = monthlySollHours(wd, e.targetHoursPercent);
+      const fullSoll = monthlySollHours(wd, e.targetHoursPercent);
+      const absDays = absenceDaysByEmployee[e.id] ?? 0;
+      // Proportional reduction: each absence day reduces Soll by fullSoll/calendarDays
+      sollByEmployee[e.id] = absDays > 0
+        ? fullSoll - absDays * (fullSoll / calendarDays)
+        : fullSoll;
     }
     return {
       id: e.id,

@@ -173,6 +173,7 @@ export async function POST(request: Request, context: RouteCtx) {
     facility,
     manualPlacements,
     blockedDates,
+    clientAbsences,
   );
 
   // Allow client to override solve time limit per generation
