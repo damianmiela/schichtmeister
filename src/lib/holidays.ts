@@ -122,14 +122,22 @@ export function computeSollHours(
 }
 
 /**
- * Hours credited per absence day (K/U) for a given employee percentage.
- * Formula: 8h * (targetPercent / 100).  E.g. 75% → 6h per day.
+ * Soll-reduction per absence day (K/U).
+ *
+ * Uses **proportional scaling**: each calendar day of absence reduces Soll
+ * by `sollHours / daysInMonth`.  This correctly accounts for the fact that
+ * an employee does not work every calendar day — e.g. a 100 % employee with
+ * 160 h Soll in a 30-day month → 5.33 h per absence day, not 8 h.
+ *
+ * @param sollHours    The employee's raw monthly Soll (before absence adjustment)
+ * @param daysInMonth  Total calendar days in the month (28–31)
  */
 export function absenceDailyHours(
-  targetPercent: number | null | undefined,
+  sollHours: number,
+  daysInMonth: number,
 ): number {
-  const pct = targetPercent ?? 100;
-  return 8 * (pct / 100);
+  if (daysInMonth <= 0) return 0;
+  return sollHours / daysInMonth;
 }
 
 /** ISO date string set for holidays in a date range (for UI indicators). */

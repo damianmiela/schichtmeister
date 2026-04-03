@@ -282,8 +282,9 @@ export default function EmployeeView({
       raw = computeSollHours(year, monthIndex, employee.targetHoursPercent);
     }
     if (raw == null) return null;
-    // Reduce Soll by absence days so K/U doesn't cause delta shift
-    return raw - absenceDayCount * absenceDailyHours(employee.targetHoursPercent);
+    // Reduce Soll proportionally: each absence day reduces by raw / calendarDays
+    const calendarDays = new Date(year, monthIndex + 1, 0).getDate();
+    return raw - absenceDayCount * absenceDailyHours(raw, calendarDays);
   }, [employee.targetHours, employee.targetHoursPercent, employee.targetHoursPeriod, year, monthIndex, absenceDayCount]);
 
   const delta = target != null ? totalHours - target : null;

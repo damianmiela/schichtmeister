@@ -536,7 +536,8 @@ export default function MonthTableView({
               const planned = empPlannedHours.get(emp.id) ?? 0;
               const rawTarget = monthlyTargetForMonth(emp, year, monthIndex);
               const absDays = empAbsenceDays.get(emp.id) ?? 0;
-              const target = rawTarget != null ? rawTarget - absDays * absenceDailyHours(emp.targetHoursPercent) : null;
+              const calendarDays = new Date(year, monthIndex + 1, 0).getDate();
+              const target = rawTarget != null ? rawTarget - absDays * absenceDailyHours(rawTarget, calendarDays) : null;
               const tags = emp.qualificationTags ?? [];
               const contractPct = emp.targetHoursPercent ?? 100;
 
