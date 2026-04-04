@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import {
+  alpha,
   Box,
   Divider,
   ListItemIcon,
@@ -74,6 +75,14 @@ function formatHours(h: number): string {
 
 const FULL_TIME_DAILY_HOURS = 8;
 const ABSENCE_STATUS_CODES = new Set(["K", "U"]);
+
+/* Station / night color palette (matches EmployeeView) */
+const STATION_COLORS: Record<number, { main: string; light: string }> = {
+  1: { main: "#1565c0", light: "#e3f2fd" },
+  2: { main: "#2e7d32", light: "#e8f5e9" },
+  3: { main: "#e65100", light: "#fff3e0" },
+};
+const NIGHT_COLOR = { main: "#7e57c2", light: "#ede7f6" };
 
 function workingDaysInMonth(year: number, monthIndex: number): number {
   return monthlyWorkingDaysWithHolidays(year, monthIndex);
@@ -214,6 +223,8 @@ type CellDisplay = {
   row3: string;
   isStatus: boolean;
   statusCode?: string;
+  /** Cross-station/night indicator: shows a colored circle with label */
+  crossIndicator?: { label: string; main: string; light: string };
 };
 
 function getCellDisplay(
@@ -663,10 +674,23 @@ export default function MonthTableView({
                             display = { row1: "X", row2: "", row3: "", isStatus: true, statusCode: "X" };
                           }
                         } else if (typeof filter === "object" && "station" in filter) {
-                          const asgnStation = asgn.stationNumber
-                            ?? (emp.assignedStations?.length === 1 ? emp.assignedStations[0] : null);
-                          if (asgnStation != null && asgnStation !== filter.station) {
-                            display = { row1: "", row2: "", row3: "", isStatus: false, statusCode: "" };
+                          if (prof?.shiftType === "NIGHT") {
+                            // Night shift — show "N" circle in station table
+                            display = {
+                              row1: "", row2: "", row3: "", isStatus: false,
+                              crossIndicator: { label: "N", ...NIGHT_COLOR },
+                            };
+                          } else {
+                            const asgnStation = asgn.stationNumber
+                              ?? (emp.assignedStations?.length === 1 ? emp.assignedStations[0] : null);
+                            if (asgnStation != null && asgnStation !== filter.station) {
+                              // Different station — show station number circle
+                              const stColor = STATION_COLORS[asgnStation] ?? { main: "#78909c", light: "#eceff1" };
+                              display = {
+                                row1: "", row2: "", row3: "", isStatus: false,
+                                crossIndicator: { label: String(asgnStation), ...stColor },
+                              };
+                            }
                           }
                         }
                       }
@@ -749,6 +773,36 @@ export default function MonthTableView({
                               width: "100%",
                             }}
                           >
+                            {display.crossIndicator ? (
+                              /* Cross-station / night indicator circle */
+                              <Tooltip title={display.crossIndicator.label === "N" ? "Nachtschicht" : `Station ${display.crossIndicator.label}`} arrow>
+                                <Box sx={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  height: "100%",
+                                  width: "100%",
+                                }}>
+                                  <Box sx={{
+                                    width: 24,
+                                    height: 24,
+                                    borderRadius: "50%",
+                                    bgcolor: display.crossIndicator.light,
+                                    color: display.crossIndicator.main,
+                                    border: `1.5px solid ${alpha(display.crossIndicator.main, 0.3)}`,
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    lineHeight: 1,
+                                  }}>
+                                    {display.crossIndicator.label}
+                                  </Box>
+                                </Box>
+                              </Tooltip>
+                            ) : (
+                            <>
                             {/* Row 1 – shift profile / status */}
                             <Box
                               onClick={(ev) => {
@@ -839,6 +893,8 @@ export default function MonthTableView({
                             >
                               {display.row3 || "\u00A0"}
                             </Box>
+                            </>
+                            )}
                           </Box>
                         </TableCell>
                       </Tooltip>

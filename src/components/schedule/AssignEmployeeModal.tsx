@@ -15,10 +15,13 @@ import {
   alpha,
   Divider,
   IconButton,
+  Collapse,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import PersonAddIcon from "@mui/icons-material/PersonAdd";
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import QualificationPills from "@/components/schedule/QualificationPills";
 import RuleViolationsList from "@/components/schedule/RuleViolationsList";
 import type { ShiftProfileJson } from "@/lib/schedule/scheduleTypes";
@@ -220,9 +223,15 @@ export default function AssignEmployeeModal({
       .finally(() => setValidating(false));
   }, [selectedId, selectedProfileId, open, scheduleId, date, mode, replaceAssignmentId]);
 
-  // Filtered and sorted employee list
-  const filteredEmployees = useMemo(() => {
-    let list = employees.filter((e) => !e.hasAssignmentOnDate);
+  // Collapsible section state
+  const [mitarbeiterOpen, setMitarbeiterOpen] = useState(true);
+  const [azubisOpen, setAzubisOpen] = useState(true);
+
+  // Filtered and sorted employee list (excludes INACTIVE)
+  const { mitarbeiter, azubis } = useMemo(() => {
+    let list = employees.filter(
+      (e) => !e.hasAssignmentOnDate && e.status !== "INACTIVE",
+    );
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter(
@@ -231,17 +240,30 @@ export default function AssignEmployeeModal({
           e.lastName.toLowerCase().includes(q),
       );
     }
-    // Sort: qualification group → alphabetical
+    // Sort: station match first → Soll descending (fulltime first) → alphabetical
     list.sort((a, b) => {
-      const qa = qualSortKey(a.qualificationTags);
-      const qb = qualSortKey(b.qualificationTags);
-      if (qa !== qb) return qa - qb;
+      // Primary: employees assigned to this station come first
+      const aStation = stationNumber != null && a.assignedStations.includes(stationNumber) ? 0 : 1;
+      const bStation = stationNumber != null && b.assignedStations.includes(stationNumber) ? 0 : 1;
+      if (aStation !== bStation) return aStation - bStation;
+      // Secondary: higher Soll (targetHoursPercent) first
+      const aPct = a.targetHoursPercent ?? 0;
+      const bPct = b.targetHoursPercent ?? 0;
+      if (aPct !== bPct) return bPct - aPct;
+      // Tertiary: alphabetical
       const nameA = `${a.lastName} ${a.firstName}`.toLowerCase();
       const nameB = `${b.lastName} ${b.firstName}`.toLowerCase();
       return nameA.localeCompare(nameB);
     });
-    return list;
-  }, [employees, search]);
+    // Split into Mitarbeiter and Azubis
+    const ma: AvailableEmployee[] = [];
+    const az: AvailableEmployee[] = [];
+    for (const e of list) {
+      if (e.contractType === "AUSBILDUNG") az.push(e);
+      else ma.push(e);
+    }
+    return { mitarbeiter: ma, azubis: az };
+  }, [employees, search, stationNumber]);
 
   const selectedEmployee = employees.find((e) => e.id === selectedId) ?? null;
 
@@ -281,6 +303,97 @@ export default function AssignEmployeeModal({
     } finally {
       setSubmitting(false);
     }
+  };
+
+  // ── Employee row renderer ──
+  const renderEmployeeRow = (emp: AvailableEmployee) => {
+    const isSelected = emp.id === selectedId;
+    const statusInfo = STATUS_LABELS[emp.status] ?? { label: emp.status, color: "#9e9e9e" };
+    return (
+      <Box
+        key={emp.id}
+        onClick={() => setSelectedId(emp.id)}
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          gap: 1,
+          px: 1.5,
+          py: 0.75,
+          borderRadius: 1,
+          cursor: "pointer",
+          bgcolor: isSelected ? (t: { palette: { primary: { main: string } } }) => alpha(t.palette.primary.main, 0.1) : "transparent",
+          border: isSelected ? "1px solid" : "1px solid transparent",
+          borderColor: isSelected ? "primary.main" : "transparent",
+          "&:hover": {
+            bgcolor: isSelected
+              ? (t: { palette: { primary: { main: string } } }) => alpha(t.palette.primary.main, 0.1)
+              : "action.hover",
+          },
+          mb: 0.5,
+        }}
+      >
+        {/* Name */}
+        <Typography
+          variant="body2"
+          sx={{ fontWeight: isSelected ? 600 : 400, minWidth: 120, flexShrink: 0 }}
+        >
+          {emp.lastName}, {emp.firstName}
+        </Typography>
+
+        {/* Qualification pills */}
+        <Box sx={{ flexShrink: 0 }}>
+          <QualificationPills
+            qualifications={emp.qualifications}
+            tags={emp.qualificationTags}
+            compact
+          />
+        </Box>
+
+        {/* Hours */}
+        <Typography
+          variant="caption"
+          sx={{ flexShrink: 0, whiteSpace: "nowrap", color: "text.secondary" }}
+        >
+          {emp.istHours.toFixed(1)}/{emp.sollHours != null ? emp.sollHours.toFixed(1) : "–"}h
+          {emp.deltaHours != null && (
+            <Typography
+              component="span"
+              variant="caption"
+              sx={{
+                ml: 0.5,
+                fontWeight: 600,
+                color: emp.deltaHours > 0 ? "error.main" : emp.deltaHours < 0 ? "info.main" : "text.secondary",
+              }}
+            >
+              ({emp.deltaHours > 0 ? "+" : ""}{emp.deltaHours.toFixed(1)}h)
+            </Typography>
+          )}
+        </Typography>
+
+        {/* Soll-% */}
+        {emp.targetHoursPercent != null && (
+          <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
+            {emp.targetHoursPercent}%
+          </Typography>
+        )}
+
+        {/* Status */}
+        <Chip
+          label={statusInfo.label}
+          size="small"
+          sx={{
+            ml: "auto",
+            flexShrink: 0,
+            height: 18,
+            fontSize: 10,
+            fontWeight: 600,
+            bgcolor: alpha(statusInfo.color, 0.12),
+            color: statusInfo.color,
+            "& .MuiChip-label": { px: 0.75 },
+          }}
+        />
+      </Box>
+    );
   };
 
   // ── Header subtitle ──
@@ -372,100 +485,67 @@ export default function AssignEmployeeModal({
                 <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
                   <CircularProgress size={28} />
                 </Box>
-              ) : filteredEmployees.length === 0 ? (
+              ) : mitarbeiter.length === 0 && azubis.length === 0 ? (
                 <Typography variant="body2" color="text.secondary" sx={{ px: 1, py: 2, textAlign: "center" }}>
                   Keine verfügbaren Mitarbeiter
                 </Typography>
               ) : (
-                filteredEmployees.map((emp) => {
-                  const isSelected = emp.id === selectedId;
-                  const statusInfo = STATUS_LABELS[emp.status] ?? { label: emp.status, color: "#9e9e9e" };
-                  return (
-                    <Box
-                      key={emp.id}
-                      onClick={() => setSelectedId(emp.id)}
-                      sx={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 1,
-                        px: 1.5,
-                        py: 0.75,
-                        borderRadius: 1,
-                        cursor: "pointer",
-                        bgcolor: isSelected ? (t) => alpha(t.palette.primary.main, 0.1) : "transparent",
-                        border: isSelected ? "1px solid" : "1px solid transparent",
-                        borderColor: isSelected ? "primary.main" : "transparent",
-                        "&:hover": {
-                          bgcolor: isSelected
-                            ? (t) => alpha(t.palette.primary.main, 0.1)
-                            : "action.hover",
-                        },
-                        mb: 0.5,
-                      }}
-                    >
-                      {/* Name */}
-                      <Typography
-                        variant="body2"
-                        sx={{ fontWeight: isSelected ? 600 : 400, minWidth: 120, flexShrink: 0 }}
-                      >
-                        {emp.lastName}, {emp.firstName}
-                      </Typography>
-
-                      {/* Qualification pills */}
-                      <Box sx={{ flexShrink: 0 }}>
-                        <QualificationPills
-                          qualifications={emp.qualifications}
-                          tags={emp.qualificationTags}
-                          compact
-                        />
-                      </Box>
-
-                      {/* Hours */}
-                      <Typography
-                        variant="caption"
-                        sx={{ flexShrink: 0, whiteSpace: "nowrap", color: "text.secondary" }}
-                      >
-                        {emp.istHours.toFixed(1)}/{emp.sollHours != null ? emp.sollHours.toFixed(1) : "–"}h
-                        {emp.deltaHours != null && (
-                          <Typography
-                            component="span"
-                            variant="caption"
-                            sx={{
-                              ml: 0.5,
-                              fontWeight: 600,
-                              color: emp.deltaHours > 0 ? "error.main" : emp.deltaHours < 0 ? "info.main" : "text.secondary",
-                            }}
-                          >
-                            ({emp.deltaHours > 0 ? "+" : ""}{emp.deltaHours.toFixed(1)}h)
-                          </Typography>
-                        )}
-                      </Typography>
-
-                      {/* Soll-% */}
-                      {emp.targetHoursPercent != null && (
-                        <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
-                          {emp.targetHoursPercent}%
-                        </Typography>
-                      )}
-
-                      {/* Status */}
-                      <Chip
-                        label={statusInfo.label}
-                        size="small"
+                <>
+                  {/* Mitarbeiter section */}
+                  {mitarbeiter.length > 0 && (
+                    <>
+                      <Box
+                        onClick={() => setMitarbeiterOpen((v) => !v)}
                         sx={{
-                          ml: "auto",
-                          flexShrink: 0,
-                          height: 18,
-                          fontSize: 10,
-                          fontWeight: 600,
-                          bgcolor: alpha(statusInfo.color, 0.12),
-                          color: statusInfo.color,
-                          "& .MuiChip-label": { px: 0.75 },
+                          display: "flex",
+                          alignItems: "center",
+                          px: 1,
+                          py: 0.5,
+                          cursor: "pointer",
+                          userSelect: "none",
+                          "&:hover": { bgcolor: "action.hover" },
+                          borderRadius: 1,
                         }}
-                      />
-                    </Box>
-                  );
-                })
+                      >
+                        {mitarbeiterOpen ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                        <Typography variant="subtitle2" sx={{ ml: 0.5, fontWeight: 600, fontSize: 13 }}>
+                          Mitarbeiter ({mitarbeiter.length})
+                        </Typography>
+                      </Box>
+                      <Collapse in={mitarbeiterOpen}>
+                        {mitarbeiter.map((emp) => renderEmployeeRow(emp))}
+                      </Collapse>
+                    </>
+                  )}
+
+                  {/* Azubis section */}
+                  {azubis.length > 0 && (
+                    <>
+                      <Box
+                        onClick={() => setAzubisOpen((v) => !v)}
+                        sx={{
+                          display: "flex",
+                          alignItems: "center",
+                          px: 1,
+                          py: 0.5,
+                          mt: mitarbeiter.length > 0 ? 1 : 0,
+                          cursor: "pointer",
+                          userSelect: "none",
+                          "&:hover": { bgcolor: "action.hover" },
+                          borderRadius: 1,
+                        }}
+                      >
+                        {azubisOpen ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                        <Typography variant="subtitle2" sx={{ ml: 0.5, fontWeight: 600, fontSize: 13 }}>
+                          Azubis ({azubis.length})
+                        </Typography>
+                      </Box>
+                      <Collapse in={azubisOpen}>
+                        {azubis.map((emp) => renderEmployeeRow(emp))}
+                      </Collapse>
+                    </>
+                  )}
+                </>
               )}
             </Box>
           </Box>
