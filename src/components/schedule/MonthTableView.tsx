@@ -475,7 +475,17 @@ export default function MonthTableView({
     const sorted = sortEmployees(filtered);
 
     return (
-      <Box key={title} sx={{ mb: 2 }}>
+      <Box key={title} sx={{
+        mb: 2,
+        bgcolor:
+          filter === "night-only"
+            ? NIGHT_COLOR.light
+            : typeof filter === "object" && "station" in filter
+              ? STATION_COLORS[filter.station]?.light
+              : undefined,
+        borderRadius: 1,
+        p: filter !== "none" ? 1 : 0,
+      }}>
         <Table size="small" stickyHeader>
           <TableHead>
             <TableRow>
