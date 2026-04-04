@@ -594,6 +594,8 @@ export default function MonthTableView({
                       left: 0,
                       bgcolor: "background.paper",
                       zIndex: 1,
+                      borderBottom: "2px solid",
+                      borderBottomColor: "grey.400",
                     }}
                   >
                     <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
@@ -628,8 +630,10 @@ export default function MonthTableView({
                       left: NAME_COL_WIDTH,
                       bgcolor: "background.paper",
                       zIndex: 1,
-                      borderRight: 1,
-                      borderColor: "divider",
+                      borderRight: "2px solid",
+                      borderRightColor: "grey.400",
+                      borderBottom: "2px solid",
+                      borderBottomColor: "grey.400",
                       whiteSpace: "nowrap",
                       fontSize: 11,
                     }}
@@ -775,6 +779,10 @@ export default function MonthTableView({
                             cursor: "pointer",
                             bgcolor: cellBg,
                             color: cellColor,
+                            borderRight: "1px solid",
+                            borderRightColor: "divider",
+                            borderBottom: "2px solid",
+                            borderBottomColor: "grey.400",
                             "&:hover": { opacity: 0.85 },
                             ...(isShiftWish && { fontWeight: 700 }),
                             ...(isFreiWish && { fontStyle: "italic" }),
@@ -841,7 +849,7 @@ export default function MonthTableView({
                                 justifyContent: "center",
                                 flex: 1,
                                 borderBottom: "1px solid",
-                                borderColor: "divider",
+                                borderColor: "grey.200",
                                 "&:hover": editMode
                                   ? { bgcolor: "action.hover" }
                                   : undefined,
@@ -872,7 +880,7 @@ export default function MonthTableView({
                                 justifyContent: "center",
                                 flex: 1,
                                 borderBottom: "1px solid",
-                                borderColor: "divider",
+                                borderColor: "grey.200",
                                 "&:hover": editMode
                                   ? { bgcolor: "action.hover" }
                                   : undefined,
