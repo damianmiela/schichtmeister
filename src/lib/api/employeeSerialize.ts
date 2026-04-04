@@ -9,6 +9,7 @@ export type QualificationPayload = {
   id: string;
   name: string;
   abbreviation: string;
+  sortOrder: number;
 };
 
 export type AllowedShiftProfilePayload = {
@@ -45,7 +46,7 @@ type WorkProfileSlice = {
   name: string;
 };
 
-type QualificationSlice = { id: string; name: string; abbreviation: string };
+type QualificationSlice = { id: string; name: string; abbreviation: string; sortOrder: number };
 type AllowedProfileSlice = { id: string; name: string; shiftType: ShiftType };
 
 export function serializeEmployee(
@@ -96,6 +97,7 @@ export function serializeEmployee(
       id: q.id,
       name: q.name,
       abbreviation: q.abbreviation,
+      sortOrder: q.sortOrder,
     })),
     allowedShiftProfiles: (e.allowedShiftProfiles ?? []).map((p) => ({
       id: p.id,

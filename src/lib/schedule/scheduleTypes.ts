@@ -31,7 +31,7 @@ export type EmployeeJson = {
   lastName: string;
   status?: string;
   qualificationTags?: string[];
-  qualifications?: { id: string; abbreviation: string; name: string }[];
+  qualifications?: { id: string; abbreviation: string; name: string; sortOrder: number }[];
   targetHours?: number | null;
   targetHoursPeriod?: string | null;
   targetHoursPercent?: number | null;

@@ -208,8 +208,17 @@ function getNightEmployees(
   return employees.filter((e) => nightEmpIds.has(e.id));
 }
 
+/** Best (lowest) qualification sortOrder for an employee; 9999 if none. */
+function bestQualSortOrder(emp: EmployeeJson): number {
+  if (!emp.qualifications || emp.qualifications.length === 0) return 9999;
+  return Math.min(...emp.qualifications.map((q) => q.sortOrder));
+}
+
 function sortEmployees(emps: EmployeeJson[]): EmployeeJson[] {
   return [...emps].sort((a, b) => {
+    const qa = bestQualSortOrder(a);
+    const qb = bestQualSortOrder(b);
+    if (qa !== qb) return qa - qb;
     const ln = a.lastName.localeCompare(b.lastName, "de");
     return ln !== 0 ? ln : a.firstName.localeCompare(b.firstName, "de");
   });

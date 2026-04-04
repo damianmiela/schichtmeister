@@ -198,9 +198,18 @@ export default function SchedulePage() {
 
   const sortedEmployees = useMemo(
     () =>
-      [...employees].sort((a, b) =>
-        `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`, "de"),
-      ),
+      [...employees].sort((a, b) => {
+        // Primary: qualification sortOrder (lowest first)
+        const qa = a.qualifications?.length
+          ? Math.min(...a.qualifications.map((q) => q.sortOrder))
+          : 9999;
+        const qb = b.qualifications?.length
+          ? Math.min(...b.qualifications.map((q) => q.sortOrder))
+          : 9999;
+        if (qa !== qb) return qa - qb;
+        // Secondary: alphabetical
+        return `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`, "de");
+      }),
     [employees],
   );
 
