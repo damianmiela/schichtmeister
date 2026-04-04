@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import MainLayout from "@/components/layout/MainLayout";
 import { ApiError, fetchJson } from "@/lib/api/fetchJson";
@@ -10,7 +11,6 @@ import {
   Card,
   CardContent,
   Typography,
-  Grid,
   Chip,
   Table,
   TableBody,
@@ -24,55 +24,101 @@ import {
   Button,
   Alert,
   CircularProgress,
+  Tooltip,
 } from "@mui/material";
 import PeopleIcon from "@mui/icons-material/People";
-import EventAvailableIcon from "@mui/icons-material/EventAvailable";
-import WarningAmberIcon from "@mui/icons-material/WarningAmber";
+import PersonOffIcon from "@mui/icons-material/PersonOff";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
-import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
-import { shiftTypeLabel } from "@/lib/schedule/viewUtils";
 
-type DashboardSummary = {
-  employeeCount: number;
-  openWishCount: number;
-  openSwapCount: number;
-  draftScheduleCount: number;
-  publishedScheduleCount: number;
-  assignmentsThisWeek: number;
-  coveragePct: number | null;
-  todayLabel: string;
-  todayShifts: {
-    shiftType: string;
-    shiftTypeLabel: string;
-    required: number;
-    assigned: number;
-    employees: { initials: string; name: string }[];
-  }[];
-  recentWishes: {
-    id: string;
-    employeeName: string;
-    date: string;
-    shiftType: string | null;
-    priority: string;
-    status: string;
-  }[];
+/* ── colors (consistent with MonthTableView / EmployeeView) ── */
+const STATION_COLORS: Record<number, { main: string; light: string }> = {
+  1: { main: "#1565c0", light: "#e3f2fd" },
+  2: { main: "#2e7d32", light: "#e8f5e9" },
+  3: { main: "#e65100", light: "#fff3e0" },
+};
+const NIGHT_COLOR = { main: "#7e57c2", light: "#ede7f6" };
+
+const STATUS_LABELS: Record<string, string> = {
+  KRANK: "Krank",
+  LANGZEITKRANK: "Langzeitkrank",
+  URLAUB: "Urlaub",
+  MUTTERSCHUTZ: "Mutterschutz",
+  KUR: "Kur",
 };
 
-function priorityDe(p: string) {
-  return p === "STRONG" ? "Stark" : "Normal";
+/* ── types ── */
+type StationShift = {
+  shiftType: string;
+  shiftTypeLabel: string;
+  assigned: number;
+  required: number;
+  employees: { initials: string; name: string }[];
+};
+
+type StationData = {
+  station: number;
+  label: string;
+  shifts: StationShift[];
+};
+
+type DayPreview = {
+  date: string;
+  weekday: string;
+  isToday: boolean;
+  stations: Record<number, { early: number; late: number }>;
+  night: number;
+  totalAssigned: number;
+  totalRequired: number;
+};
+
+type DashboardData = {
+  activeCount: number;
+  absentCount: number;
+  absentEmployees: { name: string; status: string; returnDate?: string }[];
+  coveragePct: number | null;
+  todayLabel: string;
+  schedule: { id: string; status: string; periodStart: string; periodEnd: string } | null;
+  draftCount: number;
+  publishedCount: number;
+  todayStations: StationData[];
+  todayNight: StationShift;
+  weekPreview: DayPreview[];
+};
+
+/* ── helpers ── */
+function coverageColor(assigned: number, required: number): "success" | "warning" | "error" | "info" {
+  if (required === 0) return assigned > 0 ? "info" : "info";
+  const pct = assigned / required;
+  if (pct >= 1) return "success";
+  if (pct >= 0.7) return "warning";
+  return "error";
 }
 
-function wishStatusDe(s: string) {
-  if (s === "OPEN") return "Offen";
-  if (s === "FULFILLED") return "Erfüllt";
-  if (s === "NOT_FULFILLED") return "Abgelehnt";
-  return s;
+function coverageBg(assigned: number, required: number): string {
+  if (required === 0) return "transparent";
+  const pct = assigned / required;
+  if (pct >= 1) return "#e8f5e9";
+  if (pct >= 0.7) return "#fff8e1";
+  return "#ffebee";
 }
 
+function formatDe(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y!, m! - 1, d!).toLocaleDateString("de-DE", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
+/* ── component ── */
 export default function DashboardPage() {
   const { data: session, status: sessionStatus } = useSession();
-  const [data, setData] = useState<DashboardSummary | null>(null);
+  const router = useRouter();
+  const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -85,17 +131,13 @@ export default function DashboardPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetchJson<DashboardSummary>("/api/dashboard/summary");
+      const res = await fetchJson<DashboardData>("/api/dashboard/summary");
       setData(res);
     } catch (e) {
       if (e instanceof ApiError) {
         const msg =
-          e.body &&
-          typeof e.body === "object" &&
-          e.body !== null &&
-          "error" in e.body &&
-          typeof (e.body as { error: unknown }).error === "string"
-            ? (e.body as { error: string }).error
+          e.body && typeof e.body === "object" && e.body !== null && "error" in e.body
+            ? String((e.body as { error: unknown }).error)
             : "Laden fehlgeschlagen.";
         setError(msg);
       } else setError("Netzwerkfehler");
@@ -125,19 +167,10 @@ export default function DashboardPage() {
       <MainLayout title="Dashboard">
         <Card>
           <CardContent>
-            <Typography variant="h6" gutterBottom>
-              Willkommen
+            <Typography variant="h6" gutterBottom>Willkommen</Typography>
+            <Typography color="text.secondary">
+              Diese Übersicht ist für Planer sichtbar.
             </Typography>
-            <Typography color="text.secondary" paragraph>
-              Diese Übersicht ist für Planer sichtbar. Sie können Ihre Dienstwünsche und Tauschanfragen über
-              die Menüpunkte pflegen.
-            </Typography>
-            <Button component={Link} href="/wishes" variant="contained" sx={{ mr: 1 }}>
-              Dienstwünsche
-            </Button>
-            <Button component={Link} href="/swaps" variant="outlined">
-              Tausch
-            </Button>
           </CardContent>
         </Card>
       </MainLayout>
@@ -147,282 +180,446 @@ export default function DashboardPage() {
   if (!data) {
     return (
       <MainLayout title="Dashboard">
-        {error ? (
-          <Alert severity="error">{error}</Alert>
-        ) : (
-          <Typography color="text.secondary">Keine Daten.</Typography>
-        )}
+        {error ? <Alert severity="error">{error}</Alert> : <Typography color="text.secondary">Keine Daten.</Typography>}
       </MainLayout>
     );
   }
 
-  const stats = [
-    {
-      title: "Mitarbeiter",
-      value: String(data.employeeCount),
-      subtitle: "in der Einrichtung",
-      icon: <PeopleIcon />,
-      color: "#1565c0",
-    },
-    {
-      title: "Diese Woche",
-      value: String(data.assignmentsThisWeek),
-      subtitle: "Zuweisungen (Mo–So)",
-      icon: <EventAvailableIcon />,
-      color: "#00897b",
-    },
-    {
-      title: "Offene Wünsche",
-      value: String(data.openWishCount),
-      subtitle: "zu bearbeiten",
-      icon: <WarningAmberIcon />,
-      color: "#ed6c02",
-    },
-    {
-      title: "Besetzung heute",
-      value: data.coveragePct != null ? `${data.coveragePct}%` : "—",
-      subtitle:
-        data.todayShifts.length > 0
-          ? "nach Mindestbesetzung"
-          : "kein Plan / keine Schichten",
-      icon: <CheckCircleIcon />,
-      color: "#2e7d32",
-    },
-  ];
-
-  const todayTitle = new Date(`${data.todayLabel}T12:00:00`).toLocaleDateString("de-DE", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
+  const todayTitle = formatDe(data.todayLabel);
 
   return (
     <MainLayout title="Dashboard">
-      <Grid container spacing={2} sx={{ mb: 2 }}>
-        <Grid size={{ xs: 12 }}>
-          <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
-            <Chip size="small" label={`Entwürfe: ${data.draftScheduleCount}`} variant="outlined" />
-            <Chip
+      {/* ═══════════ TOP METRIC CARDS ═══════════ */}
+      <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", mb: 3 }}>
+        {/* Active employees */}
+        <MetricCard
+          icon={<PeopleIcon />}
+          color="#1565c0"
+          label="Aktive Mitarbeiter"
+          value={data.activeCount}
+          onClick={() => router.push("/employees")}
+        />
+        {/* Absent */}
+        <MetricCard
+          icon={<PersonOffIcon />}
+          color="#e65100"
+          label="Abwesend"
+          value={data.absentCount}
+          subtitle={data.absentEmployees.length > 0
+            ? data.absentEmployees.slice(0, 3).map((e) => e.name.split(",")[0]).join(", ") +
+              (data.absentEmployees.length > 3 ? ` +${data.absentEmployees.length - 3}` : "")
+            : undefined
+          }
+          onClick={() => router.push("/employees")}
+        />
+        {/* Coverage */}
+        <MetricCard
+          icon={<CheckCircleIcon />}
+          color={data.coveragePct != null && data.coveragePct >= 100 ? "#2e7d32" : data.coveragePct != null && data.coveragePct >= 70 ? "#ed6c02" : "#d32f2f"}
+          label="Besetzung heute"
+          value={data.coveragePct != null ? `${data.coveragePct}%` : "—"}
+        />
+        {/* Schedule status */}
+        <MetricCard
+          icon={<CalendarMonthIcon />}
+          color={data.schedule?.status === "PUBLISHED" ? "#2e7d32" : "#ed6c02"}
+          label="Monatsplan"
+          value={data.schedule ? (data.schedule.status === "PUBLISHED" ? "Veröffentlicht" : "Entwurf") : "Kein Plan"}
+          subtitle={data.schedule ? `${data.draftCount} Entwürfe · ${data.publishedCount} Veröffentlicht` : undefined}
+          onClick={() => router.push("/schedule")}
+        />
+      </Box>
+
+      {/* ═══════════ TODAY'S STAFFING ═══════════ */}
+      <Card sx={{ mb: 3 }}>
+        <CardContent sx={{ pb: "16px !important" }}>
+          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
+            <Box>
+              <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                Heute · {todayTitle}
+              </Typography>
+            </Box>
+            <Button
+              component={Link}
+              href="/schedule"
+              endIcon={<ArrowForwardIcon />}
               size="small"
-              label={`Veröffentlicht: ${data.publishedScheduleCount}`}
-              color="success"
               variant="outlined"
-            />
-            <Chip
-              size="small"
-              icon={<SwapHorizIcon sx={{ fontSize: 18 }} />}
-              label={`Tausch offen: ${data.openSwapCount}`}
-              variant="outlined"
-            />
+            >
+              Tagesansicht
+            </Button>
           </Box>
-        </Grid>
-      </Grid>
 
-      <Grid container spacing={3}>
-        {stats.map((stat) => (
-          <Grid size={{ xs: 12, sm: 6, md: 3 }} key={stat.title}>
-            <Card>
-              <CardContent>
-                <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                  <Box>
-                    <Typography color="text.secondary" variant="body2">
-                      {stat.title}
-                    </Typography>
-                    <Typography variant="h4" sx={{ my: 1 }}>
-                      {stat.value}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {stat.subtitle}
-                    </Typography>
-                  </Box>
-                  <Box
-                    sx={{
-                      bgcolor: `${stat.color}15`,
-                      borderRadius: 2,
-                      p: 1.5,
-                      height: "fit-content",
-                      color: stat.color,
-                    }}
-                  >
-                    {stat.icon}
-                  </Box>
-                </Box>
-              </CardContent>
-            </Card>
-          </Grid>
-        ))}
+          {data.todayStations.length === 0 && data.todayNight.assigned === 0 ? (
+            <Typography color="text.secondary">
+              Keine Zuweisungen für heute (oder kein Plan für dieses Datum).
+            </Typography>
+          ) : (
+            <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
+              {/* Station cards */}
+              {data.todayStations.map((st) => (
+                <StationCard key={st.station} station={st} />
+              ))}
+              {/* Night card */}
+              <NightCard night={data.todayNight} />
+            </Box>
+          )}
+        </CardContent>
+      </Card>
 
-        <Grid size={{ xs: 12, md: 8 }}>
-          <Card>
-            <CardContent>
-              <Box
-                sx={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  mb: 2,
-                }}
-              >
-                <Typography variant="h6">Heute · {todayTitle}</Typography>
-                <Button component={Link} href="/schedule" endIcon={<ArrowForwardIcon />} size="small">
-                  Zum Monatplan
-                </Button>
-              </Box>
-              {data.todayShifts.length === 0 ? (
-                <Typography color="text.secondary">
-                  Keine Zuweisungen für heute (oder kein Plan für dieses Datum).
-                </Typography>
-              ) : (
-                <TableContainer>
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Schicht</TableCell>
-                        <TableCell>Besetzung</TableCell>
-                        <TableCell>Mitarbeiter</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {data.todayShifts.map((shift) => {
-                        const req = shift.required;
-                        const pct =
-                          req > 0
-                            ? Math.min(100, (shift.assigned / req) * 100)
-                            : shift.assigned > 0
-                              ? 100
-                              : 0;
-                        const color =
-                          req === 0
-                            ? "info"
-                            : shift.assigned >= req
-                              ? "success"
-                              : "warning";
-                        return (
-                          <TableRow key={shift.shiftType}>
-                            <TableCell>
-                              <Chip
-                                label={shift.shiftTypeLabel}
-                                size="small"
-                                color={
-                                  shift.shiftType === "EARLY"
-                                    ? "warning"
-                                    : shift.shiftType === "LATE"
-                                      ? "info"
-                                      : "secondary"
-                                }
-                                sx={{ fontWeight: 500 }}
-                              />
-                            </TableCell>
-                            <TableCell>
-                              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                                <Box sx={{ flexGrow: 1, maxWidth: 120 }}>
-                                  <LinearProgress
-                                    variant="determinate"
-                                    value={pct}
-                                    color={color}
-                                    sx={{ height: 8, borderRadius: 1 }}
-                                  />
-                                </Box>
-                                <Typography variant="body2">
-                                  {shift.assigned}/{req || "—"}
-                                </Typography>
-                              </Box>
-                            </TableCell>
-                            <TableCell>
-                              <AvatarGroup max={6} sx={{ justifyContent: "flex-start" }}>
-                                {shift.employees.map((p) => (
-                                  <Avatar
-                                    key={`${shift.shiftType}-${p.initials}-${p.name}`}
-                                    sx={{
-                                      width: 28,
-                                      height: 28,
-                                      fontSize: 11,
-                                      bgcolor: "primary.main",
-                                    }}
-                                    title={p.name}
-                                  >
-                                    {p.initials}
-                                  </Avatar>
-                                ))}
-                              </AvatarGroup>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
+      {/* ═══════════ ABSENT EMPLOYEES ═══════════ */}
+      {data.absentEmployees.length > 0 && (
+        <Card sx={{ mb: 3 }}>
+          <CardContent sx={{ pb: "16px !important" }}>
+            <Typography variant="h6" sx={{ fontWeight: 600, mb: 1.5 }}>
+              Abwesende Mitarbeiter
+            </Typography>
+            <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+              {data.absentEmployees.map((emp) => (
+                <Chip
+                  key={emp.name}
+                  label={
+                    `${emp.name} · ${STATUS_LABELS[emp.status] ?? emp.status}` +
+                    (emp.returnDate ? ` · zurück ${new Date(emp.returnDate + "T12:00:00").toLocaleDateString("de-DE", { day: "numeric", month: "short" })}` : "")
+                  }
+                  size="small"
+                  variant="outlined"
+                  sx={{
+                    borderColor: emp.status === "KRANK" || emp.status === "LANGZEITKRANK" ? "#ef5350" : "#ff9800",
+                    color: emp.status === "KRANK" || emp.status === "LANGZEITKRANK" ? "#c62828" : "#e65100",
+                  }}
+                />
+              ))}
+            </Box>
+          </CardContent>
+        </Card>
+      )}
 
-        <Grid size={{ xs: 12, md: 4 }}>
-          <Card sx={{ height: "100%" }}>
-            <CardContent>
-              <Box
-                sx={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  mb: 2,
-                }}
-              >
-                <Typography variant="h6">Letzte Dienstwünsche</Typography>
-                <Chip label={`${data.openWishCount} offen`} size="small" color="warning" />
-              </Box>
-              <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                {data.recentWishes.length === 0 ? (
-                  <Typography color="text.secondary">Noch keine Wünsche.</Typography>
-                ) : (
-                  data.recentWishes.map((wish) => (
-                    <Box
-                      key={wish.id}
+      {/* ═══════════ 7-DAY PREVIEW ═══════════ */}
+      <Card>
+        <CardContent sx={{ pb: "16px !important" }}>
+          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
+            <Typography variant="h6" sx={{ fontWeight: 600 }}>
+              Nächste 7 Tage
+            </Typography>
+            <Button
+              component={Link}
+              href="/schedule"
+              endIcon={<ArrowForwardIcon />}
+              size="small"
+              variant="outlined"
+            >
+              Monatsplan
+            </Button>
+          </Box>
+
+          <TableContainer>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell sx={{ fontWeight: 600, minWidth: 100 }} />
+                  {data.weekPreview.map((day) => (
+                    <TableCell
+                      key={day.date}
+                      align="center"
                       sx={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 2,
-                        p: 1.5,
-                        bgcolor: "background.default",
-                        borderRadius: 1,
+                        fontWeight: day.isToday ? 700 : 500,
+                        bgcolor: day.isToday ? "#e3f2fd" : undefined,
+                        borderRadius: day.isToday ? 1 : 0,
+                        minWidth: 64,
                       }}
                     >
-                      <Avatar sx={{ bgcolor: "primary.light", width: 36, height: 36 }}>
-                        {wish.employeeName
-                          .split(" ")
-                          .map((n) => n[0])
-                          .join("")}
-                      </Avatar>
-                      <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-                        <Typography variant="body2" fontWeight={500} noWrap>
-                          {wish.employeeName}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary" noWrap>
-                          {new Date(`${wish.date}T12:00:00`).toLocaleDateString("de-DE")} ·{" "}
-                          {wish.shiftType ? shiftTypeLabel(wish.shiftType) : "—"}
-                        </Typography>
-                      </Box>
-                      <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5, alignItems: "flex-end" }}>
-                        <Chip
-                          label={priorityDe(wish.priority)}
-                          size="small"
-                          variant="outlined"
-                          color={wish.priority === "STRONG" ? "error" : "default"}
+                      <Typography variant="caption" display="block" color="text.secondary">
+                        {day.weekday}
+                      </Typography>
+                      {day.date.slice(8)}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {[1, 2, 3].map((st) => (
+                  <TableRow key={st}>
+                    <TableCell sx={{ fontWeight: 600 }}>
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                        <Box
+                          sx={{
+                            width: 10,
+                            height: 10,
+                            borderRadius: "50%",
+                            bgcolor: STATION_COLORS[st]?.main,
+                          }}
                         />
-                        <Chip label={wishStatusDe(wish.status)} size="small" variant="filled" />
+                        Station {st}
                       </Box>
+                    </TableCell>
+                    {data.weekPreview.map((day) => {
+                      const s = day.stations[st];
+                      const early = s?.early ?? 0;
+                      const late = s?.late ?? 0;
+                      const total = early + late;
+                      return (
+                        <TableCell
+                          key={day.date}
+                          align="center"
+                          sx={{
+                            bgcolor: day.isToday ? "#e3f2fd" : undefined,
+                          }}
+                        >
+                          <Tooltip
+                            title={`Früh: ${early} · Spät: ${late}`}
+                            arrow
+                          >
+                            <Typography
+                              variant="body2"
+                              sx={{
+                                fontWeight: 600,
+                                color: total === 0 ? "text.disabled" : STATION_COLORS[st]?.main,
+                              }}
+                            >
+                              {total > 0 ? total : "—"}
+                            </Typography>
+                          </Tooltip>
+                        </TableCell>
+                      );
+                    })}
+                  </TableRow>
+                ))}
+                {/* Night row */}
+                <TableRow>
+                  <TableCell sx={{ fontWeight: 600 }}>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                      <Box
+                        sx={{
+                          width: 10,
+                          height: 10,
+                          borderRadius: "50%",
+                          bgcolor: NIGHT_COLOR.main,
+                        }}
+                      />
+                      Nacht
                     </Box>
-                  ))
-                )}
-              </Box>
-              <Button fullWidth sx={{ mt: 2 }} variant="outlined" component={Link} href="/wishes">
-                Alle Wünsche
-              </Button>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+                  </TableCell>
+                  {data.weekPreview.map((day) => (
+                    <TableCell
+                      key={day.date}
+                      align="center"
+                      sx={{ bgcolor: day.isToday ? "#e3f2fd" : undefined }}
+                    >
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          fontWeight: 600,
+                          color: day.night === 0 ? "text.disabled" : NIGHT_COLOR.main,
+                        }}
+                      >
+                        {day.night > 0 ? day.night : "—"}
+                      </Typography>
+                    </TableCell>
+                  ))}
+                </TableRow>
+                {/* Total row */}
+                <TableRow>
+                  <TableCell sx={{ fontWeight: 700 }}>Gesamt</TableCell>
+                  {data.weekPreview.map((day) => {
+                    const clr = coverageColor(day.totalAssigned, day.totalRequired);
+                    return (
+                      <TableCell
+                        key={day.date}
+                        align="center"
+                        sx={{ bgcolor: day.isToday ? "#e3f2fd" : undefined }}
+                      >
+                        <Tooltip
+                          title={`${day.totalAssigned} zugewiesen / ${day.totalRequired} benötigt`}
+                          arrow
+                        >
+                          <Chip
+                            label={`${day.totalAssigned}/${day.totalRequired}`}
+                            size="small"
+                            color={clr}
+                            variant="outlined"
+                            sx={{ fontWeight: 600, fontSize: 11 }}
+                          />
+                        </Tooltip>
+                      </TableCell>
+                    );
+                  })}
+                </TableRow>
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </CardContent>
+      </Card>
     </MainLayout>
+  );
+}
+
+/* ═══════════ SUB-COMPONENTS ═══════════ */
+
+function MetricCard({
+  icon,
+  color,
+  label,
+  value,
+  subtitle,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  color: string;
+  label: string;
+  value: string | number;
+  subtitle?: string;
+  onClick?: () => void;
+}) {
+  return (
+    <Card
+      sx={{
+        flex: "1 1 200px",
+        minWidth: 180,
+        cursor: onClick ? "pointer" : "default",
+        transition: "box-shadow 0.2s",
+        "&:hover": onClick ? { boxShadow: 4 } : undefined,
+      }}
+      onClick={onClick}
+    >
+      <CardContent sx={{ py: 2, px: 2.5, "&:last-child": { pb: 2 } }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+          <Box
+            sx={{
+              bgcolor: `${color}15`,
+              borderRadius: 2,
+              p: 1,
+              color,
+              display: "flex",
+              alignItems: "center",
+            }}
+          >
+            {icon}
+          </Box>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="caption" color="text.secondary" noWrap>
+              {label}
+            </Typography>
+            <Typography variant="h5" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
+              {value}
+            </Typography>
+            {subtitle && (
+              <Typography variant="caption" color="text.secondary" noWrap>
+                {subtitle}
+              </Typography>
+            )}
+          </Box>
+        </Box>
+      </CardContent>
+    </Card>
+  );
+}
+
+function StationCard({ station }: { station: StationData }) {
+  const stColor = STATION_COLORS[station.station];
+  return (
+    <Card
+      variant="outlined"
+      sx={{
+        flex: "1 1 220px",
+        minWidth: 200,
+        borderLeft: `4px solid ${stColor?.main}`,
+        bgcolor: stColor?.light,
+      }}
+    >
+      <CardContent sx={{ py: 1.5, px: 2, "&:last-child": { pb: 1.5 } }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1, color: stColor?.main }}>
+          {station.label}
+        </Typography>
+        {station.shifts.map((shift) => (
+          <Box key={shift.shiftType} sx={{ mb: 0.5 }}>
+            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.25 }}>
+              <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                {shift.shiftTypeLabel}
+              </Typography>
+              <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                {shift.assigned}/{shift.required}
+              </Typography>
+            </Box>
+            <LinearProgress
+              variant="determinate"
+              value={shift.required > 0 ? Math.min(100, (shift.assigned / shift.required) * 100) : (shift.assigned > 0 ? 100 : 0)}
+              color={coverageColor(shift.assigned, shift.required)}
+              sx={{ height: 6, borderRadius: 1, mb: 0.5 }}
+            />
+            {shift.employees.length > 0 && (
+              <AvatarGroup max={5} sx={{ justifyContent: "flex-start", mb: 0.5 }}>
+                {shift.employees.map((p, i) => (
+                  <Tooltip key={`${p.initials}-${i}`} title={p.name} arrow>
+                    <Avatar
+                      sx={{
+                        width: 24,
+                        height: 24,
+                        fontSize: 10,
+                        bgcolor: stColor?.main,
+                      }}
+                    >
+                      {p.initials}
+                    </Avatar>
+                  </Tooltip>
+                ))}
+              </AvatarGroup>
+            )}
+          </Box>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+function NightCard({ night }: { night: StationShift }) {
+  return (
+    <Card
+      variant="outlined"
+      sx={{
+        flex: "1 1 220px",
+        minWidth: 200,
+        borderLeft: `4px solid ${NIGHT_COLOR.main}`,
+        bgcolor: NIGHT_COLOR.light,
+      }}
+    >
+      <CardContent sx={{ py: 1.5, px: 2, "&:last-child": { pb: 1.5 } }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1, color: NIGHT_COLOR.main }}>
+          Nacht (gesamtes Gebäude)
+        </Typography>
+        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.25 }}>
+          <Typography variant="caption" sx={{ fontWeight: 600 }}>
+            {night.shiftTypeLabel}
+          </Typography>
+          <Typography variant="caption" sx={{ fontWeight: 600 }}>
+            {night.assigned}/{night.required}
+          </Typography>
+        </Box>
+        <LinearProgress
+          variant="determinate"
+          value={night.required > 0 ? Math.min(100, (night.assigned / night.required) * 100) : (night.assigned > 0 ? 100 : 0)}
+          color={coverageColor(night.assigned, night.required)}
+          sx={{ height: 6, borderRadius: 1, mb: 0.5 }}
+        />
+        {night.employees.length > 0 && (
+          <AvatarGroup max={5} sx={{ justifyContent: "flex-start" }}>
+            {night.employees.map((p, i) => (
+              <Tooltip key={`${p.initials}-${i}`} title={p.name} arrow>
+                <Avatar
+                  sx={{
+                    width: 24,
+                    height: 24,
+                    fontSize: 10,
+                    bgcolor: NIGHT_COLOR.main,
+                  }}
+                >
+                  {p.initials}
+                </Avatar>
+              </Tooltip>
+            ))}
+          </AvatarGroup>
+        )}
+      </CardContent>
+    </Card>
   );
 }

@@ -1,44 +1,36 @@
 import { NextResponse } from "next/server";
-import { ScheduleStatus, SwapStatus, WishStatus } from "@prisma/client";
+import { EmployeeStatus, ScheduleStatus } from "@prisma/client";
 import { plannerJsonErrors } from "@/lib/api/validation";
 import { requirePlanner } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 import { shiftTypeLabel } from "@/lib/schedule/viewUtils";
 
-function dateUtcFromLocalCalendar(y: number, month: number, day: number): Date {
-  return new Date(Date.UTC(y, month - 1, day));
+/* ── date helpers ── */
+
+function utcDate(y: number, m: number, d: number): Date {
+  return new Date(Date.UTC(y, m - 1, d));
 }
 
-function localTodayUtcDate(): Date {
+function localToday(): Date {
   const n = new Date();
-  return dateUtcFromLocalCalendar(n.getFullYear(), n.getMonth() + 1, n.getDate());
+  return utcDate(n.getFullYear(), n.getMonth() + 1, n.getDate());
 }
 
-function localMondaySundayUtc(): { mon: Date; sun: Date } {
-  const n = new Date();
-  const day = n.getDay();
-  const offset = day === 0 ? -6 : 1 - day;
-  const monCal = new Date(n.getFullYear(), n.getMonth(), n.getDate() + offset);
-  const sunCal = new Date(monCal);
-  sunCal.setDate(monCal.getDate() + 6);
-  const mon = dateUtcFromLocalCalendar(
-    monCal.getFullYear(),
-    monCal.getMonth() + 1,
-    monCal.getDate(),
-  );
-  const sun = dateUtcFromLocalCalendar(
-    sunCal.getFullYear(),
-    sunCal.getMonth() + 1,
-    sunCal.getDate(),
-  );
-  return { mon, sun };
+function addDays(d: Date, n: number): Date {
+  const r = new Date(d);
+  r.setUTCDate(r.getUTCDate() + n);
+  return r;
+}
+
+function isoDate(d: Date): string {
+  return d.toISOString().slice(0, 10);
 }
 
 function initials(firstName: string, lastName: string): string {
-  const a = (firstName[0] ?? "").toUpperCase();
-  const b = (lastName[0] ?? "").toUpperCase();
-  return (a + b).slice(0, 3) || "?";
+  return ((firstName[0] ?? "") + (lastName[0] ?? "")).toUpperCase().slice(0, 2) || "?";
 }
+
+/* ── route ── */
 
 export async function GET() {
   const { session, error } = await requirePlanner();
@@ -46,143 +38,267 @@ export async function GET() {
   if (error === "FORBIDDEN") return plannerJsonErrors.forbidden();
 
   const facilityId = session!.user.facilityId;
-  const todayDate = localTodayUtcDate();
-  const { mon, sun } = localMondaySundayUtc();
+  const today = localToday();
+  const weekEnd = addDays(today, 6); // today + 6 days = 7 day window
 
+  /* ── parallel queries ── */
   const [
-    employeeCount,
-    openWishCount,
-    openSwapCount,
-    draftScheduleCount,
-    publishedScheduleCount,
-    assignmentsThisWeek,
-    overlappingSchedules,
-    staffingToday,
-    recentWishes,
+    employees,
+    schedules,
+    staffingReqs,
+    weekAssignments,
   ] = await Promise.all([
-    prisma.employee.count({ where: { facilityId } }),
-    prisma.wish.count({
-      where: {
-        status: WishStatus.OPEN,
-        employee: { facilityId },
-      },
-    }),
-    prisma.swapRequest.count({
-      where: {
-        status: SwapStatus.REQUESTED,
-        fromAssignment: { schedule: { facilityId } },
-      },
-    }),
-    prisma.schedule.count({
-      where: { facilityId, status: ScheduleStatus.DRAFT },
-    }),
-    prisma.schedule.count({
-      where: { facilityId, status: ScheduleStatus.PUBLISHED },
-    }),
-    prisma.assignment.count({
-      where: {
-        date: { gte: mon, lte: sun },
-        schedule: { facilityId },
+    prisma.employee.findMany({
+      where: { facilityId },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        status: true,
+        assignedStations: true,
+        absences: {
+          where: {
+            startDate: { lte: weekEnd },
+            endDate: { gte: today },
+          },
+          select: { type: true, startDate: true, endDate: true },
+        },
       },
     }),
     prisma.schedule.findMany({
       where: {
         facilityId,
-        periodStart: { lte: todayDate },
-        periodEnd: { gte: todayDate },
+        periodStart: { lte: weekEnd },
+        periodEnd: { gte: today },
       },
       orderBy: { periodStart: "desc" },
     }),
     prisma.staffingRequirement.findMany({
       where: { facilityId },
     }),
-    prisma.wish.findMany({
-      where: { employee: { facilityId } },
-      include: { employee: { select: { firstName: true, lastName: true } } },
-      orderBy: [{ createdAt: "desc" }],
-      take: 8,
+    prisma.assignment.findMany({
+      where: {
+        date: { gte: today, lte: weekEnd },
+        schedule: { facilityId },
+      },
+      include: {
+        shiftProfile: { select: { shiftType: true, name: true } },
+        employee: { select: { firstName: true, lastName: true, assignedStations: true } },
+      },
     }),
   ]);
 
-  const requiredByType: Record<string, number> = {};
-  for (const r of staffingToday) {
-    requiredByType[r.shiftType] = (requiredByType[r.shiftType] ?? 0) + r.minTotalCount;
+  /* ── employee counts ── */
+  const ABSENT_STATUSES = new Set<string>([
+    EmployeeStatus.KRANK,
+    EmployeeStatus.LANGZEITKRANK,
+    EmployeeStatus.URLAUB,
+    EmployeeStatus.MUTTERSCHUTZ,
+    EmployeeStatus.KUR,
+  ]);
+
+  let activeCount = 0;
+  let absentCount = 0;
+  const absentEmployees: { name: string; status: string; returnDate?: string }[] = [];
+  for (const emp of employees) {
+    if (emp.status === EmployeeStatus.INACTIVE) continue;
+    if (ABSENT_STATUSES.has(emp.status)) {
+      absentCount++;
+      const latestAbsence = emp.absences
+        .filter((a) => a.endDate >= today)
+        .sort((a, b) => b.endDate.getTime() - a.endDate.getTime())[0];
+      absentEmployees.push({
+        name: `${emp.lastName}, ${emp.firstName}`,
+        status: emp.status,
+        returnDate: latestAbsence ? isoDate(addDays(latestAbsence.endDate, 1)) : undefined,
+      });
+    } else {
+      activeCount++;
+    }
   }
 
-  const todaySchedule =
-    overlappingSchedules.find((s) => s.status === ScheduleStatus.PUBLISHED) ??
-    overlappingSchedules[0] ??
+  /* ── schedule info ── */
+  const currentSchedule =
+    schedules.find((s) => s.status === ScheduleStatus.PUBLISHED && s.periodStart <= today && s.periodEnd >= today) ??
+    schedules.find((s) => s.periodStart <= today && s.periodEnd >= today) ??
     null;
 
-  let todayShifts: {
+  const currentMonthSchedules = schedules.filter(
+    (s) => s.periodStart <= today && s.periodEnd >= today,
+  );
+  const draftCount = currentMonthSchedules.filter((s) => s.status === ScheduleStatus.DRAFT).length;
+  const publishedCount = currentMonthSchedules.filter((s) => s.status === ScheduleStatus.PUBLISHED).length;
+
+  /* ── staffing requirements by shiftType+station ── */
+  type ReqKey = string;
+  const reqMap = new Map<ReqKey, number>();
+  const reqByShiftType = new Map<string, number>();
+  for (const r of staffingReqs) {
+    const key = `${r.shiftType}|${r.stationNumber ?? 0}`;
+    reqMap.set(key, (reqMap.get(key) ?? 0) + r.minTotalCount);
+    reqByShiftType.set(r.shiftType, (reqByShiftType.get(r.shiftType) ?? 0) + r.minTotalCount);
+  }
+
+  /* ── today's staffing by station ── */
+  const todayIso = isoDate(today);
+  const todayAssignments = weekAssignments.filter(
+    (a) => isoDate(a.date) === todayIso && a.scheduleId === currentSchedule?.id,
+  );
+
+  type StationShift = {
     shiftType: string;
     shiftTypeLabel: string;
-    required: number;
     assigned: number;
+    required: number;
     employees: { initials: string; name: string }[];
-  }[] = [];
+  };
 
-  if (todaySchedule) {
-    const assigns = await prisma.assignment.findMany({
-      where: { scheduleId: todaySchedule.id, date: todayDate },
-      include: { employee: true, shiftProfile: true },
-    });
+  type StationData = {
+    station: number;
+    label: string;
+    shifts: StationShift[];
+  };
 
-    const byType = new Map<
-      string,
-      { assigned: number; employees: { initials: string; name: string }[] }
-    >();
-    for (const a of assigns) {
-      const t = a.shiftProfile.shiftType;
-      const cur = byType.get(t) ?? { assigned: 0, employees: [] };
-      cur.assigned += 1;
-      cur.employees.push({
-        initials: initials(a.employee.firstName, a.employee.lastName),
-        name: `${a.employee.firstName} ${a.employee.lastName}`.trim(),
+  const stationNumbers = [1, 2, 3];
+  const shiftOrder = ["EARLY", "LATE", "NIGHT"];
+
+  const todayStations: StationData[] = stationNumbers.map((st) => {
+    const shifts: StationShift[] = shiftOrder.map((shiftType) => {
+      const matching = todayAssignments.filter((a) => {
+        if (a.shiftProfile.shiftType !== shiftType) return false;
+        const aStation = a.stationNumber ?? (a.employee.assignedStations?.length === 1 ? a.employee.assignedStations[0] : null);
+        if (shiftType === "NIGHT") return true; // night is facility-wide, counted separately
+        return aStation === st;
       });
-      byType.set(t, cur);
-    }
 
-    const types = new Set([...Object.keys(requiredByType), ...byType.keys()]);
-    todayShifts = [...types].sort().map((shiftType) => {
-      const req = requiredByType[shiftType] ?? 0;
-      const g = byType.get(shiftType) ?? { assigned: 0, employees: [] };
+      // For night, only count in station 0 (facility-wide)
+      if (shiftType === "NIGHT") {
+        return {
+          shiftType,
+          shiftTypeLabel: shiftTypeLabel(shiftType),
+          assigned: 0,
+          required: 0,
+          employees: [],
+        };
+      }
+
+      const reqKey = `${shiftType}|${st}`;
+      const required = reqMap.get(reqKey) ?? 0;
+
       return {
         shiftType,
         shiftTypeLabel: shiftTypeLabel(shiftType),
-        required: req,
-        assigned: g.assigned,
-        employees: g.employees,
+        assigned: matching.length,
+        required,
+        employees: matching.map((a) => ({
+          initials: initials(a.employee.firstName, a.employee.lastName),
+          name: `${a.employee.firstName} ${a.employee.lastName}`.trim(),
+        })),
       };
+    }).filter((s) => s.shiftType !== "NIGHT");
+
+    return { station: st, label: `Station ${st}`, shifts };
+  });
+
+  // Night shifts (facility-wide)
+  const nightAssignments = todayAssignments.filter((a) => a.shiftProfile.shiftType === "NIGHT");
+  const nightRequired = reqByShiftType.get("NIGHT") ?? 0;
+  const todayNight = {
+    shiftType: "NIGHT",
+    shiftTypeLabel: shiftTypeLabel("NIGHT"),
+    assigned: nightAssignments.length,
+    required: nightRequired,
+    employees: nightAssignments.map((a) => ({
+      initials: initials(a.employee.firstName, a.employee.lastName),
+      name: `${a.employee.firstName} ${a.employee.lastName}`.trim(),
+    })),
+  };
+
+  /* ── coverage % ── */
+  const totalRequired = todayStations.reduce(
+    (s, st) => s + st.shifts.reduce((ss, sh) => ss + sh.required, 0), 0,
+  ) + nightRequired;
+  const totalAssigned = todayStations.reduce(
+    (s, st) => s + st.shifts.reduce((ss, sh) => ss + sh.assigned, 0), 0,
+  ) + nightAssignments.length;
+  const coveragePct = totalRequired > 0
+    ? Math.min(100, Math.round((totalAssigned / totalRequired) * 100))
+    : totalAssigned > 0 ? 100 : null;
+
+  /* ── 7-day preview ── */
+  type DayPreview = {
+    date: string;
+    weekday: string;
+    isToday: boolean;
+    stations: Record<number, { early: number; late: number }>;
+    night: number;
+    totalAssigned: number;
+    totalRequired: number;
+  };
+
+  const weekDays: DayPreview[] = [];
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(today, i);
+    const dIso = isoDate(d);
+    const dayAssignments = weekAssignments.filter(
+      (a) => isoDate(a.date) === dIso &&
+        (currentSchedule ? a.scheduleId === currentSchedule.id : true),
+    );
+
+    const stations: Record<number, { early: number; late: number }> = {};
+    let nightCount = 0;
+    let dayTotalReq = 0;
+
+    for (const st of stationNumbers) {
+      const early = dayAssignments.filter((a) => {
+        if (a.shiftProfile.shiftType !== "EARLY") return false;
+        const aStation = a.stationNumber ?? (a.employee.assignedStations?.length === 1 ? a.employee.assignedStations[0] : null);
+        return aStation === st;
+      }).length;
+      const late = dayAssignments.filter((a) => {
+        if (a.shiftProfile.shiftType !== "LATE") return false;
+        const aStation = a.stationNumber ?? (a.employee.assignedStations?.length === 1 ? a.employee.assignedStations[0] : null);
+        return aStation === st;
+      }).length;
+      stations[st] = { early, late };
+
+      dayTotalReq += (reqMap.get(`EARLY|${st}`) ?? 0) + (reqMap.get(`LATE|${st}`) ?? 0);
+    }
+
+    nightCount = dayAssignments.filter((a) => a.shiftProfile.shiftType === "NIGHT").length;
+    dayTotalReq += nightRequired;
+
+    const wd = d.toLocaleDateString("de-DE", { weekday: "short", timeZone: "UTC" });
+
+    weekDays.push({
+      date: dIso,
+      weekday: wd,
+      isToday: i === 0,
+      stations,
+      night: nightCount,
+      totalAssigned: Object.values(stations).reduce((s, v) => s + v.early + v.late, 0) + nightCount,
+      totalRequired: dayTotalReq,
     });
   }
 
-  let coveragePct: number | null = null;
-  if (todayShifts.length > 0) {
-    const reqSum = todayShifts.reduce((s, x) => s + x.required, 0);
-    const assSum = todayShifts.reduce((s, x) => s + x.assigned, 0);
-    if (reqSum > 0) coveragePct = Math.min(100, Math.round((assSum / reqSum) * 100));
-    else if (assSum > 0) coveragePct = 100;
-    else coveragePct = null;
-  }
-
   return NextResponse.json({
-    employeeCount,
-    openWishCount,
-    openSwapCount,
-    draftScheduleCount,
-    publishedScheduleCount,
-    assignmentsThisWeek,
+    activeCount,
+    absentCount,
+    absentEmployees: absentEmployees.slice(0, 8),
     coveragePct,
-    todayLabel: todayDate.toISOString().slice(0, 10),
-    todayShifts,
-    recentWishes: recentWishes.map((w) => ({
-      id: w.id,
-      employeeName: `${w.employee.firstName} ${w.employee.lastName}`.trim(),
-      date: w.date.toISOString().slice(0, 10),
-      shiftType: w.shiftType,
-      priority: w.priority,
-      status: w.status,
-    })),
+    todayLabel: todayIso,
+    schedule: currentSchedule
+      ? {
+          id: currentSchedule.id,
+          status: currentSchedule.status,
+          periodStart: isoDate(currentSchedule.periodStart),
+          periodEnd: isoDate(currentSchedule.periodEnd),
+        }
+      : null,
+    draftCount,
+    publishedCount,
+    todayStations,
+    todayNight,
+    weekPreview: weekDays,
   });
 }
