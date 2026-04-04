@@ -123,20 +123,20 @@ export async function GET() {
     schedules.find((s) => s.periodStart <= today && s.periodEnd >= today) ??
     null;
 
-  const currentMonthSchedules = schedules.filter(
-    (s) => s.periodStart <= today && s.periodEnd >= today,
-  );
-  const draftCount = currentMonthSchedules.filter((s) => s.status === ScheduleStatus.DRAFT).length;
-  const publishedCount = currentMonthSchedules.filter((s) => s.status === ScheduleStatus.PUBLISHED).length;
+  const isPublished = currentSchedule?.status === ScheduleStatus.PUBLISHED;
 
   /* ── staffing requirements by shiftType+station ── */
   type ReqKey = string;
-  const reqMap = new Map<ReqKey, number>();
-  const reqByShiftType = new Map<string, number>();
+  const reqMap = new Map<ReqKey, number>(); // per-station reqs: "EARLY|1" etc.
+  let nightRequired = 0; // facility-wide night requirement
   for (const r of staffingReqs) {
-    const key = `${r.shiftType}|${r.stationNumber ?? 0}`;
-    reqMap.set(key, (reqMap.get(key) ?? 0) + r.minTotalCount);
-    reqByShiftType.set(r.shiftType, (reqByShiftType.get(r.shiftType) ?? 0) + r.minTotalCount);
+    if (r.isFacilityWide) {
+      // facility-wide (typically NIGHT)
+      nightRequired += r.minTotalCount;
+    } else {
+      const key = `${r.shiftType}|${r.stationNumber}`;
+      reqMap.set(key, (reqMap.get(key) ?? 0) + r.minTotalCount);
+    }
   }
 
   /* ── today's staffing by station ── */
@@ -202,7 +202,6 @@ export async function GET() {
 
   // Night shifts (facility-wide)
   const nightAssignments = todayAssignments.filter((a) => a.shiftProfile.shiftType === "NIGHT");
-  const nightRequired = reqByShiftType.get("NIGHT") ?? 0;
   const todayNight = {
     shiftType: "NIGHT",
     shiftTypeLabel: shiftTypeLabel("NIGHT"),
@@ -287,6 +286,7 @@ export async function GET() {
     absentEmployees: absentEmployees.slice(0, 8),
     coveragePct,
     todayLabel: todayIso,
+    totalAssignmentsToday: todayAssignments.filter((a) => !a.dayStatus).length,
     schedule: currentSchedule
       ? {
           id: currentSchedule.id,
@@ -295,8 +295,6 @@ export async function GET() {
           periodEnd: isoDate(currentSchedule.periodEnd),
         }
       : null,
-    draftCount,
-    publishedCount,
     todayStations,
     todayNight,
     weekPreview: weekDays,

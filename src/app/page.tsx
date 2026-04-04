@@ -79,9 +79,8 @@ type DashboardData = {
   absentEmployees: { name: string; status: string; returnDate?: string }[];
   coveragePct: number | null;
   todayLabel: string;
+  totalAssignmentsToday: number;
   schedule: { id: string; status: string; periodStart: string; periodEnd: string } | null;
-  draftCount: number;
-  publishedCount: number;
   todayStations: StationData[];
   todayNight: StationShift;
   weekPreview: DayPreview[];
@@ -219,13 +218,13 @@ export default function DashboardPage() {
           label="Besetzung heute"
           value={data.coveragePct != null ? `${data.coveragePct}%` : "—"}
         />
-        {/* Schedule status */}
+        {/* Today's shifts */}
         <MetricCard
           icon={<CalendarMonthIcon />}
-          color={data.schedule?.status === "PUBLISHED" ? "#2e7d32" : "#ed6c02"}
-          label="Monatsplan"
-          value={data.schedule ? (data.schedule.status === "PUBLISHED" ? "Veröffentlicht" : "Entwurf") : "Kein Plan"}
-          subtitle={data.schedule ? `${data.draftCount} Entwürfe · ${data.publishedCount} Veröffentlicht` : undefined}
+          color="#00897b"
+          label="Schichten heute"
+          value={data.totalAssignmentsToday}
+          subtitle={data.schedule ? (data.schedule.status === "PUBLISHED" ? "Plan veröffentlicht" : "Plan aktiv") : "Kein Plan"}
           onClick={() => router.push("/schedule")}
         />
       </Box>
