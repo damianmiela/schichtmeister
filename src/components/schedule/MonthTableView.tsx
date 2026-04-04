@@ -540,8 +540,9 @@ export default function MonthTableView({
                       minWidth: 52,
                       fontWeight: 600,
                       cursor: "pointer",
-                      "&:hover": { bgcolor: "action.hover" },
+                      zIndex: 2,
                       bgcolor: hName ? "#fff0f0" : sectionBg,
+                      "&:hover": { bgcolor: hName ? "#ffe0e0" : "action.hover" },
                     }}
                     onClick={() => onDayClick(new Date(y!, m! - 1, d!))}
                   >
