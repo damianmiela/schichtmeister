@@ -282,6 +282,7 @@ export default function AssignEmployeeModal({
         }
       }
       // Create new assignment with force=true (user has seen warnings)
+      // Pass stationNumber to override employee station preference
       const res = await fetch("/api/assignments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -291,6 +292,7 @@ export default function AssignEmployeeModal({
           shiftProfileId: selectedProfileId,
           employeeId: selectedId,
           force: true,
+          ...(stationNumber != null ? { stationNumber } : {}),
         }),
       });
       if (res.ok || res.status === 201) {

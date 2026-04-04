@@ -90,6 +90,7 @@ export async function POST(request: NextRequest) {
           shiftProfileId: parsed.data.shiftProfileId,
           employeeId: parsed.data.employeeId,
           createdByUserId: userId,
+          ...(parsed.data.stationNumber != null ? { stationNumber: parsed.data.stationNumber } : {}),
         },
       });
       await writeAuditLog(tx, {

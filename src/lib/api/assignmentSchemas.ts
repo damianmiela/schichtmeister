@@ -9,6 +9,8 @@ export const assignmentCreateBodySchema = z.object({
   employeeId: z.string().min(1),
   /** Skip rule validation and force-create the assignment. */
   force: z.boolean().optional(),
+  /** Override station assignment (ignores employee station preference). */
+  stationNumber: z.number().int().min(1).max(9).optional(),
 });
 
 export const assignmentPatchBodySchema = z
