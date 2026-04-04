@@ -614,7 +614,7 @@ export default function EmployeesPage() {
               <Table>
                 <TableHead>
                   <TableRow>
-                    <TableCell>
+                    <TableCell sx={{ whiteSpace: "nowrap" }}>
                       <TableSortLabel
                         active={sortKey === "name"}
                         direction={sortKey === "name" ? sortDir : "asc"}
@@ -624,7 +624,7 @@ export default function EmployeesPage() {
                       </TableSortLabel>
                     </TableCell>
                     <TableCell>Status</TableCell>
-                    <TableCell>
+                    <TableCell sx={{ whiteSpace: "nowrap" }}>
                       <TableSortLabel
                         active={sortKey === "contract"}
                         direction={sortKey === "contract" ? sortDir : "asc"}
@@ -635,13 +635,16 @@ export default function EmployeesPage() {
                     </TableCell>
                     <TableCell>Station</TableCell>
                     <TableCell>Qualifikationen</TableCell>
+                    <TableCell>Schichtprofile</TableCell>
+                    <TableCell>Arbeitstage</TableCell>
+                    <TableCell sx={{ whiteSpace: "nowrap" }}>Max Tage</TableCell>
                     <TableCell align="right">Aktionen</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {sortedRows.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6}>
+                      <TableCell colSpan={9}>
                         <Typography color="text.secondary" sx={{ py: 2 }}>
                           Keine Mitarbeiter.
                         </Typography>
@@ -751,6 +754,53 @@ export default function EmployeesPage() {
                               )}
                             </Box>
                           </TableCell>
+                          {/* Schichtprofile */}
+                          <TableCell>
+                            <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
+                              {employee.allowedShiftProfiles.length === 0 ? (
+                                <Typography variant="caption" color="text.secondary">—</Typography>
+                              ) : (
+                                employee.allowedShiftProfiles.map((p) => (
+                                  <Chip
+                                    key={p.id}
+                                    label={p.name}
+                                    size="small"
+                                    variant="outlined"
+                                    sx={{ fontSize: 10, height: 20 }}
+                                  />
+                                ))
+                              )}
+                              {employee.isFullTimeBl && (
+                                <Chip label="VZ-BL" size="small" color="secondary" sx={{ fontSize: 10, height: 20 }} />
+                              )}
+                            </Box>
+                            {employee.shiftDistribution && Object.keys(employee.shiftDistribution).length > 0 && (
+                              <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.25, fontSize: 10 }}>
+                                {employee.allowedShiftProfiles
+                                  .filter((p) => employee.shiftDistribution?.[p.id] != null)
+                                  .map((p) => `${p.name}: ${employee.shiftDistribution![p.id]}%`)
+                                  .join(", ")}
+                              </Typography>
+                            )}
+                          </TableCell>
+                          {/* Arbeitstage */}
+                          <TableCell>
+                            {employee.fixedWorkingDays && employee.fixedWorkingDays.length > 0 ? (
+                              <Typography variant="caption" sx={{ fontSize: 11 }}>
+                                {employee.fixedWorkingDays.map((d) => WEEKDAY_LABELS[d] ?? d).join(", ")}
+                              </Typography>
+                            ) : (
+                              <Typography variant="caption" color="text.secondary">Alle</Typography>
+                            )}
+                          </TableCell>
+                          {/* Max aufeinanderfolgende Tage */}
+                          <TableCell>
+                            {employee.maxConsecutiveDays != null ? (
+                              <Typography variant="caption" sx={{ fontSize: 11 }}>{employee.maxConsecutiveDays}</Typography>
+                            ) : (
+                              <Typography variant="caption" color="text.secondary">—</Typography>
+                            )}
+                          </TableCell>
                           <TableCell align="right">
                             <IconButton
                               size="small"
@@ -792,341 +842,359 @@ export default function EmployeesPage() {
         open={dialogOpen}
         onClose={() => !saving && (setDialogOpen(false), resetForm())}
         fullWidth
-        maxWidth="sm"
+        maxWidth="md"
       >
-        <DialogTitle>
+        <DialogTitle sx={{ pb: 0.5 }}>
           {editingId ? "Mitarbeiter bearbeiten" : "Mitarbeiter hinzufügen"}
         </DialogTitle>
         <DialogContent
           sx={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 2,
-            pt: 2,
-            maxHeight: "70vh",
+            pt: 1,
+            maxHeight: "75vh",
             overflowY: "auto",
           }}
         >
-          {formError && <Alert severity="error">{formError}</Alert>}
+          {formError && <Alert severity="error" sx={{ mb: 2 }}>{formError}</Alert>}
 
-          <TextField
-            label="Vorname"
-            value={firstName}
-            onChange={(e) => setFirstName(e.target.value)}
-            fullWidth
-            autoFocus
-            disabled={saving}
-            sx={{ mt: 0.5 }}
-          />
-          <TextField
-            label="Nachname"
-            value={lastName}
-            onChange={(e) => setLastName(e.target.value)}
-            fullWidth
-            disabled={saving}
-          />
+          <Box sx={{ display: "flex", gap: 3 }}>
+            {/* ── LEFT COLUMN ── */}
+            <Box sx={{ flex: 1, display: "flex", flexDirection: "column", gap: 2 }}>
 
-          <TextField
-            select
-            label="Vertragsart"
-            value={contractType}
-            onChange={(e) => {
-              setContractType(e.target.value as ContractType);
-              if (!profilesTouched) return;
-              setProfilesTouched(false);
-            }}
-            fullWidth
-            disabled={saving}
-          >
-            <MenuItem value="FULL_TIME">Vollzeit</MenuItem>
-            <MenuItem value="PART_TIME">Teilzeit</MenuItem>
-            <MenuItem value="MINI_JOB">Mini-Job</MenuItem>
-            <MenuItem value="AUSBILDUNG">Ausbildung</MenuItem>
-          </TextField>
-
-          <TextField
-            select
-            label="Status"
-            value={status}
-            onChange={(e) => setStatus(e.target.value as StatusType)}
-            fullWidth
-            disabled={saving}
-          >
-            {STATUS_OPTIONS.map((s) => (
-              <MenuItem key={s} value={s}>
-                {STATUS_LABELS[s]}
-              </MenuItem>
-            ))}
-          </TextField>
-
-          <TextField
-            label="Soll-Stunden (Prozent)"
-            value={percentStr}
-            onChange={(e) => setPercentStr(e.target.value)}
-            fullWidth
-            disabled={saving}
-            helperText={`Bezug: ${String(REFERENCE_FULL_TIME_MONTHLY_HOURS).replace(".", ",")} h/Monat = 100 %. Leer = kein monatliches Soll im Planungsbonus.`}
-          />
-
-          {contractType === "MINI_JOB" && (
-            <TextField
-              label="Max. Stunden pro Monat (optional)"
-              value={miniStr}
-              onChange={(e) => setMiniStr(e.target.value)}
-              fullWidth
-              disabled={saving}
-              helperText="Leer = Standard der Einrichtung bei Prüfregeln"
-            />
-          )}
-
-          <Autocomplete
-            multiple
-            openOnFocus
-            options={qualCatalog}
-            value={selectedQuals}
-            onChange={(_, v) => {
-              setSelectedQuals(v);
-              if (profilesTouched) setProfilesTouched(false);
-            }}
-            getOptionLabel={(o) => `${o.name} (${o.abbreviation})`}
-            isOptionEqualToValue={(a, b) => a.id === b.id}
-            disableCloseOnSelect
-            renderOption={(props, option, { selected }) => (
-              <li {...props} key={option.id}>
-                <Checkbox
-                  size="small"
-                  checked={selected}
-                  sx={{ mr: 1 }}
-                />
-                {option.name} ({option.abbreviation})
-              </li>
-            )}
-            renderTags={(value, getTagProps) =>
-              value.map((option, index) => (
-                <Chip
-                  variant="outlined"
-                  label={option.abbreviation}
-                  {...getTagProps({ index })}
-                  key={option.id}
-                />
-              ))
-            }
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                label="Qualifikationen"
-                placeholder="Qualifikation wählen"
-              />
-            )}
-            disabled={saving}
-          />
-
-          <Autocomplete
-            multiple
-            openOnFocus
-            options={shiftProfileCatalog}
-            value={selectedProfiles}
-            onChange={(_, v) => {
-              setSelectedProfiles(v);
-              setProfilesTouched(true);
-            }}
-            getOptionLabel={(o) =>
-              `${o.name} (${SHIFT_TYPE_LABELS[o.shiftType] ?? o.shiftType})`
-            }
-            isOptionEqualToValue={(a, b) => a.id === b.id}
-            disableCloseOnSelect
-            renderOption={(props, option, { selected }) => (
-              <li {...props} key={option.id}>
-                <Checkbox
-                  size="small"
-                  checked={selected}
-                  sx={{ mr: 1 }}
-                />
-                {option.name} (
-                {SHIFT_TYPE_LABELS[option.shiftType] ?? option.shiftType})
-              </li>
-            )}
-            renderTags={(value, getTagProps) =>
-              value.map((option, index) => (
-                <Chip
-                  variant="outlined"
-                  label={option.name}
-                  {...getTagProps({ index })}
-                  key={option.id}
-                />
-              ))
-            }
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                label="Erlaubte Schichtprofile"
-                placeholder="Profil wählen"
-                error={selectedProfiles.length === 0 && profilesTouched}
-                helperText={
-                  selectedProfiles.length === 0 && profilesTouched
-                    ? "Mindestens ein Schichtprofil erforderlich"
-                    : "Wird automatisch aus Vertragsart + Qualifikation vorgeschlagen"
-                }
-              />
-            )}
-            disabled={saving}
-          />
-
-          <TextField
-            select
-            label="Feste Station(en)"
-            value={assignedStations}
-            onChange={(e) => {
-              const v = e.target.value;
-              setAssignedStations(
-                typeof v === "string"
-                  ? v.split(",").map(Number).filter(Boolean)
-                  : (v as number[]),
-              );
-            }}
-            fullWidth
-            disabled={saving}
-            helperText={
-              assignedStations.length === 0
-                ? "Keine Einschränkung — alle Stationen möglich."
-                : `Nur Station ${assignedStations.join(" + ")}.`
-            }
-            slotProps={{
-              select: {
-                multiple: true,
-                renderValue: (selected) => {
-                  const sel = selected as number[];
-                  return sel.length === 0
-                    ? "Alle Stationen"
-                    : sel.map((s) => `St. ${s}`).join(", ");
-                },
-              },
-            }}
-          >
-            {[1, 2, 3].map((st) => (
-              <MenuItem key={st} value={st}>
-                <Checkbox checked={assignedStations.includes(st)} size="small" />
-                Station {st}
-              </MenuItem>
-            ))}
-          </TextField>
-
-          {/* Full-time BL checkbox — only visible if BL profile is selected */}
-          {selectedProfiles.some((p) => p.shiftType === "BL") && (
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              <Checkbox
-                checked={isFullTimeBl}
-                onChange={(e) => setIsFullTimeBl(e.target.checked)}
-                disabled={saving}
-                size="small"
-              />
-              <Typography variant="body2">
-                Vollzeit-BL (Bereitschaftsdienst jeden Tag)
+              {/* Section: Persönliche Daten */}
+              <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 700, letterSpacing: 1 }}>
+                Persönliche Daten
               </Typography>
-            </Box>
-          )}
-
-          {/* Fixed working days */}
-          <TextField
-            select
-            label="Feste Arbeitstage"
-            value={fixedWorkingDays}
-            onChange={(e) => {
-              const v = e.target.value;
-              setFixedWorkingDays(
-                typeof v === "string"
-                  ? v.split(",").map(Number).filter(Boolean)
-                  : (v as number[]),
-              );
-            }}
-            fullWidth
-            disabled={saving}
-            helperText={
-              fixedWorkingDays.length === 0
-                ? "Alle Tage (Standard)"
-                : `Nur: ${fixedWorkingDays.map((d) => WEEKDAY_LABELS[d]).join(", ")}`
-            }
-            slotProps={{
-              select: {
-                multiple: true,
-                renderValue: (selected) => {
-                  const sel = selected as number[];
-                  return sel.length === 0
-                    ? "Alle Tage"
-                    : sel.map((d) => WEEKDAY_LABELS[d] ?? d).join(", ");
-                },
-              },
-            }}
-          >
-            {[1, 2, 3, 4, 5, 6, 7].map((d) => (
-              <MenuItem key={d} value={d}>
-                <Checkbox checked={fixedWorkingDays.includes(d)} size="small" />
-                {WEEKDAY_LABELS[d]}
-              </MenuItem>
-            ))}
-          </TextField>
-
-          {/* Max consecutive working days override */}
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            <Checkbox
-              checked={maxConsecOverride}
-              onChange={(e) => {
-                setMaxConsecOverride(e.target.checked);
-                if (e.target.checked && !maxConsecDays) {
-                  setMaxConsecDays(String(globalMaxConsecDays));
-                }
-              }}
-              disabled={saving}
-              size="small"
-            />
-            <Typography variant="body2">
-              Max. aufeinanderfolgende Arbeitstage
-            </Typography>
-            {maxConsecOverride && (
-              <TextField
-                value={maxConsecDays}
-                onChange={(e) => setMaxConsecDays(e.target.value)}
-                size="small"
-                disabled={saving}
-                type="number"
-                sx={{ width: 80 }}
-                slotProps={{ htmlInput: { min: 1, max: 31 } }}
-                helperText={`Standard: ${globalMaxConsecDays}`}
-              />
-            )}
-          </Box>
-
-          {/* Shift profile distribution */}
-          {selectedProfiles.length >= 2 && (
-            <Box>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                Prozentuale Verteilung der Schichtprofile (optional)
-              </Typography>
-              {selectedProfiles.map((sp) => (
+              <Box sx={{ display: "flex", gap: 2 }}>
                 <TextField
-                  key={sp.id}
-                  label={sp.name}
-                  value={shiftDistribution[sp.id] ?? ""}
-                  onChange={(e) =>
-                    setShiftDistribution((prev) => ({
-                      ...prev,
-                      [sp.id]: e.target.value,
-                    }))
-                  }
-                  size="small"
-                  sx={{ mr: 1, mb: 1, width: 100 }}
+                  label="Vorname"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  fullWidth
+                  autoFocus
                   disabled={saving}
-                  slotProps={{
-                    input: {
-                      endAdornment: (
-                        <InputAdornment position="end">%</InputAdornment>
-                      ),
-                    },
-                  }}
+                  size="small"
                 />
-              ))}
+                <TextField
+                  label="Nachname"
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  fullWidth
+                  disabled={saving}
+                  size="small"
+                />
+              </Box>
+              <Box sx={{ display: "flex", gap: 2 }}>
+                <TextField
+                  select
+                  label="Status"
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value as StatusType)}
+                  fullWidth
+                  disabled={saving}
+                  size="small"
+                >
+                  {STATUS_OPTIONS.map((s) => (
+                    <MenuItem key={s} value={s}>
+                      {STATUS_LABELS[s]}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              </Box>
+
+              <Divider sx={{ my: 0.5 }} />
+
+              {/* Section: Vertrag & Arbeitszeit */}
+              <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 700, letterSpacing: 1 }}>
+                Vertrag & Arbeitszeit
+              </Typography>
+              <Box sx={{ display: "flex", gap: 2 }}>
+                <TextField
+                  select
+                  label="Vertragsart"
+                  value={contractType}
+                  onChange={(e) => {
+                    setContractType(e.target.value as ContractType);
+                    if (!profilesTouched) return;
+                    setProfilesTouched(false);
+                  }}
+                  fullWidth
+                  disabled={saving}
+                  size="small"
+                >
+                  <MenuItem value="FULL_TIME">Vollzeit</MenuItem>
+                  <MenuItem value="PART_TIME">Teilzeit</MenuItem>
+                  <MenuItem value="MINI_JOB">Mini-Job</MenuItem>
+                  <MenuItem value="AUSBILDUNG">Ausbildung</MenuItem>
+                </TextField>
+                <TextField
+                  label="Soll-Stunden (%)"
+                  value={percentStr}
+                  onChange={(e) => setPercentStr(e.target.value)}
+                  fullWidth
+                  disabled={saving}
+                  size="small"
+                  helperText={`100% = ${String(REFERENCE_FULL_TIME_MONTHLY_HOURS).replace(".", ",")} h/Monat`}
+                />
+              </Box>
+              {contractType === "MINI_JOB" && (
+                <TextField
+                  label="Max. Stunden pro Monat"
+                  value={miniStr}
+                  onChange={(e) => setMiniStr(e.target.value)}
+                  fullWidth
+                  disabled={saving}
+                  size="small"
+                  helperText="Leer = Standard der Einrichtung"
+                />
+              )}
+
+              <Divider sx={{ my: 0.5 }} />
+
+              {/* Section: Qualifikationen */}
+              <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 700, letterSpacing: 1 }}>
+                Qualifikationen
+              </Typography>
+              <Autocomplete
+                multiple
+                openOnFocus
+                options={qualCatalog}
+                value={selectedQuals}
+                onChange={(_, v) => {
+                  setSelectedQuals(v);
+                  if (profilesTouched) setProfilesTouched(false);
+                }}
+                getOptionLabel={(o) => `${o.name} (${o.abbreviation})`}
+                isOptionEqualToValue={(a, b) => a.id === b.id}
+                disableCloseOnSelect
+                size="small"
+                renderOption={(props, option, { selected }) => (
+                  <li {...props} key={option.id}>
+                    <Checkbox size="small" checked={selected} sx={{ mr: 1 }} />
+                    {option.name} ({option.abbreviation})
+                  </li>
+                )}
+                renderTags={(value, getTagProps) =>
+                  value.map((option, index) => (
+                    <Chip
+                      variant="outlined"
+                      label={option.abbreviation}
+                      size="small"
+                      {...getTagProps({ index })}
+                      key={option.id}
+                    />
+                  ))
+                }
+                renderInput={(params) => (
+                  <TextField {...params} label="Qualifikationen" placeholder="Qualifikation wählen" />
+                )}
+                disabled={saving}
+              />
+
             </Box>
-          )}
+
+            {/* ── RIGHT COLUMN ── */}
+            <Box sx={{ flex: 1, display: "flex", flexDirection: "column", gap: 2 }}>
+
+              {/* Section: Schichtplanung */}
+              <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 700, letterSpacing: 1 }}>
+                Schichtplanung
+              </Typography>
+              <Autocomplete
+                multiple
+                openOnFocus
+                options={shiftProfileCatalog}
+                value={selectedProfiles}
+                onChange={(_, v) => {
+                  setSelectedProfiles(v);
+                  setProfilesTouched(true);
+                }}
+                getOptionLabel={(o) =>
+                  `${o.name} (${SHIFT_TYPE_LABELS[o.shiftType] ?? o.shiftType})`
+                }
+                isOptionEqualToValue={(a, b) => a.id === b.id}
+                disableCloseOnSelect
+                size="small"
+                renderOption={(props, option, { selected }) => (
+                  <li {...props} key={option.id}>
+                    <Checkbox size="small" checked={selected} sx={{ mr: 1 }} />
+                    {option.name} ({SHIFT_TYPE_LABELS[option.shiftType] ?? option.shiftType})
+                  </li>
+                )}
+                renderTags={(value, getTagProps) =>
+                  value.map((option, index) => (
+                    <Chip variant="outlined" label={option.name} size="small" {...getTagProps({ index })} key={option.id} />
+                  ))
+                }
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Erlaubte Schichtprofile"
+                    placeholder="Profil wählen"
+                    error={selectedProfiles.length === 0 && profilesTouched}
+                    helperText={
+                      selectedProfiles.length === 0 && profilesTouched
+                        ? "Mindestens ein Schichtprofil erforderlich"
+                        : "Automatisch aus Vertragsart + Qualifikation"
+                    }
+                  />
+                )}
+                disabled={saving}
+              />
+
+              {selectedProfiles.some((p) => p.shiftType === "BL") && (
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  <Checkbox
+                    checked={isFullTimeBl}
+                    onChange={(e) => setIsFullTimeBl(e.target.checked)}
+                    disabled={saving}
+                    size="small"
+                  />
+                  <Typography variant="body2">Vollzeit-BL (jeden Tag)</Typography>
+                </Box>
+              )}
+
+              {selectedProfiles.length >= 2 && (
+                <Box>
+                  <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: "block" }}>
+                    Schichtverteilung (optional)
+                  </Typography>
+                  <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+                    {selectedProfiles.map((sp) => (
+                      <TextField
+                        key={sp.id}
+                        label={sp.name}
+                        value={shiftDistribution[sp.id] ?? ""}
+                        onChange={(e) =>
+                          setShiftDistribution((prev) => ({ ...prev, [sp.id]: e.target.value }))
+                        }
+                        size="small"
+                        sx={{ width: 90 }}
+                        disabled={saving}
+                        slotProps={{
+                          input: {
+                            endAdornment: <InputAdornment position="end">%</InputAdornment>,
+                          },
+                        }}
+                      />
+                    ))}
+                  </Box>
+                </Box>
+              )}
+
+              <Divider sx={{ my: 0.5 }} />
+
+              {/* Section: Einsatzregeln */}
+              <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 700, letterSpacing: 1 }}>
+                Einsatzregeln
+              </Typography>
+              <TextField
+                select
+                label="Feste Station(en)"
+                value={assignedStations}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setAssignedStations(
+                    typeof v === "string"
+                      ? v.split(",").map(Number).filter(Boolean)
+                      : (v as number[]),
+                  );
+                }}
+                fullWidth
+                disabled={saving}
+                size="small"
+                helperText={
+                  assignedStations.length === 0
+                    ? "Alle Stationen möglich"
+                    : `Nur Station ${assignedStations.join(" + ")}`
+                }
+                slotProps={{
+                  select: {
+                    multiple: true,
+                    renderValue: (selected) => {
+                      const sel = selected as number[];
+                      return sel.length === 0
+                        ? "Alle Stationen"
+                        : sel.map((s) => `St. ${s}`).join(", ");
+                    },
+                  },
+                }}
+              >
+                {[1, 2, 3].map((st) => (
+                  <MenuItem key={st} value={st}>
+                    <Checkbox checked={assignedStations.includes(st)} size="small" />
+                    Station {st}
+                  </MenuItem>
+                ))}
+              </TextField>
+
+              <TextField
+                select
+                label="Feste Arbeitstage"
+                value={fixedWorkingDays}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setFixedWorkingDays(
+                    typeof v === "string"
+                      ? v.split(",").map(Number).filter(Boolean)
+                      : (v as number[]),
+                  );
+                }}
+                fullWidth
+                disabled={saving}
+                size="small"
+                helperText={
+                  fixedWorkingDays.length === 0
+                    ? "Alle Tage"
+                    : `Nur: ${fixedWorkingDays.map((d) => WEEKDAY_LABELS[d]).join(", ")}`
+                }
+                slotProps={{
+                  select: {
+                    multiple: true,
+                    renderValue: (selected) => {
+                      const sel = selected as number[];
+                      return sel.length === 0
+                        ? "Alle Tage"
+                        : sel.map((d) => WEEKDAY_LABELS[d] ?? d).join(", ");
+                    },
+                  },
+                }}
+              >
+                {[1, 2, 3, 4, 5, 6, 7].map((d) => (
+                  <MenuItem key={d} value={d}>
+                    <Checkbox checked={fixedWorkingDays.includes(d)} size="small" />
+                    {WEEKDAY_LABELS[d]}
+                  </MenuItem>
+                ))}
+              </TextField>
+
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                <Checkbox
+                  checked={maxConsecOverride}
+                  onChange={(e) => {
+                    setMaxConsecOverride(e.target.checked);
+                    if (e.target.checked && !maxConsecDays) {
+                      setMaxConsecDays(String(globalMaxConsecDays));
+                    }
+                  }}
+                  disabled={saving}
+                  size="small"
+                />
+                <Typography variant="body2">Max. aufeinanderfolgende Tage</Typography>
+                {maxConsecOverride && (
+                  <TextField
+                    value={maxConsecDays}
+                    onChange={(e) => setMaxConsecDays(e.target.value)}
+                    size="small"
+                    disabled={saving}
+                    type="number"
+                    sx={{ width: 70 }}
+                    slotProps={{ htmlInput: { min: 1, max: 31 } }}
+                  />
+                )}
+              </Box>
+
+            </Box>
+          </Box>
 
         </DialogContent>
         <DialogActions>
