@@ -17,8 +17,6 @@ import {
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import PeopleIcon from "@mui/icons-material/People";
-import EventNoteIcon from "@mui/icons-material/EventNote";
-import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
 import SettingsIcon from "@mui/icons-material/Settings";
 import AssignmentIcon from "@mui/icons-material/Assignment";
 
@@ -28,8 +26,6 @@ const menuItems = [
   { text: "Dashboard", icon: <DashboardIcon />, href: "/" },
   { text: "Monatplan", icon: <CalendarMonthIcon />, href: "/schedule" },
   { text: "Mitarbeiter", icon: <PeopleIcon />, href: "/employees" },
-  { text: "Dienstwünsche", icon: <EventNoteIcon />, href: "/wishes" },
-  { text: "Tausch-Anfragen", icon: <SwapHorizIcon />, href: "/swaps" },
 ];
 
 const secondaryItems = [
