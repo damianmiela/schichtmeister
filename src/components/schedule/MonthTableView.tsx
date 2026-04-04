@@ -474,18 +474,15 @@ export default function MonthTableView({
     if (filtered.length === 0) return null;
     const sorted = sortEmployees(filtered);
 
+    const sectionBg =
+      filter === "night-only"
+        ? NIGHT_COLOR.light
+        : typeof filter === "object" && "station" in filter
+          ? STATION_COLORS[filter.station]?.light ?? "grey.100"
+          : "grey.100";
+
     return (
-      <Box key={title} sx={{
-        mb: 2,
-        bgcolor:
-          filter === "night-only"
-            ? NIGHT_COLOR.light
-            : typeof filter === "object" && "station" in filter
-              ? STATION_COLORS[filter.station]?.light
-              : undefined,
-        borderRadius: 1,
-        p: filter !== "none" ? 1 : 0,
-      }}>
+      <Box key={title} sx={{ mb: 2 }}>
         <Table size="small" stickyHeader>
           <TableHead>
             <TableRow>
@@ -498,7 +495,7 @@ export default function MonthTableView({
                   position: "sticky",
                   left: 0,
                   zIndex: 3,
-                  bgcolor: "grey.100",
+                  bgcolor: sectionBg,
                   fontSize: "0.875rem",
                 }}
               >
@@ -512,7 +509,7 @@ export default function MonthTableView({
                   position: "sticky",
                   left: NAME_COL_WIDTH,
                   zIndex: 3,
-                  bgcolor: "background.paper",
+                  bgcolor: sectionBg,
                   borderRight: 1,
                   borderColor: "divider",
                 }}
@@ -544,7 +541,7 @@ export default function MonthTableView({
                       fontWeight: 600,
                       cursor: "pointer",
                       "&:hover": { bgcolor: "action.hover" },
-                      ...(hName ? { bgcolor: "#fff0f0" } : {}),
+                      bgcolor: hName ? "#fff0f0" : sectionBg,
                     }}
                     onClick={() => onDayClick(new Date(y!, m! - 1, d!))}
                   >
