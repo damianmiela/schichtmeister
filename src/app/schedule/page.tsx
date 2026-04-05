@@ -602,7 +602,7 @@ export default function SchedulePage() {
     }
   };
 
-  const downloadExport = async (kind: "excel" | "pdf" | "debug" | "score") => {
+  const downloadExport = async (kind: "excel" | "pdf" | "employees-pdf" | "debug" | "score") => {
     if (!schedule) return;
     setExportBusy(true);
     setActionMsg(null);
@@ -625,7 +625,7 @@ export default function SchedulePage() {
       const blob = await res.blob();
       const cd = res.headers.get("Content-Disposition");
       const m = cd?.match(/filename="([^"]+)"/);
-      const fallbackMap = { excel: "dienstplan.xlsx", pdf: "dienstplan.pdf", debug: "debug.json", score: "qualitaetsbericht.txt" };
+      const fallbackMap: Record<string, string> = { excel: "dienstplan.xlsx", pdf: "dienstplan.pdf", "employees-pdf": "mitarbeiter_dienstplaene.pdf", debug: "debug.json", score: "qualitaetsbericht.txt" };
       const filename = m?.[1] ?? fallbackMap[kind];
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -1252,10 +1252,28 @@ export default function SchedulePage() {
                 variant="outlined"
                 startIcon={<DownloadIcon />}
                 disabled={loading || !schedule || exportBusy || assignments.length === 0 || editMode}
-                onClick={() => void downloadExport("pdf")}
+                onClick={(e) => setExportMenuEl(e.currentTarget)}
               >
                 {exportBusy ? <CircularProgress size={20} /> : "PDF Export"}
               </Button>
+              <Menu
+                anchorEl={exportMenuEl}
+                open={Boolean(exportMenuEl)}
+                onClose={() => setExportMenuEl(null)}
+              >
+                <MenuItem
+                  onClick={() => void downloadExport("pdf")}
+                  disabled={exportBusy}
+                >
+                  Monatsplan (Stationen)
+                </MenuItem>
+                <MenuItem
+                  onClick={() => void downloadExport("employees-pdf")}
+                  disabled={exportBusy}
+                >
+                  Mitarbeiter-Dienstpläne
+                </MenuItem>
+              </Menu>
 
               <Button
                 variant="outlined"
