@@ -71,6 +71,7 @@ interface EmployeeRow {
   targetHoursPeriod: string | null;
   miniJobMaxMonthlyHours: number | null;
   targetHoursPercent: number | null;
+  mainStation?: number | null;
   assignedStations: number[];
   workProfile: { id: string; name: string } | null;
   qualificationTags: string[];
@@ -275,6 +276,7 @@ export default function EmployeesPage() {
   const [miniStr, setMiniStr] = useState("");
   const [selectedQuals, setSelectedQuals] = useState<QualificationCatalog[]>([]);
   const [selectedProfiles, setSelectedProfiles] = useState<ShiftProfileCatalog[]>([]);
+  const [mainStation, setMainStation] = useState<number | null>(null);
   const [assignedStations, setAssignedStations] = useState<number[]>([]);
   const [profilesTouched, setProfilesTouched] = useState(false);
   const [isFullTimeBl, setIsFullTimeBl] = useState(false);
@@ -383,6 +385,7 @@ export default function EmployeesPage() {
     setMiniStr("");
     setSelectedQuals([]);
     setSelectedProfiles([]);
+    setMainStation(null);
     setAssignedStations([]);
     setEditingId(null);
     setProfilesTouched(false);
@@ -434,6 +437,7 @@ export default function EmployeesPage() {
       .filter((x): x is ShiftProfileCatalog => x != null);
     setSelectedProfiles(matchedProfiles);
     setProfilesTouched(true);
+    setMainStation((e as unknown as { mainStation?: number | null }).mainStation ?? null);
     setAssignedStations(e.assignedStations ?? []);
     setIsFullTimeBl(e.isFullTimeBl ?? false);
     setFixedWorkingDays(e.fixedWorkingDays ?? []);
@@ -502,6 +506,7 @@ export default function EmployeesPage() {
       status,
       targetHoursPercent: p,
       miniJobMaxMonthlyHours: contractType === "MINI_JOB" ? mini : null,
+      mainStation: mainStation,
       assignedStations: assignedStations,
       qualificationTags: selectedQuals.map((q) => q.abbreviation),
       qualificationIds: selectedQuals.map((q) => q.id),
@@ -705,25 +710,32 @@ export default function EmployeesPage() {
                             )}
                           </TableCell>
                           <TableCell>
-                            {employee.assignedStations.length > 0 ? (
-                              <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
-                                {employee.assignedStations.map((st) => (
-                                  <Chip
-                                    key={st}
-                                    label={`St. ${st}`}
-                                    size="small"
-                                    variant="outlined"
-                                    color="primary"
-                                    sx={{ fontWeight: 600, fontSize: 11 }}
-                                  />
-                                ))}
+                            {employee.mainStation ? (
+                              <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", alignItems: "center" }}>
+                                <Chip
+                                  label={`St. ${employee.mainStation}`}
+                                  size="small"
+                                  color="primary"
+                                  sx={{ fontWeight: 700, fontSize: 11 }}
+                                />
+                                {employee.assignedStations
+                                  .filter((st) => st !== employee.mainStation)
+                                  .map((st) => (
+                                    <Chip
+                                      key={st}
+                                      label={`St. ${st}`}
+                                      size="small"
+                                      variant="outlined"
+                                      sx={{ fontWeight: 500, fontSize: 11 }}
+                                    />
+                                  ))}
                               </Box>
                             ) : (
                               <Typography
                                 variant="caption"
                                 color="text.secondary"
                               >
-                                Alle
+                                Keine
                               </Typography>
                             )}
                           </TableCell>
@@ -1089,37 +1101,66 @@ export default function EmployeesPage() {
               </Typography>
               <TextField
                 select
-                label="Feste Station(en)"
-                value={assignedStations}
+                label="Hauptstation"
+                value={mainStation ?? ""}
                 onChange={(e) => {
                   const v = e.target.value;
-                  setAssignedStations(
-                    typeof v === "string"
-                      ? v.split(",").map(Number).filter(Boolean)
-                      : (v as number[]),
-                  );
+                  const num = v === "" ? null : Number(v);
+                  setMainStation(num);
+                  // Auto-include main station in assignedStations
+                  if (num != null && !assignedStations.includes(num)) {
+                    setAssignedStations([...assignedStations, num]);
+                  }
                 }}
                 fullWidth
                 disabled={saving}
                 size="small"
+                helperText="Station, auf der der Mitarbeiter hauptsächlich eingeplant wird"
+              >
+                <MenuItem value="">
+                  <em>Keine Hauptstation</em>
+                </MenuItem>
+                {[1, 2, 3].map((st) => (
+                  <MenuItem key={st} value={st}>Station {st}</MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                select
+                label="Weitere Stationen (optional)"
+                value={assignedStations.filter((s) => s !== mainStation)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  const secondary = typeof v === "string"
+                    ? v.split(",").map(Number).filter(Boolean)
+                    : (v as number[]);
+                  // Combine main + secondary
+                  setAssignedStations(
+                    mainStation != null
+                      ? [mainStation, ...secondary.filter((s) => s !== mainStation)]
+                      : secondary,
+                  );
+                }}
+                fullWidth
+                disabled={saving || mainStation == null}
+                size="small"
                 helperText={
-                  assignedStations.length === 0
-                    ? "Alle Stationen möglich"
-                    : `Nur Station ${assignedStations.join(" + ")}`
+                  mainStation == null
+                    ? "Erst Hauptstation wählen"
+                    : "Zusätzliche Stationen, auf denen der Mitarbeiter eingesetzt werden kann"
                 }
                 slotProps={{
                   select: {
                     multiple: true,
                     renderValue: (selected) => {
-                      const sel = selected as number[];
+                      const sel = (selected as number[]).filter((s) => s !== mainStation);
                       return sel.length === 0
-                        ? "Alle Stationen"
+                        ? "Keine weiteren"
                         : sel.map((s) => `St. ${s}`).join(", ");
                     },
                   },
                 }}
               >
-                {[1, 2, 3].map((st) => (
+                {[1, 2, 3].filter((st) => st !== mainStation).map((st) => (
                   <MenuItem key={st} value={st}>
                     <Checkbox checked={assignedStations.includes(st)} size="small" />
                     Station {st}

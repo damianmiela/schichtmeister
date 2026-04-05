@@ -35,6 +35,7 @@ function resolveStation(
 ): number | null {
   if (a.stationNumber != null) return a.stationNumber;
   const emp = employeesById[a.employeeId];
+  if (emp?.mainStation != null) return emp.mainStation;
   if (emp?.assignedStations?.length === 1) return emp.assignedStations[0]!;
   return null;
 }

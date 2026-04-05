@@ -110,6 +110,7 @@ export async function GET(request: NextRequest) {
         abbreviation: q.abbreviation,
         name: q.name,
       })),
+      mainStation: (emp as unknown as { mainStation?: number | null }).mainStation ?? null,
       assignedStations: emp.assignedStations,
       targetHoursPercent: pct,
       targetHours: emp.targetHours != null ? Number(emp.targetHours) : null,

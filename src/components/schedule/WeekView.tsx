@@ -104,7 +104,7 @@ export default function WeekView({
         continue;
       }
       const emp = employees.find((e) => e.id === a.employeeId);
-      const station = a.stationNumber ?? (emp?.assignedStations?.length === 1 ? emp.assignedStations[0] : null);
+      const station = a.stationNumber ?? emp?.mainStation ?? (emp?.assignedStations?.length === 1 ? emp.assignedStations[0] : null);
       if (station && groups[station]) {
         groups[station]!.add(a.employeeId);
       }

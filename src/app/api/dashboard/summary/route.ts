@@ -85,7 +85,12 @@ export async function GET() {
         shiftProfile: { select: { shiftType: true, name: true } },
         employee: { select: { firstName: true, lastName: true, assignedStations: true } },
       },
-    }),
+    }) as unknown as Promise<Array<{
+      id: string; scheduleId: string; date: Date; shiftProfileId: string;
+      employeeId: string; stationNumber: number | null; dayStatus: string | null;
+      shiftProfile: { shiftType: string; name: string };
+      employee: { firstName: string; lastName: string; mainStation: number | null; assignedStations: number[] };
+    }>>,
   ]);
 
   /* ── employee counts ── */
@@ -166,7 +171,7 @@ export async function GET() {
     const shifts: StationShift[] = shiftOrder.map((shiftType) => {
       const matching = todayAssignments.filter((a) => {
         if (a.shiftProfile.shiftType !== shiftType) return false;
-        const aStation = a.stationNumber ?? (a.employee.assignedStations?.length === 1 ? a.employee.assignedStations[0] : null);
+        const aStation = a.stationNumber ?? a.employee.mainStation ?? (a.employee.assignedStations?.length === 1 ? a.employee.assignedStations[0] : null);
         if (shiftType === "NIGHT") return true; // night is facility-wide, counted separately
         return aStation === st;
       });
@@ -251,12 +256,12 @@ export async function GET() {
     for (const st of stationNumbers) {
       const early = dayAssignments.filter((a) => {
         if (a.shiftProfile.shiftType !== "EARLY") return false;
-        const aStation = a.stationNumber ?? (a.employee.assignedStations?.length === 1 ? a.employee.assignedStations[0] : null);
+        const aStation = a.stationNumber ?? a.employee.mainStation ?? (a.employee.assignedStations?.length === 1 ? a.employee.assignedStations[0] : null);
         return aStation === st;
       }).length;
       const late = dayAssignments.filter((a) => {
         if (a.shiftProfile.shiftType !== "LATE") return false;
-        const aStation = a.stationNumber ?? (a.employee.assignedStations?.length === 1 ? a.employee.assignedStations[0] : null);
+        const aStation = a.stationNumber ?? a.employee.mainStation ?? (a.employee.assignedStations?.length === 1 ? a.employee.assignedStations[0] : null);
         return aStation === st;
       }).length;
       stations[st] = { early, late };

@@ -35,6 +35,7 @@ export type EmployeeJson = {
   targetHours?: number | null;
   targetHoursPeriod?: string | null;
   targetHoursPercent?: number | null;
+  mainStation?: number | null;
   assignedStations?: number[];
   contractType?: string;
 };

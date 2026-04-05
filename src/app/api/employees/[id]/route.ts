@@ -60,6 +60,9 @@ export async function PATCH(request: NextRequest, context: RouteCtx) {
   if (data.preferredShiftTypes !== undefined) {
     updateData.preferredShiftTypes = data.preferredShiftTypes;
   }
+  if (data.mainStation !== undefined) {
+    updateData.mainStation = data.mainStation;
+  }
   if (data.assignedStations !== undefined) {
     updateData.assignedStations = data.assignedStations;
   }

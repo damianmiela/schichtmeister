@@ -778,7 +778,7 @@ export default function EmployeeView({
                 const accent = SHIFT_ACCENT[prof?.shiftType ?? ""] ?? theme.palette.grey[500];
                 const hours = prof ? paidHours(prof) : 0;
                 const rawStation = editMode ? (effective?.stationNumber ?? a.stationNumber) : a.stationNumber;
-                const stationNum = rawStation ?? (employee.assignedStations?.length === 1 ? employee.assignedStations[0] : null);
+                const stationNum = rawStation ?? employee.mainStation ?? (employee.assignedStations?.length === 1 ? employee.assignedStations[0] : null);
                 const isNight = prof?.shiftType === "NIGHT";
                 const stColor = stationColorForAssignment(isNight ? null : stationNum, prof?.shiftType);
                 const m2 = editMode ? effective?.markingRow2 : a.markingRow2;

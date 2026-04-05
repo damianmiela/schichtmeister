@@ -93,6 +93,7 @@ export async function POST(request: NextRequest) {
         miniJobMaxMonthlyHours: block.miniJobMaxMonthlyHours ?? undefined,
         targetHoursPercent: block.targetHoursPercent ?? undefined,
         workProfileId: workProfileConnectId ?? undefined,
+        mainStation: data.mainStation ?? null,
         assignedStations: data.assignedStations ?? [],
         qualificationTags: data.qualificationTags ?? [],
         preferredShiftTypes: data.preferredShiftTypes ?? [],

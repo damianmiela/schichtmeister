@@ -1079,7 +1079,7 @@ export default function SchedulePage() {
         type,
         date: firstDay,
         shiftProfileId: allProfiles[0]?.id ?? "",
-        stationNumber: first.assignedStations?.[0] ?? 1,
+        stationNumber: first.mainStation ?? first.assignedStations?.[0] ?? 1,
         dateFrom: firstDay,
         dateTo: firstDay,
         absenceType: "KRANK",

@@ -153,42 +153,18 @@ const EMP_STATUS_MAP: Record<string, string> = {
 
 function groupEmployeesByStation(
   employees: EmployeeJson[],
-  assignments: AssignmentJson[],
+  _assignments: AssignmentJson[],
 ): Record<number, EmployeeJson[]> {
   const grouped: Record<number, EmployeeJson[]> = { 1: [], 2: [], 3: [] };
-  const added = new Set<string>();
-
-  // Build set of stations each employee actually has assignments on
-  const empAssignmentStations = new Map<string, Set<number>>();
-  for (const a of assignments) {
-    if (a.stationNumber != null && a.stationNumber >= 1 && a.stationNumber <= 3) {
-      let s = empAssignmentStations.get(a.employeeId);
-      if (!s) { s = new Set(); empAssignmentStations.set(a.employeeId, s); }
-      s.add(a.stationNumber);
-    }
-  }
 
   for (const emp of employees) {
-    const stations = new Set(emp.assignedStations ?? []);
-    // Also include stations from actual assignments (e.g. Dienstwunsch on different station)
-    const fromAssignments = empAssignmentStations.get(emp.id);
-    if (fromAssignments) for (const st of fromAssignments) stations.add(st);
-
-    if (stations.size > 0) {
-      for (const st of stations) {
-        if (st >= 1 && st <= 3 && !added.has(`${emp.id}-${st}`)) {
-          grouped[st]!.push(emp);
-          added.add(`${emp.id}-${st}`);
-        }
-      }
-    } else {
-      for (const st of [1, 2, 3]) {
-        if (!added.has(`${emp.id}-${st}`)) {
-          grouped[st]!.push(emp);
-          added.add(`${emp.id}-${st}`);
-        }
-      }
+    const main = emp.mainStation;
+    if (main != null && main >= 1 && main <= 3) {
+      // Employee appears only in their main station table
+      grouped[main]!.push(emp);
     }
+    // Employees without mainStation don't appear in any station table
+    // (they go to "Nicht eingeplant" unless night-only)
   }
   return grouped;
 }
@@ -232,8 +208,10 @@ type CellDisplay = {
   row3: string;
   isStatus: boolean;
   statusCode?: string;
-  /** Cross-station/night indicator: shows a colored circle with label */
+  /** Night indicator: shows "N" circle in full cell */
   crossIndicator?: { label: string; main: string; light: string };
+  /** Cross-station badge: split cell — left badge + right shift info */
+  crossStationBadge?: { label: string; main: string; light: string };
 };
 
 function getCellDisplay(
@@ -449,25 +427,12 @@ export default function MonthTableView({
     sectionEmployees: EmployeeJson[],
     filter: SectionFilter = "none",
   ) => {
-    // Filter out employees who have no shifts at this station
-    // Also exclude employees that are completely unassigned (they appear in "Nicht eingeplant")
+    // Filter: for station sections, keep employees who have any assignment (they are already
+    // grouped by mainStation). Exclude completely unassigned (they appear in "Nicht eingeplant").
     let filtered = sectionEmployees;
     const assignedEmpIds = new Set(assignments.map((a) => a.employeeId));
     if (typeof filter === "object" && "station" in filter) {
-      const stationNum = filter.station;
-      filtered = sectionEmployees.filter((emp) => {
-        // Exclude completely unassigned employees — they belong in "Nicht eingeplant"
-        if (!assignedEmpIds.has(emp.id)) return false;
-        // Keep employees who have at least one non-night assignment at this station
-        for (const a of assignments) {
-          if (a.employeeId !== emp.id) continue;
-          const prof = profilesById[a.shiftProfileId];
-          if (prof?.shiftType === "NIGHT") continue; // nights are separate
-          const assignedStation = a.stationNumber ?? (emp.assignedStations?.length === 1 ? emp.assignedStations[0] : null);
-          if (assignedStation === stationNum) return true;
-        }
-        return false;
-      });
+      filtered = sectionEmployees.filter((emp) => assignedEmpIds.has(emp.id));
     } else if (filter === "night-only") {
       // Already filtered by getNightEmployees
     }
@@ -696,20 +661,21 @@ export default function MonthTableView({
                           }
                         } else if (typeof filter === "object" && "station" in filter) {
                           if (prof?.shiftType === "NIGHT") {
-                            // Night shift — show "N" circle in station table
+                            // Night shift — show "N" circle (full cell, no division)
                             display = {
                               row1: "", row2: "", row3: "", isStatus: false,
                               crossIndicator: { label: "N", ...NIGHT_COLOR },
                             };
                           } else {
                             const asgnStation = asgn.stationNumber
+                              ?? emp.mainStation
                               ?? (emp.assignedStations?.length === 1 ? emp.assignedStations[0] : null);
                             if (asgnStation != null && asgnStation !== filter.station) {
-                              // Different station — show station number circle
+                              // Different station — split cell: left badge + right shift info
                               const stColor = STATION_COLORS[asgnStation] ?? { main: "#78909c", light: "#eceff1" };
                               display = {
-                                row1: "", row2: "", row3: "", isStatus: false,
-                                crossIndicator: { label: String(asgnStation), ...stColor },
+                                ...display,
+                                crossStationBadge: { label: String(asgnStation), ...stColor },
                               };
                             }
                           }
@@ -793,13 +759,13 @@ export default function MonthTableView({
                           <Box
                             sx={{
                               display: "flex",
-                              flexDirection: "column",
+                              flexDirection: display.crossStationBadge ? "row" : "column",
                               height: "100%",
                               width: "100%",
                             }}
                           >
                             {display.crossIndicator ? (
-                              /* Cross-station / night indicator circle */
+                              /* Night indicator — full cell circle */
                               <Tooltip title={display.crossIndicator.label === "N" ? "Nachtschicht" : `Station ${display.crossIndicator.label}`} arrow>
                                 <Box sx={{
                                   display: "flex",
@@ -826,6 +792,80 @@ export default function MonthTableView({
                                   </Box>
                                 </Box>
                               </Tooltip>
+                            ) : display.crossStationBadge ? (
+                              /* Cross-station — split cell: left badge | right shift info */
+                              <>
+                                <Tooltip title={`Station ${display.crossStationBadge.label}`} arrow>
+                                  <Box sx={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    width: 26,
+                                    minWidth: 26,
+                                    borderRight: "1px solid",
+                                    borderColor: "grey.200",
+                                  }}>
+                                    <Box sx={{
+                                      width: 20,
+                                      height: 20,
+                                      borderRadius: "50%",
+                                      bgcolor: display.crossStationBadge.light,
+                                      color: display.crossStationBadge.main,
+                                      border: `1.5px solid ${alpha(display.crossStationBadge.main, 0.3)}`,
+                                      display: "flex",
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                      fontSize: 10,
+                                      fontWeight: 700,
+                                      lineHeight: 1,
+                                    }}>
+                                      {display.crossStationBadge.label}
+                                    </Box>
+                                  </Box>
+                                </Tooltip>
+                                <Box sx={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}>
+                                  <Box sx={{
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    lineHeight: 1.2,
+                                    textAlign: "center",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    flex: 1,
+                                    borderBottom: "1px solid",
+                                    borderColor: "grey.200",
+                                  }}>
+                                    {displayRow1}
+                                  </Box>
+                                  <Box sx={{
+                                    fontSize: "0.6rem",
+                                    lineHeight: 1.1,
+                                    color: cellColor ?? "text.secondary",
+                                    textAlign: "center",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    flex: 1,
+                                    borderBottom: "1px solid",
+                                    borderColor: "grey.200",
+                                  }}>
+                                    {display.row2 || "\u00A0"}
+                                  </Box>
+                                  <Box sx={{
+                                    fontSize: "0.6rem",
+                                    lineHeight: 1.1,
+                                    color: cellColor ?? "text.secondary",
+                                    textAlign: "center",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    flex: 1,
+                                  }}>
+                                    {display.row3 || "\u00A0"}
+                                  </Box>
+                                </Box>
+                              </>
                             ) : (
                             <>
                             {/* Row 1 – shift profile / status */}
@@ -936,8 +976,30 @@ export default function MonthTableView({
 
   const unassignedEmployees = useMemo(() => {
     const assignedIds = new Set(assignments.map((a) => a.employeeId));
-    return employees.filter((e) => !assignedIds.has(e.id));
-  }, [employees, assignments]);
+    // Also exclude employees who appear in station tables (have mainStation) or night table
+    const nightEmpIds = new Set<string>();
+    for (const a of assignments) {
+      const prof = profilesById[a.shiftProfileId];
+      if (prof?.shiftType === "NIGHT") nightEmpIds.add(a.employeeId);
+    }
+    return employees.filter((e) => {
+      // Has assignments → already in station/night table
+      if (assignedIds.has(e.id)) {
+        // If no mainStation but only night assignments → in night table, not unassigned
+        if (e.mainStation == null) {
+          // Check if all their assignments are night-only
+          const hasNonNight = assignments.some((a) => {
+            if (a.employeeId !== e.id) return false;
+            const prof = profilesById[a.shiftProfileId];
+            return prof?.shiftType !== "NIGHT";
+          });
+          if (!hasNonNight && nightEmpIds.has(e.id)) return false; // night-only, shown in night table
+        }
+        return false;
+      }
+      return true;
+    });
+  }, [employees, assignments, profilesById]);
 
   const renderUnassignedSection = () => {
     if (unassignedEmployees.length === 0) return null;
@@ -982,6 +1044,8 @@ export default function MonthTableView({
                 reason = "Urlaub (ganzer Monat)";
               } else if (emp.status === "KUR") {
                 reason = "Kur";
+              } else if (emp.mainStation == null) {
+                reason = "Keine Hauptstation zugewiesen";
               } else {
                 reason = "Keine passenden Schichten";
               }

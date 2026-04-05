@@ -127,6 +127,7 @@ model Employee {
   miniJobMaxMonthlyHours   Decimal?            @db.Decimal(8, 2)
   targetHoursPercent       Decimal?            @db.Decimal(6, 2)
   workProfileId            String?
+  mainStation              Int?
   assignedStations         Int[]               @default([])
   status                   EmployeeStatus      @default(ACTIVE)
   qualificationTags        String[]            @default([])

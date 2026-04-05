@@ -264,7 +264,7 @@ function ColumnView({
       if (profile.shiftType === "NIGHT") {
         nights.push(row);
       } else {
-        const st = a.stationNumber ?? employee?.assignedStations?.[0] ?? 1;
+        const st = a.stationNumber ?? employee?.mainStation ?? employee?.assignedStations?.[0] ?? 1;
         const bucket = stations[st] ?? stations[1];
         if (profile.shiftType === "EARLY") bucket!.early.push(row);
         else if (profile.shiftType === "LATE") bucket!.late.push(row);
@@ -1044,7 +1044,7 @@ function TimelineView({
       if (profile.shiftType === "NIGHT") {
         nightRows.push(row);
       } else {
-        const st = a.stationNumber ?? employee?.assignedStations?.[0] ?? 1;
+        const st = a.stationNumber ?? employee?.mainStation ?? employee?.assignedStations?.[0] ?? 1;
         (stationRows[st] ?? stationRows[1]).push(row);
       }
     }
