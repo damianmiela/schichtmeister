@@ -90,13 +90,12 @@ export async function GET(request: NextRequest) {
 
   const result = employees.map((emp) => {
     const pct = emp.targetHoursPercent != null ? Number(emp.targetHoursPercent) : null;
-    const rawSoll = computeSollHours(date.getUTCFullYear(), date.getUTCMonth(), pct);
-    // Each absence working day reduces Soll by 8h × (targetPercent / 100)
+    const sollHours = computeSollHours(date.getUTCFullYear(), date.getUTCMonth(), pct);
+    // Absence working days count as "worked" → add to Ist (keep Soll unchanged)
     const absWorkDays = absenceWorkDaysByEmployee.get(emp.id) ?? 0;
     const effectivePct = pct ?? 100;
-    const absReduction = absWorkDays * 8 * (effectivePct / 100);
-    const sollHours = rawSoll != null ? rawSoll - absReduction : rawSoll;
-    const istHours = istByEmployee.get(emp.id) ?? 0;
+    const absenceHours = absWorkDays * 8 * (effectivePct / 100);
+    const istHours = (istByEmployee.get(emp.id) ?? 0) + absenceHours;
     const deltaHours = sollHours != null ? Math.round((istHours - sollHours) * 100) / 100 : null;
 
     return {

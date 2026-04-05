@@ -530,13 +530,13 @@ export default function MonthTableView({
 
           <TableBody>
             {sorted.map((emp) => {
-              const planned = empPlannedHours.get(emp.id) ?? 0;
-              const rawTarget = monthlyTargetForMonth(emp, year, monthIndex);
+              const basePlanned = empPlannedHours.get(emp.id) ?? 0;
+              const target = monthlyTargetForMonth(emp, year, monthIndex);
               const tags = emp.qualificationTags ?? [];
               const contractPct = emp.targetHoursPercent ?? 100;
               const absWorkDays = empAbsenceWorkDays.get(emp.id) ?? 0;
-              const absReduction = absWorkDays * 8 * (contractPct / 100);
-              const target = rawTarget != null ? rawTarget - absReduction : null;
+              const absenceHours = absWorkDays * 8 * (contractPct / 100);
+              const planned = basePlanned + absenceHours;
 
               let hoursColor: string;
               if (target == null) {

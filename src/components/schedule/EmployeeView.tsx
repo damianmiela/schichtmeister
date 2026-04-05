@@ -270,40 +270,42 @@ export default function EmployeeView({
     return count;
   }, [assignmentsByDate]);
 
-  /* ── Soll hours (holiday-aware, reduced by absence working days) ── */
+  /* ── Absence hours: working days of K/U count as "worked" ── */
+  const absenceHours = useMemo(() => {
+    const pct = employee.targetHoursPercent ?? 100;
+    return absenceWorkDayCount * 8 * (pct / 100);
+  }, [absenceWorkDayCount, employee.targetHoursPercent]);
+
+  /* ── Ist hours = actual shifts + absence hours ── */
+  const istHours = totalHours + absenceHours;
+
+  /* ── Soll hours (holiday-aware, NO absence reduction) ── */
   const target = useMemo(() => {
-    let raw: number | null = null;
     const pct = employee.targetHoursPercent;
     if (pct != null && pct > 0) {
-      raw = computeSollHours(year, monthIndex, pct);
+      return computeSollHours(year, monthIndex, pct);
     } else if (employee.targetHours != null) {
       const soll = computeSollHours(year, monthIndex, 100);
       if (soll != null) {
         if (employee.targetHoursPeriod === "WEEKLY") {
-          raw = (employee.targetHours / 5) * (soll / 8);
+          return (employee.targetHours / 5) * (soll / 8);
         } else {
-          raw = employee.targetHours * ((soll / 8) / 21.75);
+          return employee.targetHours * ((soll / 8) / 21.75);
         }
       }
-    } else {
-      raw = computeSollHours(year, monthIndex, pct);
     }
-    if (raw == null) return null;
-    // Each absence working day reduces Soll by 8h × (targetPercent / 100)
-    const effectivePct = pct ?? 100;
-    const absReduction = absenceWorkDayCount * 8 * (effectivePct / 100);
-    return raw - absReduction;
-  }, [employee.targetHours, employee.targetHoursPercent, employee.targetHoursPeriod, year, monthIndex, absenceWorkDayCount]);
+    return computeSollHours(year, monthIndex, pct);
+  }, [employee.targetHours, employee.targetHoursPercent, employee.targetHoursPeriod, year, monthIndex]);
 
-  const delta = target != null ? totalHours - target : null;
+  const delta = target != null ? istHours - target : null;
   const tags = employee.qualificationTags ?? [];
 
   let hoursColor: string;
   if (target == null) {
     hoursColor = theme.palette.text.secondary;
-  } else if (totalHours < target - 4 || totalHours > target + 16) {
+  } else if (istHours < target - 4 || istHours > target + 16) {
     hoursColor = theme.palette.error.main;
-  } else if (totalHours > target + 8) {
+  } else if (istHours > target + 8) {
     hoursColor = theme.palette.warning.main;
   } else {
     hoursColor = theme.palette.success.main;
@@ -449,8 +451,8 @@ export default function EmployeeView({
               <Chip
                 label={
                   target != null
-                    ? `${fmtHours(totalHours)} / ${fmtHours(target)} Std`
-                    : `${fmtHours(totalHours)} Std`
+                    ? `${fmtHours(istHours)} / ${fmtHours(target)} Std`
+                    : `${fmtHours(istHours)} Std`
                 }
                 size="small"
                 sx={{ fontWeight: 600, color: hoursColor, borderColor: hoursColor }}
@@ -473,7 +475,7 @@ export default function EmployeeView({
             <Box sx={{ mt: 1.5, display: "flex", alignItems: "center", gap: 1.5 }}>
               <LinearProgress
                 variant="determinate"
-                value={Math.min(Math.round((totalHours / target) * 100), 100)}
+                value={Math.min(Math.round((istHours / target) * 100), 100)}
                 sx={{
                   flex: 1,
                   height: 6,
@@ -483,7 +485,7 @@ export default function EmployeeView({
                 }}
               />
               <Typography variant="caption" sx={{ fontWeight: 700, color: hoursColor, minWidth: 40, textAlign: "right" }}>
-                {target > 0 ? `${Math.round((totalHours / target) * 100)}%` : ""}
+                {target > 0 ? `${Math.round((istHours / target) * 100)}%` : ""}
               </Typography>
             </Box>
           )}
