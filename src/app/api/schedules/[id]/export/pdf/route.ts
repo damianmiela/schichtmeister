@@ -21,7 +21,9 @@ export async function GET(_request: Request, context: RouteCtx) {
   }
 
   try {
+    console.log("[PDF] Starting generation, assignments:", bundle.assignments.length, "employees:", bundle.allEmployees.length);
     const buffer = await buildSchedulePdfBuffer(bundle);
+    console.log("[PDF] Buffer generated, size:", buffer.length);
     const ps = toIsoDateOnly(bundle.schedule.periodStart);
     const pe = toIsoDateOnly(bundle.schedule.periodEnd);
     const filename = `Dienstplan_${ps}_${pe}.pdf`;
@@ -35,9 +37,11 @@ export async function GET(_request: Request, context: RouteCtx) {
       },
     });
   } catch (e) {
-    console.error("PDF generation failed:", e);
+    const msg = e instanceof Error ? e.message : String(e);
+    const stack = e instanceof Error ? e.stack?.split("\n").slice(0, 5).join("\n") : "";
+    console.error("[PDF] Generation failed:", msg, "\n", stack);
     return NextResponse.json(
-      { error: "PDF-Generierung fehlgeschlagen." },
+      { error: `PDF-Generierung fehlgeschlagen: ${msg}` },
       { status: 500 },
     );
   }
