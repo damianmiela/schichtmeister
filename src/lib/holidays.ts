@@ -122,15 +122,86 @@ export function computeSollHours(
 }
 
 /**
- * Soll-reduction per absence day (K/U).
+ * Count working days in a date range [start, end], excluding weekends
+ * and Rheinland-Pfalz public holidays.
  *
- * Uses **proportional scaling**: each calendar day of absence reduces Soll
- * by `sollHours / daysInMonth`.  This correctly accounts for the fact that
- * an employee does not work every calendar day — e.g. a 100 % employee with
- * 160 h Soll in a 30-day month → 5.33 h per absence day, not 8 h.
+ * @param start  Start date (inclusive)
+ * @param end    End date (inclusive)
+ */
+export function countWorkingDaysInRange(start: Date, end: Date): number {
+  const startTs = Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate());
+  const endTs = Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate());
+
+  // Build holiday set for all relevant years
+  const holidayIsos = new Set<string>();
+  const years = new Set<number>();
+  years.add(start.getUTCFullYear());
+  years.add(end.getUTCFullYear());
+  for (const y of years) {
+    for (const h of getHolidays(y)) {
+      holidayIsos.add(h.date.toISOString().slice(0, 10));
+    }
+  }
+
+  let count = 0;
+  let t = startTs;
+  while (t <= endTs) {
+    const d = new Date(t);
+    const dow = d.getUTCDay();
+    if (dow !== 0 && dow !== 6) {
+      const iso = d.toISOString().slice(0, 10);
+      if (!holidayIsos.has(iso)) count++;
+    }
+    t += 86_400_000;
+  }
+  return count;
+}
+
+/**
+ * Soll-reduction for an absence period (K/U).
  *
- * @param sollHours    The employee's raw monthly Soll (before absence adjustment)
- * @param daysInMonth  Total calendar days in the month (28–31)
+ * Counts only working days (Mon-Fri, excluding holidays) in the absence
+ * period, then multiplies by 8h × (targetPercent/100).
+ *
+ * Example: 14 calendar days with 2 weekends = 10 working days.
+ * For a 100% employee: 10 × 8 = 80h reduction.
+ * For a 75% employee: 10 × 8 × 0.75 = 60h reduction.
+ *
+ * @param absenceStart   First day of absence (inclusive)
+ * @param absenceEnd     Last day of absence (inclusive)
+ * @param targetPercent  Employee's targetHoursPercent (e.g. 100 for full-time)
+ */
+export function absenceHoursReduction(
+  absenceStart: Date,
+  absenceEnd: Date,
+  targetPercent: number,
+): number {
+  const workDays = countWorkingDaysInRange(absenceStart, absenceEnd);
+  return workDays * 8 * (targetPercent / 100);
+}
+
+/**
+ * Check if a given date is a working day (not weekend, not holiday).
+ */
+export function isWorkingDay(d: Date): boolean {
+  const dow = d.getUTCDay();
+  if (dow === 0 || dow === 6) return false;
+  const year = d.getUTCFullYear();
+  const iso = d.toISOString().slice(0, 10);
+  return !getHolidays(year).some((h) => h.date.toISOString().slice(0, 10) === iso);
+}
+
+/**
+ * Check if a given ISO date string (YYYY-MM-DD) is a working day.
+ */
+export function isWorkingDayIso(iso: string): boolean {
+  const [y, m, dStr] = iso.split("-").map(Number);
+  const d = new Date(Date.UTC(y!, m! - 1, dStr!));
+  return isWorkingDay(d);
+}
+
+/**
+ * @deprecated Use absenceHoursReduction instead. Kept for backward compatibility.
  */
 export function absenceDailyHours(
   sollHours: number,

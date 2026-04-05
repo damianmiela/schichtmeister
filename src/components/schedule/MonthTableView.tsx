@@ -22,7 +22,7 @@ import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
 import { localIsoFromParts } from "@/lib/schedule/monthSchedule";
 import type { AssignmentJson, EmployeeJson, ShiftProfileJson } from "@/lib/schedule/scheduleTypes";
 import QualificationPills from "@/components/schedule/QualificationPills";
-import { monthlyWorkingDaysWithHolidays, absenceDailyHours } from "@/lib/holidays";
+import { monthlyWorkingDaysWithHolidays, isWorkingDayIso } from "@/lib/holidays";
 
 /* ──────────────────────── exported type ──────────────────────── */
 
@@ -133,6 +133,10 @@ const STATUS_CODES = [
   { code: "LZ", label: "Langzeitkrank" },
   { code: "KU", label: "Kur" },
 ] as const;
+
+const STATUS_LABEL_MAP: Record<string, string> = Object.fromEntries(
+  STATUS_CODES.map(({ code, label }) => [code, label]),
+);
 
 const SHIFT_TYPE_ORDER = ["EARLY", "LATE", "NIGHT"];
 const SHIFT_TYPE_LABELS: Record<string, string> = {
@@ -364,11 +368,11 @@ export default function MonthTableView({
     return grouped;
   }, [shiftProfiles]);
 
-  // Count K/U absence days per employee (for Soll reduction)
-  const empAbsenceDays = useMemo(() => {
+  // Count K/U absence WORKING days per employee (exclude weekends + holidays)
+  const empAbsenceWorkDays = useMemo(() => {
     const counts = new Map<string, number>();
     for (const a of assignments) {
-      if (a.dayStatus && ABSENCE_STATUS_CODES.has(a.dayStatus)) {
+      if (a.dayStatus && ABSENCE_STATUS_CODES.has(a.dayStatus) && isWorkingDayIso(a.date)) {
         counts.set(a.employeeId, (counts.get(a.employeeId) ?? 0) + 1);
       }
     }
@@ -528,11 +532,11 @@ export default function MonthTableView({
             {sorted.map((emp) => {
               const planned = empPlannedHours.get(emp.id) ?? 0;
               const rawTarget = monthlyTargetForMonth(emp, year, monthIndex);
-              const absDays = empAbsenceDays.get(emp.id) ?? 0;
-              const calendarDays = new Date(year, monthIndex + 1, 0).getDate();
-              const target = rawTarget != null ? rawTarget - absDays * absenceDailyHours(rawTarget, calendarDays) : null;
               const tags = emp.qualificationTags ?? [];
               const contractPct = emp.targetHoursPercent ?? 100;
+              const absWorkDays = empAbsenceWorkDays.get(emp.id) ?? 0;
+              const absReduction = absWorkDays * 8 * (contractPct / 100);
+              const target = rawTarget != null ? rawTarget - absReduction : null;
 
               let hoursColor: string;
               if (target == null) {
@@ -712,14 +716,18 @@ export default function MonthTableView({
                       <Tooltip
                         key={iso}
                         title={
-                          isShiftWish
-                            ? "Dienstwunsch"
-                            : isFreiWish
-                              ? "Frei-Wunsch"
-                              : ""
+                          display.isStatus && display.statusCode
+                            ? STATUS_LABEL_MAP[display.statusCode] ?? display.statusCode
+                            : isShiftWish
+                              ? "Dienstwunsch"
+                              : isFreiWish
+                                ? "Frei-Wunsch"
+                                : ""
                         }
                         arrow
-                        disableHoverListener={!isShiftWish && !isFreiWish}
+                        disableHoverListener={
+                          !isShiftWish && !isFreiWish && !display.isStatus
+                        }
                       >
                         <TableCell
                           align="center"

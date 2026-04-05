@@ -9,6 +9,7 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  Tooltip,
   Typography,
   alpha,
   useTheme,
@@ -34,6 +35,10 @@ const NAME_COL_WIDTH = 280;
 
 const EMP_STATUS_MAP: Record<string, string> = {
   KRANK: "K", LANGZEITKRANK: "LZ", MUTTERSCHUTZ: "MS", URLAUB: "U", KUR: "KU",
+};
+
+const STATUS_LABEL_MAP: Record<string, string> = {
+  K: "Krank", U: "Urlaub", LZ: "Langzeitkrank", MS: "Mutterschutz", KU: "Kur", SCH: "Schule",
 };
 
 const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
@@ -260,9 +265,13 @@ export default function WeekView({
                       const dayDate = new Date(y, m - 1, d);
                       const isWeekend = dayDate.getDay() === 0 || dayDate.getDay() === 6;
 
+                      const tooltipTitle = statusCode
+                        ? (STATUS_LABEL_MAP[statusCode] ?? statusCode)
+                        : isShiftWish ? "Dienstwunsch" : isFreiWish ? "Frei-Wunsch" : "";
+
                       return (
+                        <Tooltip key={iso} title={tooltipTitle} arrow disableHoverListener={!tooltipTitle}>
                         <TableCell
-                          key={iso}
                           align="center"
                           onClick={() => onDayClick(dayDate)}
                           sx={{
@@ -288,6 +297,7 @@ export default function WeekView({
                         >
                           {cellText}
                         </TableCell>
+                        </Tooltip>
                       );
                     })}
                     <TableCell align="center" sx={{ fontSize: 12, fontWeight: 600 }}>

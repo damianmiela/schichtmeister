@@ -4,7 +4,7 @@ import { requirePlanner } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 import { parseIsoDateOnly, toIsoDateOnly } from "@/lib/api/dateOnly";
 import { assignmentPaidHours } from "@/lib/planning/time";
-import { computeSollHours, absenceDailyHours } from "@/lib/holidays";
+import { computeSollHours, isWorkingDayIso } from "@/lib/holidays";
 
 /**
  * GET /api/employees/available?scheduleId=...&date=YYYY-MM-DD
@@ -61,20 +61,23 @@ export async function GET(request: NextRequest) {
 
   // Build per-employee hour totals for the month (skip K/U absence assignments)
   const istByEmployee = new Map<string, number>();
-  const absenceDaysByEmployee = new Map<string, number>();
+  const absenceWorkDaysByEmployee = new Map<string, number>();
   const assignedOnDate = new Set<string>();
 
   for (const a of assignments) {
-    if (toIsoDateOnly(a.date) === dateKey) {
+    const aIso = toIsoDateOnly(a.date);
+    if (aIso === dateKey) {
       assignedOnDate.add(a.employeeId);
     }
 
-    // K/U absence records don't count toward Ist
+    // K/U absence records don't count toward Ist; only count working days for Soll reduction
     if (a.dayStatus && ABSENCE_STATUSES.has(a.dayStatus)) {
-      absenceDaysByEmployee.set(
-        a.employeeId,
-        (absenceDaysByEmployee.get(a.employeeId) ?? 0) + 1,
-      );
+      if (isWorkingDayIso(aIso)) {
+        absenceWorkDaysByEmployee.set(
+          a.employeeId,
+          (absenceWorkDaysByEmployee.get(a.employeeId) ?? 0) + 1,
+        );
+      }
       continue;
     }
 
@@ -85,16 +88,14 @@ export async function GET(request: NextRequest) {
     istByEmployee.set(a.employeeId, (istByEmployee.get(a.employeeId) ?? 0) + hours);
   }
 
-  const calendarDays = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate();
-
   const result = employees.map((emp) => {
     const pct = emp.targetHoursPercent != null ? Number(emp.targetHoursPercent) : null;
     const rawSoll = computeSollHours(date.getUTCFullYear(), date.getUTCMonth(), pct);
-    // Proportional Soll reduction for K/U absence days
-    const absDays = absenceDaysByEmployee.get(emp.id) ?? 0;
-    const sollHours = rawSoll != null && absDays > 0
-      ? rawSoll - absDays * absenceDailyHours(rawSoll, calendarDays)
-      : rawSoll;
+    // Each absence working day reduces Soll by 8h × (targetPercent / 100)
+    const absWorkDays = absenceWorkDaysByEmployee.get(emp.id) ?? 0;
+    const effectivePct = pct ?? 100;
+    const absReduction = absWorkDays * 8 * (effectivePct / 100);
+    const sollHours = rawSoll != null ? rawSoll - absReduction : rawSoll;
     const istHours = istByEmployee.get(emp.id) ?? 0;
     const deltaHours = sollHours != null ? Math.round((istHours - sollHours) * 100) / 100 : null;
 

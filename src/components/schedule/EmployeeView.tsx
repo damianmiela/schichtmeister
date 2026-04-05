@@ -41,7 +41,7 @@ import type { AssignmentJson, EmployeeJson, ShiftProfileJson } from "@/lib/sched
 import { localIsoFromParts } from "@/lib/schedule/monthSchedule";
 import { shiftTypeLabel } from "@/lib/schedule/viewUtils";
 import QualificationPills from "@/components/schedule/QualificationPills";
-import { computeSollHours, absenceDailyHours } from "@/lib/holidays";
+import { computeSollHours, isWorkingDayIso } from "@/lib/holidays";
 
 /* ──────────────────────── types ──────────────────────── */
 
@@ -124,6 +124,10 @@ const STATUS_CODES = [
   { code: "LZ", label: "Langzeitkrank" },
   { code: "KU", label: "Kur" },
 ] as const;
+
+const STATUS_LABEL_MAP: Record<string, string> = Object.fromEntries(
+  STATUS_CODES.map(({ code, label }) => [code, label]),
+);
 
 const MARKING_CODES = ["FO", "PA", "E", "BD"] as const;
 
@@ -253,22 +257,25 @@ export default function EmployeeView({
     return { totalHours: hours, workingDays: wDays };
   }, [assignmentsByDate, profilesById]);
 
-  /* ── count K/U absence days ── */
-  const absenceDayCount = useMemo(() => {
+  /* ── count K/U absence WORKING days (exclude weekends + holidays) ── */
+  const absenceWorkDayCount = useMemo(() => {
     let count = 0;
-    for (const [, dayAssignments] of assignmentsByDate) {
+    for (const [dateIso, dayAssignments] of assignmentsByDate) {
       for (const a of dayAssignments) {
-        if (a.dayStatus && ABSENCE_STATUS_CODES.has(a.dayStatus)) count++;
+        if (a.dayStatus && ABSENCE_STATUS_CODES.has(a.dayStatus) && isWorkingDayIso(dateIso)) {
+          count++;
+        }
       }
     }
     return count;
   }, [assignmentsByDate]);
 
-  /* ── Soll hours (holiday-aware, reduced by absence days) ── */
+  /* ── Soll hours (holiday-aware, reduced by absence working days) ── */
   const target = useMemo(() => {
     let raw: number | null = null;
-    if (employee.targetHoursPercent != null && employee.targetHoursPercent > 0) {
-      raw = computeSollHours(year, monthIndex, employee.targetHoursPercent);
+    const pct = employee.targetHoursPercent;
+    if (pct != null && pct > 0) {
+      raw = computeSollHours(year, monthIndex, pct);
     } else if (employee.targetHours != null) {
       const soll = computeSollHours(year, monthIndex, 100);
       if (soll != null) {
@@ -279,13 +286,14 @@ export default function EmployeeView({
         }
       }
     } else {
-      raw = computeSollHours(year, monthIndex, employee.targetHoursPercent);
+      raw = computeSollHours(year, monthIndex, pct);
     }
     if (raw == null) return null;
-    // Reduce Soll proportionally: each absence day reduces by raw / calendarDays
-    const calendarDays = new Date(year, monthIndex + 1, 0).getDate();
-    return raw - absenceDayCount * absenceDailyHours(raw, calendarDays);
-  }, [employee.targetHours, employee.targetHoursPercent, employee.targetHoursPeriod, year, monthIndex, absenceDayCount]);
+    // Each absence working day reduces Soll by 8h × (targetPercent / 100)
+    const effectivePct = pct ?? 100;
+    const absReduction = absenceWorkDayCount * 8 * (effectivePct / 100);
+    return raw - absReduction;
+  }, [employee.targetHours, employee.targetHoursPercent, employee.targetHoursPeriod, year, monthIndex, absenceWorkDayCount]);
 
   const delta = target != null ? totalHours - target : null;
   const tags = employee.qualificationTags ?? [];
@@ -637,9 +645,11 @@ export default function EmployeeView({
                         {weekday}
                       </Typography>
                     </TableCell>
-                    <TableCell colSpan={3}>
-                      <Typography variant="body2" sx={{ color: sc.color, fontWeight: 600 }}>{absAssignment.dayStatus}</Typography>
-                    </TableCell>
+                    <Tooltip title={STATUS_LABEL_MAP[absAssignment.dayStatus!] ?? absAssignment.dayStatus} arrow>
+                      <TableCell colSpan={3}>
+                        <Typography variant="body2" sx={{ color: sc.color, fontWeight: 600 }}>{absAssignment.dayStatus}</Typography>
+                      </TableCell>
+                    </Tooltip>
                     <TableCell align="right">
                       <Typography variant="body2" color="text.disabled">—</Typography>
                     </TableCell>

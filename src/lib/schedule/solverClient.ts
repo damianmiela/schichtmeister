@@ -6,6 +6,7 @@
 import type { ShiftProfile, Wish } from "@prisma/client";
 import type { Prisma } from "@prisma/client";
 import { toIsoDateOnly } from "@/lib/api/dateOnly";
+import { countWorkingDaysInRange } from "@/lib/holidays";
 import { assignmentPaidHours } from "@/lib/planning/time";
 import { mergePlanningRules, type FacilityRulesSlice } from "@/lib/planning/merge";
 import { defaultPlanningRulesConfig } from "@/lib/planning/defaultConfig";
@@ -217,30 +218,26 @@ export function buildSolverPayload(
   const startMonth = periodStart.getUTCMonth();
   const wd = monthlyWorkingDays(startYear, startMonth);
 
-  // Count absence days per employee for proportional Soll reduction
-  const absenceDaysByEmployee: Record<string, number> = {};
+  // Count absence WORKING days per employee (exclude weekends + holidays)
+  const absenceWorkingDaysByEmployee: Record<string, number> = {};
   for (const abs of absences) {
     const [sy, sm, sd] = abs.startDate.split("-").map(Number);
     const [ey, em, ed] = abs.endDate.split("-").map(Number);
-    let t = Date.UTC(sy!, sm! - 1, sd!);
-    const end = Date.UTC(ey!, em! - 1, ed!);
-    while (t <= end) {
-      absenceDaysByEmployee[abs.employeeId] = (absenceDaysByEmployee[abs.employeeId] ?? 0) + 1;
-      t += 86_400_000;
-    }
+    const start = new Date(Date.UTC(sy!, sm! - 1, sd!));
+    const end = new Date(Date.UTC(ey!, em! - 1, ed!));
+    const workDays = countWorkingDaysInRange(start, end);
+    absenceWorkingDaysByEmployee[abs.employeeId] =
+      (absenceWorkingDaysByEmployee[abs.employeeId] ?? 0) + workDays;
   }
-
-  const calendarDays = new Date(startYear, startMonth + 1, 0).getDate();
 
   const sollByEmployee: Record<string, number> = {};
   const employees: SolverEmployee[] = genCtx.employees.map((e) => {
     if (e.targetHoursPercent != null) {
       const fullSoll = monthlySollHours(wd, e.targetHoursPercent);
-      const absDays = absenceDaysByEmployee[e.id] ?? 0;
-      // Proportional reduction: each absence day reduces Soll by fullSoll/calendarDays
-      sollByEmployee[e.id] = absDays > 0
-        ? fullSoll - absDays * (fullSoll / calendarDays)
-        : fullSoll;
+      const absWorkDays = absenceWorkingDaysByEmployee[e.id] ?? 0;
+      // Each absence working day reduces Soll by 8h × (targetPercent/100)
+      const reduction = absWorkDays * 8 * (e.targetHoursPercent / 100);
+      sollByEmployee[e.id] = fullSoll - reduction;
     }
     return {
       id: e.id,
