@@ -20,17 +20,25 @@ export async function GET(_request: Request, context: RouteCtx) {
     return NextResponse.json({ error: "Nicht gefunden" }, { status: 404 });
   }
 
-  const buffer = await buildSchedulePdfBuffer(bundle.schedule, bundle.assignments);
-  const ps = toIsoDateOnly(bundle.schedule.periodStart);
-  const pe = toIsoDateOnly(bundle.schedule.periodEnd);
-  const filename = `Dienstplan_${ps}_${pe}.pdf`;
+  try {
+    const buffer = await buildSchedulePdfBuffer(bundle);
+    const ps = toIsoDateOnly(bundle.schedule.periodStart);
+    const pe = toIsoDateOnly(bundle.schedule.periodEnd);
+    const filename = `Dienstplan_${ps}_${pe}.pdf`;
 
-  return new NextResponse(new Uint8Array(buffer), {
-    status: 200,
-    headers: {
-      "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="${filename}"`,
-      "Cache-Control": "no-store",
-    },
-  });
+    return new NextResponse(new Uint8Array(buffer), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Cache-Control": "no-store",
+      },
+    });
+  } catch (e) {
+    console.error("PDF generation failed:", e);
+    return NextResponse.json(
+      { error: "PDF-Generierung fehlgeschlagen." },
+      { status: 500 },
+    );
+  }
 }

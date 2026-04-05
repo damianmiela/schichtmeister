@@ -1251,29 +1251,11 @@ export default function SchedulePage() {
               <Button
                 variant="outlined"
                 startIcon={<DownloadIcon />}
-                disabled={loading || !schedule || exportBusy || editMode}
-                onClick={(e) => setExportMenuEl(e.currentTarget)}
+                disabled={loading || !schedule || exportBusy || assignments.length === 0 || editMode}
+                onClick={() => void downloadExport("pdf")}
               >
-                {exportBusy ? <CircularProgress size={20} /> : "Export"}
+                {exportBusy ? <CircularProgress size={20} /> : "PDF Export"}
               </Button>
-              <Menu
-                anchorEl={exportMenuEl}
-                open={Boolean(exportMenuEl)}
-                onClose={() => setExportMenuEl(null)}
-              >
-                <MenuItem
-                  onClick={() => void downloadExport("excel")}
-                  disabled={exportBusy}
-                >
-                  Excel (.xlsx)
-                </MenuItem>
-                <MenuItem
-                  onClick={() => void downloadExport("pdf")}
-                  disabled={exportBusy}
-                >
-                  PDF
-                </MenuItem>
-              </Menu>
 
               <Button
                 variant="outlined"
