@@ -368,21 +368,17 @@ export async function buildSchedulePdfBuffer(
   };
 
   /* ── Helper: draw page footer ── */
+  // Position footer inside the content boundary to prevent pdfkit auto-pagination.
+  // Content area ends at PAGE_H - MARGIN = 567. Place footer just above that.
+  const FOOTER_Y = PAGE_H - MARGIN - 8; // ~559
   const drawFooter = () => {
     pageNum++;
-    doc.fontSize(6).font("Helvetica").fillColor("#999");
-    doc.text(
-      `Seite ${pageNum}`,
-      MARGIN,
-      PAGE_H - MARGIN + 8,
-      { width: CONTENT_W, align: "right", lineBreak: false },
-    );
-    doc.text(
-      `SchichtMeister Dienstplaner`,
-      MARGIN,
-      PAGE_H - MARGIN + 8,
-      { width: CONTENT_W, align: "left", lineBreak: false },
-    );
+    doc.fontSize(6).font("Helvetica").fillColor("#ddd");
+    doc.moveTo(MARGIN, FOOTER_Y - 2).lineTo(MARGIN + CONTENT_W, FOOTER_Y - 2)
+      .strokeColor("#ddd").lineWidth(0.5).stroke();
+    doc.fillColor("#999");
+    doc.text(`Seite ${pageNum}`, MARGIN, FOOTER_Y, { width: CONTENT_W, align: "right", lineBreak: false });
+    doc.text(`SchichtMeister Dienstplaner`, MARGIN, FOOTER_Y, { width: CONTENT_W, align: "left", lineBreak: false });
   };
 
   /* ── Main rendering loop: one section per station, new page for each ── */
@@ -402,7 +398,7 @@ export async function buildSchedulePdfBuffer(
       const emp = section.employees[empIdx]!;
 
       // Check if we need a new page
-      if (y + DATA_ROW_H > PAGE_H - MARGIN - 10) {
+      if (y + DATA_ROW_H > FOOTER_Y - 12) {
         drawFooter();
         doc.addPage({ size: "A4", layout: "landscape", margin: MARGIN });
         y = drawPageMeta(section.title, true);
