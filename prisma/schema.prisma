@@ -224,6 +224,7 @@ model QualificationRequirement {
   staffingRequirementId String
   qualificationTag      String
   minCount              Int      @default(1)
+  maxCount              Int?
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 

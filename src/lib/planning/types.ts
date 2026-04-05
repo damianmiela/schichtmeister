@@ -52,6 +52,7 @@ export type ShiftProfileInput = {
 export type QualificationRequirementInput = {
   qualificationTag: string;
   minCount: number;
+  maxCount?: number | null;
 };
 
 export type StaffingRequirementInput = {

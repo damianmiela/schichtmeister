@@ -5,7 +5,8 @@ import { requirePlanner } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 
 const patchSchema = z.object({
-  minCount: z.number().int().min(1),
+  minCount: z.number().int().min(1).optional(),
+  maxCount: z.number().int().min(1).optional().nullable(),
 });
 
 type RouteCtx = { params: Promise<{ id: string; qId: string }> };
@@ -34,9 +35,12 @@ export async function PATCH(request: NextRequest, context: RouteCtx) {
   const parsed = await parseJsonBody(request, patchSchema);
   if (!parsed.ok) return parsed.response;
 
+  const updateData: Record<string, unknown> = {};
+  if (parsed.data.minCount !== undefined) updateData.minCount = parsed.data.minCount;
+  if (parsed.data.maxCount !== undefined) updateData.maxCount = parsed.data.maxCount;
   const updated = await prisma.qualificationRequirement.update({
     where: { id: qId },
-    data: { minCount: parsed.data.minCount },
+    data: updateData,
   });
   return NextResponse.json({ qualificationRequirement: updated });
 }

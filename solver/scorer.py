@@ -164,7 +164,8 @@ def _run(data: dict) -> None:
         max_str = str(req["max"]) if req["max"] is not None else "∞"
         qual_strs = []
         for qr in req["quals"]:
-            qual_strs.append(f'{qr["qualificationTag"]}≥{qr["minCount"]}')
+            max_s = f'≤{qr["maxCount"]}' if qr.get("maxCount") is not None else ""
+            qual_strs.append(f'{qr["qualificationTag"]}≥{qr["minCount"]}{max_s}')
         qual_info = f"  quals: {', '.join(qual_strs)}" if qual_strs else ""
         print(f"    {stype} St{snum}: min={req['min']}, max={max_str}{qual_info}")
 
@@ -236,6 +237,11 @@ def _run(data: dict) -> None:
                         if len(qualified) < qr["minCount"]:
                             qual_violations.append(
                                 (ds, stype, s, qr["qualificationTag"], qr["minCount"], len(qualified))
+                            )
+                        qr_max = qr.get("maxCount")
+                        if qr_max is not None and len(qualified) > qr_max:
+                            qual_violations.append(
+                                (ds, stype, s, qr["qualificationTag"], f"max {qr_max}", len(qualified))
                             )
 
         print(f"  {ds}  " + "  ".join(f"{v:>4}" for v in row_vals) + f"  {day_unplaced:>3}")

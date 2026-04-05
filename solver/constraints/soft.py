@@ -237,6 +237,12 @@ def add_qualification_coverage_soft(
                 shortfall = model.NewIntVar(0, qr.minCount, f"qual_short_{sr.shiftType}_{sr.stationNumber}_{ds}_{'_'.join(tags[:2])}")
                 model.Add(shortfall >= qr.minCount - total_qualified)
                 terms.append((shortfall, W_QUALIFICATION))
+
+                # Penalize exceeding maxCount
+                if qr.maxCount is not None and qr.maxCount > 0:
+                    excess = model.NewIntVar(0, len(qualified_vars), f"qual_excess_{sr.shiftType}_{sr.stationNumber}_{ds}_{'_'.join(tags[:2])}")
+                    model.Add(excess >= total_qualified - qr.maxCount)
+                    terms.append((excess, W_QUALIFICATION))
     return terms
 
 

@@ -41,6 +41,7 @@ class ShiftProfileInput(BaseModel):
 class QualificationRequirementInput(BaseModel):
     tags: list[str]
     minCount: int
+    maxCount: int | None = None
 
 
 class StaffingRequirementInput(BaseModel):

@@ -53,7 +53,7 @@ interface SolverStaffingRequirement {
   minTotalCount: number;
   maxTotalCount: number | null;
   isFacilityWide: boolean;
-  qualificationRequirements: { tags: string[]; minCount: number }[];
+  qualificationRequirements: { tags: string[]; minCount: number; maxCount: number | null }[];
 }
 
 interface SolverWish {
@@ -288,6 +288,7 @@ export function buildSolverPayload(
       qualificationRequirements: entry.qualificationRequirements.map((qr) => ({
         tags: [qr.qualificationTag],
         minCount: qr.minCount,
+        maxCount: qr.maxCount ?? null,
       })),
     });
   }

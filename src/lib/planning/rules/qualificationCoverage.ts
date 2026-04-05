@@ -4,6 +4,7 @@ import { datesInPeriodUtc, sameUtcCalendarDay } from "@/lib/planning/time";
 /**
  * For each qualification requirement, at least `minCount` assigned employees
  * on that day/shift type/station must carry the required tag.
+ * If `maxCount` is set, no more than that many may carry the tag (hard rule).
  */
 export function qualificationCoverageRule(ctx: RuleContext): RuleResult {
   const errors: RuleResult["errors"] = [];
@@ -58,6 +59,13 @@ export function qualificationCoverageRule(ctx: RuleContext): RuleResult {
             ruleId: "qualificationCoverage",
             code: "MISSING_QUALIFICATION",
             message: `Need at least ${qr.minCount} employee(s) with tag "${qr.qualificationTag}" for ${req.shiftType} station ${req.stationNumber} on ${d.toISOString().slice(0, 10)} (got ${tagCount}).`,
+          });
+        }
+        if (qr.maxCount != null && tagCount > qr.maxCount) {
+          errors.push({
+            ruleId: "qualificationCoverage",
+            code: "EXCESS_QUALIFICATION",
+            message: `Max ${qr.maxCount} employee(s) with tag "${qr.qualificationTag}" for ${req.shiftType} station ${req.stationNumber} on ${d.toISOString().slice(0, 10)} (got ${tagCount}).`,
           });
         }
       }

@@ -60,6 +60,7 @@ type QualificationRow = {
   id: string;
   qualificationTag: string;
   minCount: number;
+  maxCount: number | null;
 };
 
 type StaffingRow = {
@@ -198,6 +199,7 @@ export default function SettingsPage() {
   const [newQualSelection, setNewQualSelection] =
     useState<QualificationCatalog[]>([]);
   const [newQualMin, setNewQualMin] = useState("1");
+  const [newQualMax, setNewQualMax] = useState("");
   const [addQualBusy, setAddQualBusy] = useState(false);
   const [addQualError, setAddQualError] = useState<string | null>(null);
 
@@ -577,6 +579,16 @@ export default function SettingsPage() {
       setAddQualError("Mindestens 1.");
       return;
     }
+    const maxRaw = newQualMax.trim();
+    const maxVal = maxRaw === "" ? null : Number(maxRaw);
+    if (maxVal !== null && (!Number.isFinite(maxVal) || maxVal < 1)) {
+      setAddQualError("Max muss ≥ 1 sein oder leer.");
+      return;
+    }
+    if (maxVal !== null && maxVal < minVal) {
+      setAddQualError("Max darf nicht kleiner als Min sein.");
+      return;
+    }
     setAddQualBusy(true);
     setAddQualError(null);
     try {
@@ -588,12 +600,14 @@ export default function SettingsPage() {
           body: JSON.stringify({
             qualificationTag,
             minCount: Math.floor(minVal),
+            maxCount: maxVal !== null ? Math.floor(maxVal) : null,
           }),
         },
       );
       setAddQualSrId(null);
       setNewQualSelection([]);
       setNewQualMin("1");
+      setNewQualMax("");
       await loadStaffing();
     } catch (e) {
       setAddQualError(extractApiError(e, "Anlegen fehlgeschlagen."));
@@ -626,6 +640,24 @@ export default function SettingsPage() {
       await fetchJson(
         `/api/staffing-requirements/${srId}/qualifications/${qId}`,
         { method: "PATCH", body: JSON.stringify({ minCount }) },
+      );
+      await loadStaffing();
+    } catch (e) {
+      setError(extractApiError(e, "Speichern fehlgeschlagen."));
+    }
+  };
+
+  const updateQualMaxCount = async (
+    srId: string,
+    qId: string,
+    maxCount: number | null,
+  ) => {
+    if (maxCount !== null && maxCount < 1) return;
+    setError(null);
+    try {
+      await fetchJson(
+        `/api/staffing-requirements/${srId}/qualifications/${qId}`,
+        { method: "PATCH", body: JSON.stringify({ maxCount }) },
       );
       await loadStaffing();
     } catch (e) {
@@ -785,6 +817,7 @@ export default function SettingsPage() {
                   sx={{ display: "flex", alignItems: "center", gap: 0.5 }}
                 >
                   <span>{tagDisplay}</span>
+                  <span style={{ fontSize: 11, color: "#666" }}>Min</span>
                   <TextField
                     size="small"
                     type="number"
@@ -808,6 +841,35 @@ export default function SettingsPage() {
                       const val = Number(e.target.value);
                       if (val !== q.minCount && val >= 1) {
                         void updateQualMinCount(row.id, q.id, val);
+                      }
+                    }}
+                  />
+                  <span style={{ fontSize: 11, color: "#666" }}>Max</span>
+                  <TextField
+                    size="small"
+                    type="number"
+                    defaultValue={q.maxCount ?? ""}
+                    placeholder="–"
+                    inputProps={{
+                      min: 1,
+                      style: {
+                        width: 28,
+                        padding: "1px 2px",
+                        textAlign: "center",
+                        fontSize: 12,
+                      },
+                    }}
+                    variant="standard"
+                    sx={{
+                      "& .MuiInput-underline:before": {
+                        borderBottom: "none",
+                      },
+                    }}
+                    onBlur={(e) => {
+                      const raw = e.target.value.trim();
+                      const val = raw === "" ? null : Number(raw);
+                      if (val !== q.maxCount && (val === null || val >= 1)) {
+                        void updateQualMaxCount(row.id, q.id, val);
                       }
                     }}
                   />
@@ -1692,6 +1754,16 @@ export default function SettingsPage() {
             fullWidth
             disabled={addQualBusy}
             inputProps={{ min: 1 }}
+          />
+          <TextField
+            label="Max. Anzahl (optional)"
+            type="number"
+            value={newQualMax}
+            onChange={(e) => setNewQualMax(e.target.value)}
+            fullWidth
+            disabled={addQualBusy}
+            inputProps={{ min: 1 }}
+            helperText="Leer lassen = kein Maximum"
           />
         </DialogContent>
         <DialogActions>

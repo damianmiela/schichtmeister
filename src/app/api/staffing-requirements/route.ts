@@ -21,7 +21,7 @@ function serialize(r: {
   minTotalCount: number;
   maxTotalCount: number | null;
   isFacilityWide: boolean;
-  qualificationRequirements: { id: string; qualificationTag: string; minCount: number }[];
+  qualificationRequirements: { id: string; qualificationTag: string; minCount: number; maxCount: number | null }[];
   createdAt: Date;
 }) {
   return {
@@ -35,6 +35,7 @@ function serialize(r: {
       id: q.id,
       qualificationTag: q.qualificationTag,
       minCount: q.minCount,
+      maxCount: q.maxCount,
     })),
     createdAt: r.createdAt.toISOString(),
   };
@@ -51,7 +52,7 @@ export async function GET() {
     orderBy: [{ isFacilityWide: "asc" }, { stationNumber: "asc" }, { shiftType: "asc" }],
   });
   return NextResponse.json({
-    staffingRequirements: rows.map(serialize),
+    staffingRequirements: (rows as unknown as Parameters<typeof serialize>[0][]).map(serialize),
   });
 }
 
@@ -77,7 +78,7 @@ export async function POST(request: NextRequest) {
       include: { qualificationRequirements: true },
     });
     return NextResponse.json(
-      { staffingRequirement: serialize(row) },
+      { staffingRequirement: serialize(row as unknown as Parameters<typeof serialize>[0]) },
       { status: 201 },
     );
   } catch (e) {

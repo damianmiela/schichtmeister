@@ -8,6 +8,7 @@ import { prisma } from "@/lib/db/prisma";
 const createSchema = z.object({
   qualificationTag: z.string().min(1),
   minCount: z.number().int().min(1).default(1),
+  maxCount: z.number().int().min(1).optional().nullable(),
 });
 
 type RouteCtx = { params: Promise<{ id: string }> };
@@ -30,11 +31,12 @@ export async function POST(request: NextRequest, context: RouteCtx) {
   if (!parsed.ok) return parsed.response;
 
   try {
-    const qr = await prisma.qualificationRequirement.create({
+    const qr = await (prisma.qualificationRequirement.create as Function)({
       data: {
         staffingRequirementId: sr.id,
         qualificationTag: parsed.data.qualificationTag,
         minCount: parsed.data.minCount,
+        maxCount: parsed.data.maxCount ?? undefined,
       },
     });
     return NextResponse.json({ qualificationRequirement: qr }, { status: 201 });

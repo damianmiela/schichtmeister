@@ -326,6 +326,10 @@ def add_qualification_coverage(
                 if len(qualified_vars) >= qr.minCount:
                     model.Add(sum(qualified_vars) >= qr.minCount)
 
+                # Enforce maxCount (hard upper bound on qualified employees)
+                if qr.maxCount is not None and qr.maxCount > 0 and qualified_vars:
+                    model.Add(sum(qualified_vars) <= qr.maxCount)
+
 
 # ── H9: Min rest between shifts ────────────────────────────────────────────
 

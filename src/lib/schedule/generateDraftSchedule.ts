@@ -78,7 +78,7 @@ export function mergeStaffingRequirements(
     minTotalCount: number;
     maxTotalCount?: number | null;
     isFacilityWide?: boolean;
-    qualificationRequirements: { qualificationTag: string; minCount: number }[];
+    qualificationRequirements: { qualificationTag: string; minCount: number; maxCount?: number | null }[];
   }[],
 ): Map<string, MergedStaffingEntry> {
   const map = new Map<string, MergedStaffingEntry>();
@@ -92,15 +92,29 @@ export function mergeStaffingRequirements(
         minTotalCount: r.minTotalCount,
         maxTotalCount: r.maxTotalCount ?? null,
         isFacilityWide: r.isFacilityWide ?? false,
-        qualificationRequirements: [...r.qualificationRequirements],
+        qualificationRequirements: r.qualificationRequirements.map((q) => ({
+          qualificationTag: q.qualificationTag,
+          minCount: q.minCount,
+          maxCount: q.maxCount ?? null,
+        })),
       });
     } else {
-      const tagMap = new Map<string, number>();
+      const tagMinMap = new Map<string, number>();
+      const tagMaxMap = new Map<string, number | null>();
       for (const q of cur.qualificationRequirements) {
-        tagMap.set(q.qualificationTag, q.minCount);
+        tagMinMap.set(q.qualificationTag, q.minCount);
+        tagMaxMap.set(q.qualificationTag, q.maxCount ?? null);
       }
       for (const q of r.qualificationRequirements) {
-        tagMap.set(q.qualificationTag, (tagMap.get(q.qualificationTag) ?? 0) + q.minCount);
+        tagMinMap.set(q.qualificationTag, (tagMinMap.get(q.qualificationTag) ?? 0) + q.minCount);
+        // Merge maxCount: when both sides define a max, sum them; otherwise take whichever is set (or null).
+        const curMax = tagMaxMap.get(q.qualificationTag);
+        const newMax = q.maxCount ?? null;
+        if (curMax != null && newMax != null) {
+          tagMaxMap.set(q.qualificationTag, curMax + newMax);
+        } else {
+          tagMaxMap.set(q.qualificationTag, curMax ?? newMax);
+        }
       }
       map.set(k, {
         minTotalCount: cur.minTotalCount + r.minTotalCount,
@@ -109,7 +123,11 @@ export function mergeStaffingRequirements(
             ? cur.maxTotalCount + r.maxTotalCount
             : (cur.maxTotalCount ?? r.maxTotalCount ?? null),
         isFacilityWide: cur.isFacilityWide || (r.isFacilityWide ?? false),
-        qualificationRequirements: [...tagMap.entries()].map(([qualificationTag, minCount]) => ({ qualificationTag, minCount })),
+        qualificationRequirements: [...tagMinMap.entries()].map(([qualificationTag, minCount]) => ({
+          qualificationTag,
+          minCount,
+          maxCount: tagMaxMap.get(qualificationTag) ?? null,
+        })),
       });
     }
   }
@@ -510,9 +528,10 @@ export async function loadGenerateContext(
     minTotalCount: r.minTotalCount,
     maxTotalCount: r.maxTotalCount ?? null,
     isFacilityWide: r.isFacilityWide,
-    qualificationRequirements: r.qualificationRequirements.map((q) => ({
-      qualificationTag: q.qualificationTag,
-      minCount: q.minCount,
+    qualificationRequirements: r.qualificationRequirements.map((q: Record<string, unknown>) => ({
+      qualificationTag: q.qualificationTag as string,
+      minCount: q.minCount as number,
+      maxCount: (q.maxCount as number | null) ?? null,
     })),
   }));
 
