@@ -152,12 +152,24 @@ export async function POST(request: Request, context: RouteCtx) {
       });
     }
 
+    // Preserve savedEntries from existing preGenWishesJson
+    let existingSavedEntries: unknown[] | undefined;
+    if (schedule.preGenWishesJson) {
+      try {
+        const parsed = JSON.parse(schedule.preGenWishesJson);
+        if (Array.isArray(parsed?.savedEntries)) existingSavedEntries = parsed.savedEntries;
+      } catch { /* ignore */ }
+    }
+    const preGenObj: Record<string, unknown> = {
+      shiftWishes: wishes.shiftWishes ?? [],
+      freiDates: wishes.freiDates ?? [],
+    };
+    if (existingSavedEntries?.length) preGenObj.savedEntries = existingSavedEntries;
     const preGenWishesJson =
-      (wishes.shiftWishes?.length ?? 0) > 0 || (wishes.freiDates?.length ?? 0) > 0
-        ? JSON.stringify({
-            shiftWishes: wishes.shiftWishes ?? [],
-            freiDates: wishes.freiDates ?? [],
-          })
+      (wishes.shiftWishes?.length ?? 0) > 0 ||
+      (wishes.freiDates?.length ?? 0) > 0 ||
+      (existingSavedEntries?.length ?? 0) > 0
+        ? JSON.stringify(preGenObj)
         : null;
 
     await tx.schedule.update({

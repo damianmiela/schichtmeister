@@ -170,6 +170,7 @@ export default function SchedulePage() {
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [preGenOpen, setPreGenOpen] = useState(false);
   const [preGenEntries, setPreGenEntries] = useState<PreGenEntry[]>([]);
+  const [preGenSaving, setPreGenSaving] = useState(false);
   const [solveTimeDraft, setSolveTimeDraft] = useState("120");
   const [editMode, setEditMode] = useState(false);
   const [editedCells, setEditedCells] = useState<Map<string, CellEdit>>(new Map());
@@ -1087,6 +1088,39 @@ export default function SchedulePage() {
     ]);
   };
 
+  const savePreGenEntries = async () => {
+    if (!schedule) return;
+    setPreGenSaving(true);
+    try {
+      await fetchJson(`/api/schedules/${schedule.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ savedEntries: preGenEntries }),
+      });
+      await loadBundle({ preserveActionMessage: true });
+    } catch {
+      // silently ignore
+    } finally {
+      setPreGenSaving(false);
+    }
+  };
+
+  const deletePreGenEntries = async () => {
+    if (!schedule) return;
+    setPreGenSaving(true);
+    try {
+      await fetchJson(`/api/schedules/${schedule.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ savedEntries: [] }),
+      });
+      setPreGenEntries([]);
+      await loadBundle({ preserveActionMessage: true });
+    } catch {
+      // silently ignore
+    } finally {
+      setPreGenSaving(false);
+    }
+  };
+
   const statusChip =
     schedule?.status === "PUBLISHED" ? (
       <Chip label="VERÖFFENTLICHT" color="success" size="small" />
@@ -1286,7 +1320,13 @@ export default function SchedulePage() {
                 startIcon={<AutoAwesomeIcon />}
                 disabled={loading || !schedule || generateBusy || editMode}
                 onClick={() => {
-                  setPreGenEntries([]);
+                  // Auto-load saved entries for this month
+                  const saved = schedule?.preGenWishes?.savedEntries;
+                  if (saved && Array.isArray(saved) && saved.length > 0) {
+                    setPreGenEntries(saved as PreGenEntry[]);
+                  } else {
+                    setPreGenEntries([]);
+                  }
                   setPreGenOpen(true);
                 }}
               >
@@ -1780,6 +1820,34 @@ export default function SchedulePage() {
             >
               Abwesenheit
             </Button>
+          </Box>
+
+          {/* Save / Delete buttons */}
+          <Box sx={{ display: "flex", gap: 1, mt: 2 }}>
+            <Button
+              size="small"
+              variant="contained"
+              startIcon={preGenSaving ? <CircularProgress size={14} color="inherit" /> : <SaveIcon />}
+              onClick={() => void savePreGenEntries()}
+              disabled={preGenSaving || preGenEntries.length === 0}
+            >
+              Vorgaben speichern
+            </Button>
+            <Button
+              size="small"
+              variant="outlined"
+              color="error"
+              startIcon={<DeleteSweepIcon />}
+              onClick={() => void deletePreGenEntries()}
+              disabled={preGenSaving || !(schedule?.preGenWishes?.savedEntries?.length)}
+            >
+              Gespeicherte löschen
+            </Button>
+            {schedule?.preGenWishes?.savedEntries?.length ? (
+              <Typography variant="caption" color="success.main" sx={{ alignSelf: "center", ml: 1 }}>
+                {schedule.preGenWishes.savedEntries.length} Vorgaben gespeichert
+              </Typography>
+            ) : null}
           </Box>
 
           <Divider sx={{ my: 2 }} />

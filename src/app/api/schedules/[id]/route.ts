@@ -17,6 +17,7 @@ function parseWarnings(json: string | null): string[] {
 type PreGenWishesPayload = {
   shiftWishes: { employeeId: string; date: string }[];
   freiDates: { employeeId: string; date: string }[];
+  savedEntries?: unknown[];
 };
 
 function parsePreGenWishes(json: string | null): PreGenWishesPayload | null {
@@ -27,6 +28,7 @@ function parsePreGenWishes(json: string | null): PreGenWishesPayload | null {
       return {
         shiftWishes: Array.isArray(parsed.shiftWishes) ? parsed.shiftWishes : [],
         freiDates: Array.isArray(parsed.freiDates) ? parsed.freiDates : [],
+        savedEntries: Array.isArray(parsed.savedEntries) ? parsed.savedEntries : undefined,
       };
     }
     return null;
@@ -116,4 +118,37 @@ export async function GET(request: NextRequest, context: RouteCtx) {
   }
 
   return NextResponse.json(body);
+}
+
+/** PATCH — save pre-gen entries for this schedule */
+export async function PATCH(request: NextRequest, context: RouteCtx) {
+  const { session, error } = await requirePlanner();
+  if (error === "UNAUTHORIZED") return plannerJsonErrors.unauthorized();
+  if (error === "FORBIDDEN") return plannerJsonErrors.forbidden();
+
+  const { id } = await context.params;
+  const schedule = await prisma.schedule.findFirst({
+    where: { id, facilityId: session!.user.facilityId },
+  });
+  if (!schedule) {
+    return NextResponse.json({ error: "Nicht gefunden" }, { status: 404 });
+  }
+
+  const body = await request.json();
+  const savedEntries = Array.isArray(body?.savedEntries) ? body.savedEntries : [];
+
+  // Merge with existing preGenWishes (keep shiftWishes/freiDates intact)
+  const existing = parsePreGenWishes(schedule.preGenWishesJson ?? null);
+  const merged = {
+    shiftWishes: existing?.shiftWishes ?? [],
+    freiDates: existing?.freiDates ?? [],
+    savedEntries,
+  };
+
+  await prisma.schedule.update({
+    where: { id },
+    data: { preGenWishesJson: JSON.stringify(merged) },
+  });
+
+  return NextResponse.json({ ok: true, savedEntries: savedEntries.length });
 }

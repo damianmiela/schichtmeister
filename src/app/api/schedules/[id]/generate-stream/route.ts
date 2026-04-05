@@ -498,7 +498,16 @@ export async function POST(request: Request, context: RouteCtx) {
 
         const allWarnings = [...ruleWarnings];
 
-        const preGenWishes = {
+        // Preserve savedEntries from existing preGenWishesJson
+        const existingWishesRaw = schedule.preGenWishesJson;
+        let existingSavedEntries: unknown[] | undefined;
+        if (existingWishesRaw) {
+          try {
+            const parsed = JSON.parse(existingWishesRaw);
+            if (Array.isArray(parsed?.savedEntries)) existingSavedEntries = parsed.savedEntries;
+          } catch { /* ignore */ }
+        }
+        const preGenWishes: Record<string, unknown> = {
           shiftWishes: manualPlacements.map((mp) => ({
             employeeId: mp.employeeId,
             date: mp.date,
@@ -508,6 +517,7 @@ export async function POST(request: Request, context: RouteCtx) {
             date: bd.date,
           })),
         };
+        if (existingSavedEntries?.length) preGenWishes.savedEntries = existingSavedEntries;
 
         try {
           await prisma.schedule.update({
@@ -520,8 +530,9 @@ export async function POST(request: Request, context: RouteCtx) {
               generationLog: debugLog || null,
               scoreReport: scoreReport || null,
               preGenWishesJson:
-                preGenWishes.shiftWishes.length > 0 ||
-                preGenWishes.freiDates.length > 0
+                (preGenWishes.shiftWishes as unknown[]).length > 0 ||
+                (preGenWishes.freiDates as unknown[]).length > 0 ||
+                (existingSavedEntries?.length ?? 0) > 0
                   ? JSON.stringify(preGenWishes)
                   : null,
             },

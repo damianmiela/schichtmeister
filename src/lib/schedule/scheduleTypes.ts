@@ -1,6 +1,18 @@
+export type PreGenEntryJson = {
+  employeeId: string;
+  type: "shift" | "frei" | "absence";
+  date: string;
+  shiftProfileId: string;
+  stationNumber: number;
+  dateFrom: string;
+  dateTo: string;
+  absenceType: "KRANK" | "URLAUB";
+};
+
 export type PreGenWishesJson = {
   shiftWishes: { employeeId: string; date: string }[];
   freiDates: { employeeId: string; date: string }[];
+  savedEntries?: PreGenEntryJson[];
 };
 
 export type ScheduleJson = {

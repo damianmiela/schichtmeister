@@ -212,7 +212,15 @@ export async function POST(request: Request, context: RouteCtx) {
       : []),
   ];
 
-  const preGenWishes = {
+  // Preserve savedEntries from existing preGenWishesJson
+  let existingSavedEntries: unknown[] | undefined;
+  if (schedule.preGenWishesJson) {
+    try {
+      const parsed = JSON.parse(schedule.preGenWishesJson);
+      if (Array.isArray(parsed?.savedEntries)) existingSavedEntries = parsed.savedEntries;
+    } catch { /* ignore */ }
+  }
+  const preGenWishes: Record<string, unknown> = {
     shiftWishes: manualPlacements.map((mp) => ({
       employeeId: mp.employeeId,
       date: mp.date,
@@ -222,6 +230,7 @@ export async function POST(request: Request, context: RouteCtx) {
       date: bd.date,
     })),
   };
+  if (existingSavedEntries?.length) preGenWishes.savedEntries = existingSavedEntries;
 
   // ── Build score report (fire-and-forget style, non-blocking on failure) ──
   let scoreReport: string | null = null;
@@ -306,7 +315,9 @@ export async function POST(request: Request, context: RouteCtx) {
         generationLog: report.debugLog || null,
         scoreReport: scoreReport || null,
         preGenWishesJson:
-          preGenWishes.shiftWishes.length > 0 || preGenWishes.freiDates.length > 0
+          (preGenWishes.shiftWishes as unknown[]).length > 0 ||
+          (preGenWishes.freiDates as unknown[]).length > 0 ||
+          (existingSavedEntries?.length ?? 0) > 0
             ? JSON.stringify(preGenWishes)
             : null,
       },
