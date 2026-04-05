@@ -16,7 +16,7 @@ from models import (
     SolveRequest, SolveResponse, AssignmentOutput,
     ModelStats, Diagnostics, SollDelta,
 )
-from utils import dates_in_range, paid_hours
+from utils import dates_in_range, paid_hours, is_weekend_or_holiday
 import collections
 from constraints.hard import (
     add_one_shift_per_day,
@@ -143,6 +143,9 @@ def _build_variables(
                     continue
                 # BL profiles: only WBL employees, unless isFullTimeBl (but always allow if forced)
                 if not is_forced and p.shiftType == "BL" and not is_wbl and not emp.isFullTimeBl:
+                    continue
+                # BL shifts not allowed on weekends or public holidays
+                if not is_forced and p.shiftType == "BL" and is_weekend_or_holiday(d):
                     continue
                 var = model.NewBoolVar(f"s_{emp.id}_{ds}_{p.id}")
                 shift[(emp.id, ds, p.id)] = var

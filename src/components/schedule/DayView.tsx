@@ -32,6 +32,7 @@ import type {
   StaffingJson,
 } from "@/lib/schedule/scheduleTypes";
 import { localIsoDate } from "@/lib/schedule/monthSchedule";
+import { getHolidays } from "@/lib/holidays";
 import QualificationPills from "@/components/schedule/QualificationPills";
 
 interface DayViewProps {
@@ -176,6 +177,15 @@ function ColumnView({
     stationLabel: string;
   } | null>(null);
   const [removing, setRemoving] = useState(false);
+
+  // BL shifts are not allowed on weekends or public holidays
+  const isBLBlocked = useMemo(() => {
+    const dow = date.getDay(); // 0=Sun, 6=Sat
+    if (dow === 0 || dow === 6) return true;
+    const year = date.getFullYear();
+    const iso = localIsoDate(date);
+    return getHolidays(year).some((h) => h.date.toISOString().slice(0, 10) === iso);
+  }, [date]);
 
   const openAddModal = useCallback(
     (shiftType: string, stationNum: number | null) => {
@@ -590,7 +600,7 @@ function ColumnView({
           )}
 
           {/* Add employee pill */}
-          {canEdit && (
+          {canEdit && !(shiftType === "BL" && isBLBlocked) && (
             <Box
               onClick={() => openAddModal(shiftType, stationNum === "fw" ? null : stationNum)}
               sx={{

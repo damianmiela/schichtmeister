@@ -19,6 +19,7 @@ import {
   wblWeekendLimitRule,
 } from "@/lib/planning/rules/softStubs";
 import { staffingMinimumRule } from "@/lib/planning/rules/staffingMinimum";
+import { blWeekendHolidayRule } from "@/lib/planning/rules/blWeekendHoliday";
 
 /** Idempotent: overwrites any prior registration for the same rule ids. */
 export function registerBuiltInPlanningRules(): void {
@@ -93,5 +94,9 @@ export function registerBuiltInPlanningRules(): void {
   registerRule(
     { id: "wblWeekendLimit", severity: "hard", scope: "employee", description: "WBL-Mitarbeiter können max. 1,5 Wochenenden pro Monat arbeiten (max. 3 Wochenendtage)." },
     wblWeekendLimitRule,
+  );
+  registerRule(
+    { id: "blWeekendHoliday", severity: "hard", scope: "employee", description: "BL-Schichten sind an Wochenenden und Feiertagen nicht erlaubt." },
+    blWeekendHolidayRule,
   );
 }
