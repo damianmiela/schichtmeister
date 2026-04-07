@@ -122,7 +122,7 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (session?.user?.role !== "PLANNER") {
+    if (session?.user?.role !== "PLANNER" && session?.user?.role !== "ADMIN") {
       setLoading(false);
       setData(null);
       return;
