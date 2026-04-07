@@ -59,15 +59,35 @@ export default function Sidebar() {
         },
       }}
     >
-      <Toolbar sx={{ px: 2 }}>
+      <Toolbar sx={{ px: 2, py: 1.5 }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-          <CalendarMonthIcon color="primary" sx={{ fontSize: 32 }} />
+          <CalendarMonthIcon color="primary" sx={{ fontSize: 34 }} />
           <Box>
-            <Typography variant="h6" color="primary" sx={{ lineHeight: 1.2 }}>
-              SchichtMeister
+            <Typography
+              variant="h6"
+              sx={{
+                lineHeight: 1.2,
+                fontWeight: 700,
+                background: "linear-gradient(135deg, #1565c0 0%, #1976d2 50%, #42a5f5 100%)",
+                backgroundClip: "text",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+                letterSpacing: "0.02em",
+              }}
+            >
+              Demo-Einrichtung
             </Typography>
-            <Typography variant="caption" color="text.secondary">
-              DienstPlanner
+            <Typography
+              variant="caption"
+              sx={{
+                color: "text.secondary",
+                letterSpacing: "0.15em",
+                textTransform: "uppercase",
+                fontSize: 10,
+                fontWeight: 600,
+              }}
+            >
+              Dienst Planner
             </Typography>
           </Box>
         </Box>

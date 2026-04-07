@@ -17,10 +17,10 @@ export async function GET() {
     select: {
       id: true,
       email: true,
+      name: true,
       role: true,
-      employeeId: true,
+      lastActiveAt: true,
       createdAt: true,
-      employee: { select: { id: true, firstName: true, lastName: true } },
     },
     orderBy: [{ role: "asc" }, { email: "asc" }],
   });
@@ -29,10 +29,10 @@ export async function GET() {
 }
 
 const createSchema = z.object({
+  name: z.string().optional().default(""),
   email: z.string().email().transform((e) => e.trim().toLowerCase()),
   password: z.string().min(8, "Mindestens 8 Zeichen"),
-  role: z.enum(["ADMIN", "PLANNER", "EMPLOYEE"]),
-  employeeId: z.string().nullish(),
+  role: z.enum(["ADMIN", "PLANNER", "DEMO"]),
 });
 
 /** POST — create a new user */
@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
   const parsed = await parseJsonBody(request, createSchema);
   if (!parsed.ok) return parsed.response;
 
-  const { email, password, role, employeeId } = parsed.data;
+  const { name, email, password, role } = parsed.data;
   const facilityId = session!.user.facilityId;
 
   // Check email uniqueness
@@ -53,29 +53,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "E-Mail bereits vergeben" }, { status: 409 });
   }
 
-  // If employeeId provided, verify it belongs to this facility
-  if (employeeId) {
-    const emp = await prisma.employee.findFirst({ where: { id: employeeId, facilityId } });
-    if (!emp) {
-      return NextResponse.json({ error: "Mitarbeiter nicht gefunden" }, { status: 400 });
-    }
-    // Check employee not already linked
-    const linkedUser = await prisma.user.findUnique({ where: { employeeId } });
-    if (linkedUser) {
-      return NextResponse.json({ error: "Mitarbeiter bereits mit einem Benutzer verknüpft" }, { status: 409 });
-    }
-  }
-
   const passwordHash = await bcrypt.hash(password, 10);
   const user = await prisma.user.create({
     data: {
+      name,
       email,
       passwordHash,
       role,
       facilityId,
-      employeeId: employeeId ?? null,
     },
-    select: { id: true, email: true, role: true, employeeId: true, createdAt: true },
+    select: { id: true, email: true, name: true, role: true, createdAt: true },
   });
 
   return NextResponse.json({ user }, { status: 201 });

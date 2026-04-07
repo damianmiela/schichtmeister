@@ -35,17 +35,30 @@ import { fetchJson } from "@/lib/api/fetchJson";
 type UserRow = {
   id: string;
   email: string;
-  role: "ADMIN" | "PLANNER" | "EMPLOYEE";
-  employeeId: string | null;
+  name: string;
+  role: "ADMIN" | "PLANNER" | "DEMO";
+  lastActiveAt: string | null;
   createdAt: string;
-  employee?: { id: string; firstName: string; lastName: string } | null;
 };
 
-const ROLE_LABELS: Record<string, { label: string; color: "error" | "primary" | "default" }> = {
+const ROLE_LABELS: Record<string, { label: string; color: "error" | "primary" | "default" | "warning" }> = {
   ADMIN: { label: "Admin", color: "error" },
   PLANNER: { label: "Planer", color: "primary" },
-  EMPLOYEE: { label: "Mitarbeiter", color: "default" },
+  DEMO: { label: "Demo", color: "warning" },
 };
+
+function formatRelativeTime(iso: string | null): string {
+  if (!iso) return "Nie";
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "Gerade eben";
+  if (mins < 60) return `Vor ${mins} Min.`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `Vor ${hours} Std.`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `Vor ${days} Tag${days > 1 ? "en" : ""}`;
+  return new Date(iso).toLocaleDateString("de-DE");
+}
 
 export default function AdminPage() {
   const { data: session, status } = useSession();
@@ -59,9 +72,10 @@ export default function AdminPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogMode, setDialogMode] = useState<"create" | "edit">("create");
   const [editUserId, setEditUserId] = useState<string | null>(null);
+  const [formName, setFormName] = useState("");
   const [formEmail, setFormEmail] = useState("");
   const [formPassword, setFormPassword] = useState("");
-  const [formRole, setFormRole] = useState<"ADMIN" | "PLANNER" | "EMPLOYEE">("PLANNER");
+  const [formRole, setFormRole] = useState<"ADMIN" | "PLANNER" | "DEMO">("PLANNER");
   const [formBusy, setFormBusy] = useState(false);
 
   // Delete dialog
@@ -94,6 +108,7 @@ export default function AdminPage() {
   const openCreate = () => {
     setDialogMode("create");
     setEditUserId(null);
+    setFormName("");
     setFormEmail("");
     setFormPassword("");
     setFormRole("PLANNER");
@@ -103,6 +118,7 @@ export default function AdminPage() {
   const openEdit = (user: UserRow) => {
     setDialogMode("edit");
     setEditUserId(user.id);
+    setFormName(user.name ?? "");
     setFormEmail(user.email);
     setFormPassword("");
     setFormRole(user.role);
@@ -122,11 +138,11 @@ export default function AdminPage() {
       if (dialogMode === "create") {
         await fetchJson("/api/admin/users", {
           method: "POST",
-          body: JSON.stringify({ email: formEmail, password: formPassword, role: formRole }),
+          body: JSON.stringify({ name: formName, email: formEmail, password: formPassword, role: formRole }),
         });
         setSuccess("Benutzer erstellt");
       } else {
-        const body: Record<string, unknown> = { email: formEmail, role: formRole };
+        const body: Record<string, unknown> = { name: formName, email: formEmail, role: formRole };
         if (formPassword) body.password = formPassword;
         await fetchJson(`/api/admin/users/${editUserId}`, {
           method: "PATCH",
@@ -178,7 +194,7 @@ export default function AdminPage() {
           Benutzerverwaltung
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          Benutzer anlegen, bearbeiten und löschen. Rollen: Admin (voller Zugriff), Planer (Dienstplanung), Mitarbeiter (Ansicht).
+          Benutzer anlegen, bearbeiten und löschen. Rollen: Admin (voller Zugriff), Planer (Dienstplanung), Demo (eingeschränkt).
         </Typography>
       </Box>
 
@@ -208,9 +224,10 @@ export default function AdminPage() {
           <Table>
             <TableHead>
               <TableRow>
+                <TableCell sx={{ fontWeight: 700 }}>Name</TableCell>
                 <TableCell sx={{ fontWeight: 700 }}>E-Mail</TableCell>
                 <TableCell sx={{ fontWeight: 700 }}>Rolle</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>Verknüpfter Mitarbeiter</TableCell>
+                <TableCell sx={{ fontWeight: 700 }}>Letzte Aktivität</TableCell>
                 <TableCell sx={{ fontWeight: 700 }}>Erstellt</TableCell>
                 <TableCell align="right" sx={{ fontWeight: 700 }}>Aktionen</TableCell>
               </TableRow>
@@ -224,19 +241,20 @@ export default function AdminPage() {
                     <TableCell>
                       <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                         <PersonIcon sx={{ fontSize: 18, color: "text.secondary" }} />
-                        {u.email}
+                        {u.name || <Typography variant="body2" color="text.disabled" component="span">—</Typography>}
                         {isSelf && (
                           <Chip label="Du" size="small" variant="outlined" color="info" sx={{ ml: 1, height: 20, fontSize: 11 }} />
                         )}
                       </Box>
                     </TableCell>
+                    <TableCell>{u.email}</TableCell>
                     <TableCell>
                       <Chip label={rl.label} size="small" color={rl.color} />
                     </TableCell>
                     <TableCell>
-                      {u.employee
-                        ? `${u.employee.firstName} ${u.employee.lastName}`
-                        : <Typography variant="caption" color="text.disabled">—</Typography>}
+                      <Typography variant="body2" color={u.lastActiveAt ? "text.primary" : "text.disabled"}>
+                        {formatRelativeTime(u.lastActiveAt)}
+                      </Typography>
                     </TableCell>
                     <TableCell>
                       {new Date(u.createdAt).toLocaleDateString("de-DE")}
@@ -265,7 +283,7 @@ export default function AdminPage() {
               })}
               {users.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={5} align="center">
+                  <TableCell colSpan={6} align="center">
                     <Typography color="text.secondary" sx={{ py: 4 }}>
                       Keine Benutzer gefunden.
                     </Typography>
@@ -282,6 +300,14 @@ export default function AdminPage() {
         <DialogTitle>{dialogMode === "create" ? "Neuen Benutzer anlegen" : "Benutzer bearbeiten"}</DialogTitle>
         <DialogContent>
           <Box sx={{ display: "flex", flexDirection: "column", gap: 2, mt: 1 }}>
+            <TextField
+              label="Name"
+              value={formName}
+              onChange={(e) => setFormName(e.target.value)}
+              fullWidth
+              size="small"
+              placeholder="z.B. Max Mustermann"
+            />
             <TextField
               label="E-Mail"
               type="email"
@@ -314,7 +340,7 @@ export default function AdminPage() {
             >
               <option value="ADMIN">Admin</option>
               <option value="PLANNER">Planer</option>
-              <option value="EMPLOYEE">Mitarbeiter</option>
+              <option value="DEMO">Demo</option>
             </TextField>
           </Box>
         </DialogContent>

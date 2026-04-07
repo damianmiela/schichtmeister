@@ -161,14 +161,14 @@ export default function DashboardPage() {
     );
   }
 
-  if (session?.user?.role === "EMPLOYEE") {
+  if (session?.user?.role === "DEMO") {
     return (
       <MainLayout title="Dashboard">
         <Card>
           <CardContent>
             <Typography variant="h6" gutterBottom>Willkommen</Typography>
             <Typography color="text.secondary">
-              Diese Übersicht ist für Planer sichtbar.
+              Demo-Zugang — einige Funktionen sind eingeschränkt.
             </Typography>
           </CardContent>
         </Card>

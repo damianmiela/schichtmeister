@@ -14,7 +14,7 @@ datasource db {
 enum UserRole {
   ADMIN
   PLANNER
-  EMPLOYEE
+  DEMO
 }
 
 enum ContractType {
@@ -100,14 +100,16 @@ model Facility {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
+  id           String    @id @default(cuid())
+  email        String    @unique
   passwordHash String
+  name         String    @default("")
   role         UserRole
   facilityId   String
-  employeeId   String?  @unique
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  employeeId   String?   @unique
+  lastActiveAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   facility Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
   employee Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)

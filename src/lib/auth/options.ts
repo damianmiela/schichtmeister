@@ -27,7 +27,7 @@ export const authOptions: NextAuthOptions = {
         return {
           id: user.id,
           email: user.email,
-          name: user.email,
+          name: (user as Record<string, unknown>).name as string ?? "",
           role: user.role,
           facilityId: user.facilityId,
           employeeId: user.employeeId,
@@ -46,6 +46,7 @@ export const authOptions: NextAuthOptions = {
     async jwt({ token, user }) {
       if (user) {
         token.sub = user.id;
+        token.name = user.name ?? "";
         token.role = user.role;
         token.facilityId = user.facilityId;
         token.employeeId = user.employeeId;
@@ -55,6 +56,7 @@ export const authOptions: NextAuthOptions = {
     async session({ session, token }) {
       if (session.user && token.sub) {
         session.user.id = token.sub;
+        session.user.name = token.name ?? "";
         session.user.role = token.role;
         session.user.facilityId = token.facilityId;
         session.user.employeeId = token.employeeId ?? null;

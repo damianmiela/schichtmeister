@@ -8,10 +8,10 @@ import { prisma } from "@/lib/db/prisma";
 type RouteCtx = { params: Promise<{ id: string }> };
 
 const updateSchema = z.object({
+  name: z.string().optional(),
   email: z.string().email().transform((e) => e.trim().toLowerCase()).optional(),
   password: z.string().min(8).optional(),
-  role: z.enum(["ADMIN", "PLANNER", "EMPLOYEE"]).optional(),
-  employeeId: z.string().nullable().optional(),
+  role: z.enum(["ADMIN", "PLANNER", "DEMO"]).optional(),
 });
 
 /** PATCH — update user */
@@ -31,7 +31,7 @@ export async function PATCH(request: NextRequest, context: RouteCtx) {
   const parsed = await parseJsonBody(request, updateSchema);
   if (!parsed.ok) return parsed.response;
 
-  const { email, password, role, employeeId } = parsed.data;
+  const { name, email, password, role } = parsed.data;
 
   // Prevent demoting yourself
   if (id === session!.user.id && role && role !== "ADMIN") {
@@ -49,28 +49,16 @@ export async function PATCH(request: NextRequest, context: RouteCtx) {
     }
   }
 
-  // If employeeId provided, verify
-  if (employeeId !== undefined && employeeId !== null) {
-    const emp = await prisma.employee.findFirst({ where: { id: employeeId, facilityId } });
-    if (!emp) {
-      return NextResponse.json({ error: "Mitarbeiter nicht gefunden" }, { status: 400 });
-    }
-    const linkedUser = await prisma.user.findUnique({ where: { employeeId } });
-    if (linkedUser && linkedUser.id !== id) {
-      return NextResponse.json({ error: "Mitarbeiter bereits verknüpft" }, { status: 409 });
-    }
-  }
-
   const data: Record<string, unknown> = {};
+  if (name !== undefined) data.name = name;
   if (email) data.email = email;
   if (password) data.passwordHash = await bcrypt.hash(password, 10);
   if (role) data.role = role;
-  if (employeeId !== undefined) data.employeeId = employeeId;
 
   const updated = await prisma.user.update({
     where: { id },
     data,
-    select: { id: true, email: true, role: true, employeeId: true, createdAt: true },
+    select: { id: true, email: true, name: true, role: true, createdAt: true },
   });
 
   return NextResponse.json({ user: updated });
