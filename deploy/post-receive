@@ -70,14 +70,18 @@ if [[ "$LAST_REF" == "refs/heads/main" ]] || [[ "$LAST_REF" == "refs/heads/maste
     node:20-alpine \
     sh -lc 'apk add --no-cache openssl libc6-compat >/dev/null && npx -y prisma@5.22.0 migrate deploy --schema=./schema.prisma'
 
-  echo ">>> Building solver (always fresh)..."
-  docker compose -f "$COMPOSE_FILE" build --no-cache schichtmeister-solver
+  echo ">>> Building solver (BuildKit layer cache)..."
+  docker compose -f "$COMPOSE_FILE" build schichtmeister-solver
 
   echo ">>> Building app..."
   docker compose -f "$COMPOSE_FILE" build app
 
   echo ">>> Starting all services..."
   docker compose -f "$COMPOSE_FILE" up -d
+
+  echo ">>> Pruning unused images and build cache older than 48h..."
+  docker image prune -af --filter "until=48h" 2>/dev/null || true
+  docker builder prune -af --filter "until=48h" 2>/dev/null || true
 
   echo ">>> Deploy done: $(date)"
 else
