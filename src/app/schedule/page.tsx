@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSession } from "next-auth/react";
 import MainLayout from "@/components/layout/MainLayout";
 import MonthView from "@/components/schedule/MonthView";
 import MonthTableView, { type CellEdit } from "@/components/schedule/MonthTableView";
@@ -135,6 +136,8 @@ const MONTH_NAMES = [
 ];
 
 export default function SchedulePage() {
+  const { data: session } = useSession();
+  const isAdmin = session?.user?.role === "ADMIN";
   const today = new Date();
   const [viewState, setViewState] = useState<ViewState>({
     type: "month",
@@ -1275,46 +1278,50 @@ export default function SchedulePage() {
                 </MenuItem>
               </Menu>
 
-              <Button
-                variant="outlined"
-                startIcon={<AdminPanelSettingsIcon />}
-                disabled={loading || !schedule || editMode}
-                onClick={(e) => setAdminMenuEl(e.currentTarget)}
-              >
-                Admin
-              </Button>
-              <Menu
-                anchorEl={adminMenuEl}
-                open={Boolean(adminMenuEl)}
-                onClose={() => setAdminMenuEl(null)}
-              >
-                <MenuItem
-                  onClick={() => { setAdminMenuEl(null); void onViewLogs(); }}
-                >
-                  <ListItemIcon><DescriptionIcon fontSize="small" /></ListItemIcon>
-                  <ListItemText>Generator-Protokoll</ListItemText>
-                </MenuItem>
-                <MenuItem
-                  onClick={() => { setAdminMenuEl(null); void onViewScore(); }}
-                >
-                  <ListItemIcon><DescriptionIcon fontSize="small" /></ListItemIcon>
-                  <ListItemText>Qualitätsbericht</ListItemText>
-                </MenuItem>
-                <MenuItem
-                  onClick={() => { setAdminMenuEl(null); void downloadExport("debug"); }}
-                >
-                  <ListItemIcon><DownloadIcon fontSize="small" /></ListItemIcon>
-                  <ListItemText>Debug JSON</ListItemText>
-                </MenuItem>
-                <Divider />
-                <MenuItem
-                  onClick={() => void onCleanAbsences()}
-                  disabled={cleanAbsencesBusy}
-                >
-                  <ListItemIcon><CleaningServicesIcon fontSize="small" /></ListItemIcon>
-                  <ListItemText>Abwesenheiten bereinigen</ListItemText>
-                </MenuItem>
-              </Menu>
+              {isAdmin && (
+                <>
+                  <Button
+                    variant="outlined"
+                    startIcon={<AdminPanelSettingsIcon />}
+                    disabled={loading || !schedule || editMode}
+                    onClick={(e) => setAdminMenuEl(e.currentTarget)}
+                  >
+                    Admin
+                  </Button>
+                  <Menu
+                    anchorEl={adminMenuEl}
+                    open={Boolean(adminMenuEl)}
+                    onClose={() => setAdminMenuEl(null)}
+                  >
+                    <MenuItem
+                      onClick={() => { setAdminMenuEl(null); void onViewLogs(); }}
+                    >
+                      <ListItemIcon><DescriptionIcon fontSize="small" /></ListItemIcon>
+                      <ListItemText>Generator-Protokoll</ListItemText>
+                    </MenuItem>
+                    <MenuItem
+                      onClick={() => { setAdminMenuEl(null); void onViewScore(); }}
+                    >
+                      <ListItemIcon><DescriptionIcon fontSize="small" /></ListItemIcon>
+                      <ListItemText>Qualitätsbericht</ListItemText>
+                    </MenuItem>
+                    <MenuItem
+                      onClick={() => { setAdminMenuEl(null); void downloadExport("debug"); }}
+                    >
+                      <ListItemIcon><DownloadIcon fontSize="small" /></ListItemIcon>
+                      <ListItemText>Debug JSON</ListItemText>
+                    </MenuItem>
+                    <Divider />
+                    <MenuItem
+                      onClick={() => void onCleanAbsences()}
+                      disabled={cleanAbsencesBusy}
+                    >
+                      <ListItemIcon><CleaningServicesIcon fontSize="small" /></ListItemIcon>
+                      <ListItemText>Abwesenheiten bereinigen</ListItemText>
+                    </MenuItem>
+                  </Menu>
+                </>
+              )}
               <Button
                 variant="outlined"
                 startIcon={<AutoAwesomeIcon />}

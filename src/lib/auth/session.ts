@@ -14,10 +14,22 @@ export async function requireAuth() {
   return { session, error: null };
 }
 
+/** Requires PLANNER or ADMIN role (ADMIN inherits all planner permissions). */
 export async function requirePlanner() {
   const result = await requireAuth();
   if (result.error) return result;
-  if (result.session!.user.role !== "PLANNER") {
+  const role = result.session!.user.role;
+  if (role !== "PLANNER" && role !== "ADMIN") {
+    return { session: null, error: "FORBIDDEN" as const };
+  }
+  return { session: result.session, error: null };
+}
+
+/** Requires ADMIN role only. */
+export async function requireAdmin() {
+  const result = await requireAuth();
+  if (result.error) return result;
+  if (result.session!.user.role !== "ADMIN") {
     return { session: null, error: "FORBIDDEN" as const };
   }
   return { session: result.session, error: null };
@@ -37,5 +49,9 @@ export async function requireEmployeeSession() {
 }
 
 export function isPlannerRole(role: UserRole) {
-  return role === "PLANNER";
+  return role === "PLANNER" || role === "ADMIN";
+}
+
+export function isAdminRole(role: UserRole) {
+  return role === "ADMIN";
 }
