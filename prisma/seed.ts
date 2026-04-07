@@ -115,7 +115,7 @@ async function main() {
     data: {
       email: "employee@schichtmeister.local",
       passwordHash,
-      role: UserRole.EMPLOYEE,
+      role: UserRole.DEMO,
       facilityId: facility.id,
       employeeId: empAnna.id,
     },
