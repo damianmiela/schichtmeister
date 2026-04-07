@@ -7,6 +7,7 @@ import { UserRole } from "@prisma/client";
 const registerSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8, "Passwort mindestens 8 Zeichen"),
+  secretPassword: z.string().min(1, "Registrierungspasswort erforderlich"),
 });
 
 export async function POST(request: NextRequest) {
@@ -24,6 +25,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "Ungültige Eingabe", details: parsed.error.flatten() },
         { status: 400 }
+      );
+    }
+
+    // Validate secret registration password
+    const expectedSecret = process.env.REGISTER_SECRET;
+    if (!expectedSecret) {
+      return NextResponse.json(
+        { error: "Registrierung ist nicht konfiguriert." },
+        { status: 500 }
+      );
+    }
+    if (parsed.data.secretPassword !== expectedSecret) {
+      return NextResponse.json(
+        { error: "Ungültiges Registrierungspasswort." },
+        { status: 403 }
       );
     }
 

@@ -74,7 +74,7 @@ function LoginForm() {
           <LockOutlinedIcon />
         </Box>
         <Typography variant="h5" component="h1">
-          SchichtMeister DienstPlanner
+          Demo-Einrichtung Dienst Planner
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
           Mit E-Mail und Passwort anmelden
@@ -125,12 +125,19 @@ function LoginForm() {
         </Button>
       </form>
 
-      <Typography variant="body2" color="text.secondary" sx={{ mt: 2, textAlign: "center" }}>
-        Noch kein Konto?{" "}
-        <Link href="/register" style={{ fontWeight: 600 }}>
-          Registrieren
-        </Link>
-      </Typography>
+      <Box sx={{ mt: 2, textAlign: "center" }}>
+        <Typography variant="body2" color="text.secondary">
+          <Link href="/forgot-password" style={{ fontWeight: 600 }}>
+            Passwort vergessen?
+          </Link>
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+          Noch kein Konto?{" "}
+          <Link href="/register" style={{ fontWeight: 600 }}>
+            Registrieren
+          </Link>
+        </Typography>
+      </Box>
     </Paper>
   );
 }

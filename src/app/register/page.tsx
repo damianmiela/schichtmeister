@@ -20,6 +20,7 @@ export default function RegisterPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [password2, setPassword2] = useState("");
+  const [secretPassword, setSecretPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -34,6 +35,10 @@ export default function RegisterPage() {
       setError("Passwort mindestens 8 Zeichen.");
       return;
     }
+    if (!secretPassword) {
+      setError("Registrierungspasswort erforderlich.");
+      return;
+    }
     setLoading(true);
     try {
       const res = await fetch("/api/auth/register", {
@@ -42,6 +47,7 @@ export default function RegisterPage() {
         body: JSON.stringify({
           email: email.trim().toLowerCase(),
           password,
+          secretPassword,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -91,8 +97,8 @@ export default function RegisterPage() {
             <Typography variant="h5" component="h1">
               Konto anlegen
             </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-              Sie erhalten die Rolle Planer für die Einrichtung.
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1, textAlign: "center" }}>
+              Zum Registrieren benötigen Sie das Registrierungspasswort.
             </Typography>
           </Box>
 
@@ -103,6 +109,16 @@ export default function RegisterPage() {
           )}
 
           <form onSubmit={handleSubmit}>
+            <TextField
+              fullWidth
+              type="password"
+              label="Registrierungspasswort"
+              value={secretPassword}
+              onChange={(e) => setSecretPassword(e.target.value)}
+              disabled={loading}
+              sx={{ mb: 2 }}
+              helperText="Fragen Sie Ihren Administrator nach dem Passwort"
+            />
             <TextField
               fullWidth
               type="email"
@@ -138,7 +154,7 @@ export default function RegisterPage() {
               fullWidth
               variant="contained"
               size="large"
-              disabled={loading || !email || !password || !password2}
+              disabled={loading || !email || !password || !password2 || !secretPassword}
             >
               {loading ? <CircularProgress size={24} color="inherit" /> : "Registrieren"}
             </Button>
