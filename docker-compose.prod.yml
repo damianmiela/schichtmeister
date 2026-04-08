@@ -24,6 +24,8 @@ services:
     build:
       context: ./solver
       dockerfile: Dockerfile
+      # Avoid re-pulling python:3.12-slim on every deploy; new digest invalidates apt/pip layers.
+      pull: false
     container_name: schichtmeister-solver
     networks:
       - schichtmeister_network

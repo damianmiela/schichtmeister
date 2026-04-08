@@ -12,8 +12,15 @@ export COMPOSE_DOCKER_CLI_BUILD=1
 
 echo ">>> SchichtMeister Deploy start: $(date)"
 
+PUSH_OLDREV=""
+PUSH_NEWREV=""
+LAST_REF=""
 while read -r oldrev newrev refname; do
-  LAST_REF="$refname"
+  if [[ "$refname" == "refs/heads/main" ]] || [[ "$refname" == "refs/heads/master" ]]; then
+    PUSH_OLDREV="$oldrev"
+    PUSH_NEWREV="$newrev"
+    LAST_REF="$refname"
+  fi
 done
 
 if [[ "$LAST_REF" == "refs/heads/main" ]] || [[ "$LAST_REF" == "refs/heads/master" ]]; then
@@ -70,8 +77,24 @@ if [[ "$LAST_REF" == "refs/heads/main" ]] || [[ "$LAST_REF" == "refs/heads/maste
     node:20-alpine \
     sh -lc 'apk add --no-cache openssl libc6-compat >/dev/null && npx -y prisma@5.22.0 migrate deploy --schema=./schema.prisma'
 
-  echo ">>> Building solver (BuildKit layer cache)..."
-  docker compose -f "$COMPOSE_FILE" build schichtmeister-solver
+  # Solver: skip rebuild when solver/ and this compose file are unchanged and an image already exists.
+  # (Always rebuild on new branch, missing image, or any change under solver/.)
+  ZERO="0000000000000000000000000000000000000000"
+  RUN_SOLVER_BUILD=1
+  if [[ -n "$PUSH_OLDREV" && -n "$PUSH_NEWREV" && "$PUSH_OLDREV" != "$ZERO" ]]; then
+    if git --work-tree="$APP_DIR" --git-dir="$GIT_DIR" diff --quiet "$PUSH_OLDREV" "$PUSH_NEWREV" -- solver/ "$COMPOSE_FILE" 2>/dev/null; then
+      SOLVER_IMG="$(docker compose -f "$COMPOSE_FILE" config --images 2>/dev/null | grep -F 'schichtmeister-solver' | head -n1 || true)"
+      if [[ -n "$SOLVER_IMG" ]] && docker image inspect "$SOLVER_IMG" &>/dev/null; then
+        RUN_SOLVER_BUILD=0
+      fi
+    fi
+  fi
+  if [[ "$RUN_SOLVER_BUILD" -eq 1 ]]; then
+    echo ">>> Building solver..."
+    docker compose -f "$COMPOSE_FILE" build schichtmeister-solver
+  else
+    echo ">>> Skipping solver build (unchanged solver/; image present: $SOLVER_IMG)"
+  fi
 
   echo ">>> Building app..."
   docker compose -f "$COMPOSE_FILE" build app
