@@ -305,6 +305,7 @@ export async function POST(request: Request, context: RouteCtx) {
         }
 
         if (!solverResult) {
+          console.error("[generate-stream] No solver result received from stream");
           send({ type: "error", error: "Solver lieferte kein Ergebnis." });
           controller.close();
           return;
@@ -318,6 +319,7 @@ export async function POST(request: Request, context: RouteCtx) {
             shiftProfileId: string;
             stationNumber: number | null;
           }[]) ?? [];
+        console.log(`[generate-stream] Solver status: ${solverStatus}, assignments: ${solverAssignments.length}, reason: ${solverResult.reason ?? "none"}`);
 
         // Build debug log
         const debugLog = buildDebugLog(solverResult, payload);
@@ -326,6 +328,8 @@ export async function POST(request: Request, context: RouteCtx) {
           solverStatus === "INFEASIBLE" ||
           solverStatus === "UNKNOWN"
         ) {
+          console.log(`[generate-stream] Solver returned ${solverStatus}, reason: ${solverResult.reason ?? "none"}, conflicts: ${JSON.stringify(solverResult.conflictingConstraints ?? [])}`);
+
           // Save log even on failure (schedule may have been deleted mid-run)
           try {
             await prisma.schedule.update({
