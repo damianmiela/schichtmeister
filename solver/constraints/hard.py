@@ -7,10 +7,9 @@ Constraint IDs map 1:1 with the plan in 03-phase-02-hard-constraints.md.
 from __future__ import annotations
 
 import logging
-from datetime import date, timedelta
 from ortools.sat.python import cp_model
 
-from models import SolveRequest, ShiftProfileInput, PreviousAssignment
+from models import SolveRequest, ShiftProfileInput
 from utils import dates_in_range, iso_week_key, rest_violated
 
 log = logging.getLogger(__name__)
@@ -32,36 +31,6 @@ def _dates(req: SolveRequest) -> list[date]:
 def _emp_station_map(req: SolveRequest) -> dict[str, set[int]]:
     return {e.id: set(e.assignedStations) if e.assignedStations else set() for e in req.employees}
 
-
-def _prev_worked_dates(req: SolveRequest) -> dict[str, set[str]]:
-    """Build {employeeId: set of ISO dates} from previousAssignments."""
-    out: dict[str, set[str]] = {}
-    for pa in req.previousAssignments:
-        out.setdefault(pa.employeeId, set()).add(pa.date)
-    return out
-
-
-def _prev_night_dates(req: SolveRequest) -> dict[str, set[str]]:
-    """Build {employeeId: set of ISO dates with NIGHT shifts} from previousAssignments."""
-    prof_map = _profile_map(req)
-    out: dict[str, set[str]] = {}
-    for pa in req.previousAssignments:
-        prof = prof_map.get(pa.shiftProfileId)
-        if prof and prof.shiftType == "NIGHT":
-            out.setdefault(pa.employeeId, set()).add(pa.date)
-    return out
-
-
-def _prev_last_shift_end(req: SolveRequest) -> dict[str, tuple[str, str]]:
-    """For each employee, find their last shift from previousAssignments.
-    Returns {employeeId: (date_iso, endTime)} for the most recent previous shift."""
-    prof_map = _profile_map(req)
-    out: dict[str, tuple[str, str]] = {}
-    for pa in sorted(req.previousAssignments, key=lambda x: x.date):
-        prof = prof_map.get(pa.shiftProfileId)
-        if prof:
-            out[pa.employeeId] = (pa.date, prof.endTime)
-    return out
 
 
 def _sh_emp_ids(req: SolveRequest) -> set[str]:
@@ -394,31 +363,10 @@ def add_min_rest(
                 if k1 in shift and k2 in shift:
                     model.Add(shift[k1] + shift[k2] <= 1)
 
-    # Cross-month boundary: if an employee had a shift on the last day of the
-    # previous month, block incompatible profiles on day 1 of current period
-    if req.previousAssignments and dates:
-        prev_last = _prev_last_shift_end(req)
-        first_date = dates[0]
-        for emp in req.employees:
-            last_info = prev_last.get(emp.id)
-            if not last_info:
-                continue
-            prev_date_str, _ = last_info
-            prev_date = date.fromisoformat(prev_date_str)
-            # Only applies if previous shift was exactly the day before period start
-            if (first_date - prev_date).days != 1:
-                continue
-            # Find which profile they had on that last day
-            prev_profile_ids = {
-                pa.shiftProfileId for pa in req.previousAssignments
-                if pa.employeeId == emp.id and pa.date == prev_date_str
-            }
-            for prev_pid in prev_profile_ids:
-                for pid1, pid2 in incompatible:
-                    if pid1 == prev_pid:
-                        k2 = (emp.id, first_date.isoformat(), pid2)
-                        if k2 in shift:
-                            model.Add(shift[k2] == 0)
+    # NOTE: Cross-month boundary rest checks are handled by TypeScript
+    # validation (warns about violations). Not enforced as hard solver
+    # constraints because combined with staffing minimums they can make
+    # the problem infeasible.
 
 
 # ── H10: Max consecutive nights ────────────────────────────────────────────
@@ -435,19 +383,11 @@ def add_max_consecutive_nights(
     if not night_profiles:
         return
 
-    prev_nights = _prev_night_dates(req)
-
     for emp in req.employees:
-        # Prepend fixed values for previous month's boundary days
-        prefix: list[int] = []
-        emp_prev = prev_nights.get(emp.id, set())
-        if emp_prev and dates:
-            # Include up to max_nights days before period start
-            for offset in range(max_nights, 0, -1):
-                prev_day = (dates[0] - timedelta(days=offset)).isoformat()
-                prefix.append(1 if prev_day in emp_prev else 0)
-
-        night_vars_by_day: list[cp_model.IntVar | int] = list(prefix)
+        # NOTE: Cross-month boundary night checks are handled by TypeScript
+        # validation (warns about violations). Not prepended here because
+        # combined with staffing minimums they can make the problem infeasible.
+        night_vars_by_day: list[cp_model.IntVar | int] = []
         for d in dates:
             ds = d.isoformat()
             day_night = [
@@ -476,22 +416,14 @@ def add_max_consecutive_days(
     rest_after_6 = req.rules.requiredRestDaysAfter6
     dates = _dates(req)
 
-    prev_worked = _prev_worked_dates(req)
-
     for emp in req.employees:
         # Per-employee override takes precedence over global setting
         max_days = emp.maxConsecutiveDays if emp.maxConsecutiveDays is not None else global_max_days
 
-        # Prepend fixed values for previous month's boundary days
-        prefix: list[int] = []
-        emp_prev = prev_worked.get(emp.id, set())
-        if emp_prev and dates:
-            # Include up to max_days days before period start
-            for offset in range(max_days, 0, -1):
-                prev_day = (dates[0] - timedelta(days=offset)).isoformat()
-                prefix.append(1 if prev_day in emp_prev else 0)
-
-        day_vars: list[cp_model.IntVar | int] = list(prefix)
+        # NOTE: Cross-month boundary day checks are handled by TypeScript
+        # validation (warns about violations). Not prepended here because
+        # combined with staffing minimums they can make the problem infeasible.
+        day_vars: list[cp_model.IntVar | int] = []
         for d in dates:
             ds = d.isoformat()
             if (emp.id, ds) in works_day:
@@ -794,43 +726,12 @@ def add_alternating_weekends(
     if not weekends:
         return
 
-    # Cross-month boundary: check if previous month's last weekend was worked
-    prev_worked = _prev_worked_dates(req)
+    # NOTE: Cross-month boundary weekend checks are handled by TypeScript
+    # validation (warns about violations). Not enforced as hard solver
+    # constraints because forcing many employees free on the first weekend
+    # can conflict with staffing minimums and make the problem infeasible.
 
-    for emp in req.employees:
-        emp_prev = prev_worked.get(emp.id, set())
-
-        # Check if the weekend BEFORE the first period weekend was worked
-        first_wk = weekends[0]
-        first_wk_date = first_wk[0] or first_wk[1]
-        if first_wk_date and emp_prev:
-            # Find the previous weekend (7 days before the first weekend day)
-            prev_sat = first_wk_date - timedelta(days=first_wk_date.isoweekday() + 1)
-            if prev_sat.isoweekday() != 6:
-                prev_sat = first_wk_date - timedelta(days=first_wk_date.isoweekday() % 7 + 1)
-                # Recalculate: find the Saturday before or on this date
-                while prev_sat.isoweekday() != 6:
-                    prev_sat -= timedelta(days=1)
-            prev_sun = prev_sat + timedelta(days=1)
-
-            prev_weekend_worked = (
-                prev_sat.isoformat() in emp_prev or
-                prev_sun.isoformat() in emp_prev
-            )
-
-            if prev_weekend_worked:
-                # Previous weekend was worked → first weekend of this period must be free
-                sat_first, sun_first = first_wk
-                if sat_first:
-                    key = (emp.id, sat_first.isoformat())
-                    if key in works_day:
-                        model.Add(works_day[key] == 0)
-                if sun_first:
-                    key = (emp.id, sun_first.isoformat())
-                    if key in works_day:
-                        model.Add(works_day[key] == 0)
-
-        # Standard alternating weekends within the period
+    # Standard alternating weekends within the period
         if len(weekends) < 2:
             continue
 
