@@ -185,15 +185,15 @@ export default function SchedulePage() {
   );
   const [monthViewMode, setMonthViewMode] = useState<MonthViewMode>("table");
 
-  // Wrap setViewState to also push URL
+  // Wrap setViewState to push URL only when view type changes
   const setViewState = useCallback((newState: ViewState | ((prev: ViewState) => ViewState)) => {
     setViewStateRaw((prev) => {
       const resolved = typeof newState === "function" ? newState(prev) : newState;
-      // Push URL update (after render to avoid conflicts)
-      queueMicrotask(() => {
-        const url = viewStateToUrl(resolved);
-        router.replace(url, { scroll: false });
-      });
+      if (resolved.type !== prev.type) {
+        queueMicrotask(() => {
+          router.replace(viewStateToUrl(resolved), { scroll: false });
+        });
+      }
       return resolved;
     });
   }, [router]);
