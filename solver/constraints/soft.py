@@ -6,6 +6,8 @@ global minimization objective.  Positive weight = cost to minimize.
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from ortools.sat.python import cp_model
 
 from models import SolveRequest
@@ -35,6 +37,8 @@ W_SOLL_HARD = 200_000
 W_WISH_NORMAL = 3_000
 W_WISH_STRONG = 6_000
 W_PREFERENCE = 1
+# Tier 2b — Cross-month boundary weekends (strong but not infeasible)
+W_WEEKEND_BOUNDARY = 40_000
 
 
 def _emp_station_map(req: SolveRequest) -> dict[str, set[int]]:
@@ -644,5 +648,79 @@ def add_shift_distribution_soft(
             model.Add(dev >= actual - target_count)
             model.Add(dev >= target_count - actual)
             terms.append((dev, W_DISTRIBUTION))
+
+    return terms
+
+
+# ── Cross-month alternating weekends (soft) ──────────────────────────
+
+WorksDay = dict[tuple[str, str], cp_model.IntVar]
+
+
+def add_alternating_weekends_boundary_soft(
+    model: cp_model.CpModel,
+    works_day: WorksDay,
+    req: SolveRequest,
+) -> list[tuple[cp_model.IntVar, int]]:
+    """Soft penalty for employees who worked the previous month's last weekend
+    and are also scheduled on the first weekend of the current period.
+
+    Returns penalty terms: each employee who violates gets a W_WEEKEND_BOUNDARY
+    penalty per weekend day worked, incentivizing the solver to keep them free
+    but not making the problem infeasible if staffing requires it.
+    """
+    terms: list[tuple[cp_model.IntVar, int]] = []
+
+    if not req.previousAssignments or not req.rules.alternatingWeekendsEnabled:
+        return terms
+
+    dates = dates_in_range(req.periodStart, req.periodEnd)
+    if not dates:
+        return terms
+
+    # Find the first weekend in the current period
+    first_weekend_days: list[str] = []
+    for d in dates:
+        if d.isoweekday() in (6, 7):
+            first_weekend_days.append(d.isoformat())
+            if d.isoweekday() == 7:
+                break  # found Sat+Sun or just Sun
+        elif first_weekend_days:
+            break  # moved past the weekend
+
+    if not first_weekend_days:
+        return terms
+
+    # Find the previous weekend (before period start)
+    first_date = dates[0]
+    prev_sat = None
+    for offset in range(1, 8):
+        d = first_date - timedelta(days=offset)
+        if d.isoweekday() == 6:
+            prev_sat = d
+            break
+
+    if prev_sat is None:
+        return terms
+
+    prev_sun = prev_sat + timedelta(days=1)
+    prev_sat_iso = prev_sat.isoformat()
+    prev_sun_iso = prev_sun.isoformat()
+
+    # Build set of employees who worked previous weekend
+    prev_worked: dict[str, set[str]] = {}
+    for pa in req.previousAssignments:
+        prev_worked.setdefault(pa.employeeId, set()).add(pa.date)
+
+    for emp in req.employees:
+        emp_dates = prev_worked.get(emp.id, set())
+        if prev_sat_iso not in emp_dates and prev_sun_iso not in emp_dates:
+            continue  # didn't work previous weekend
+
+        # This employee worked the previous weekend — penalize working the first weekend
+        for ds in first_weekend_days:
+            key = (emp.id, ds)
+            if key in works_day:
+                terms.append((works_day[key], W_WEEKEND_BOUNDARY))
 
     return terms
