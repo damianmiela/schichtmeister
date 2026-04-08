@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import MainLayout from "@/components/layout/MainLayout";
 import MonthView from "@/components/schedule/MonthView";
@@ -135,16 +136,128 @@ const MONTH_NAMES = [
   "Dezember",
 ];
 
-export default function SchedulePage() {
+/* ── URL ↔ ViewState sync helpers ── */
+
+function viewStateToUrl(vs: ViewState): string {
+  const base = "/schedule";
+  if (vs.type === "month") {
+    return `${base}/month?year=${vs.year}&month=${vs.month}`;
+  }
+  if (vs.type === "week" && vs.weekStartDate) {
+    const iso = `${vs.weekStartDate.getFullYear()}-${String(vs.weekStartDate.getMonth() + 1).padStart(2, "0")}-${String(vs.weekStartDate.getDate()).padStart(2, "0")}`;
+    return `${base}/week?start=${iso}`;
+  }
+  if (vs.type === "day" && vs.date) {
+    const iso = `${vs.date.getFullYear()}-${String(vs.date.getMonth() + 1).padStart(2, "0")}-${String(vs.date.getDate()).padStart(2, "0")}`;
+    return `${base}/day?date=${iso}`;
+  }
+  if (vs.type === "employee") {
+    let url = `${base}/employee?year=${vs.year}&month=${vs.month}`;
+    if (vs.employeeId) url += `&id=${vs.employeeId}`;
+    return url;
+  }
+  return `${base}/month?year=${vs.year}&month=${vs.month}`;
+}
+
+function parseUrlToViewState(
+  viewSegments: string[] | undefined,
+  searchParams: URLSearchParams,
+): ViewState {
+  const today = new Date();
+  const viewType = viewSegments?.[0] as ViewType | undefined;
+
+  if (viewType === "week") {
+    const startStr = searchParams.get("start");
+    if (startStr) {
+      const [y, m, d] = startStr.split("-").map(Number);
+      const startDate = new Date(y!, m! - 1, d!);
+      return {
+        type: "week",
+        year: startDate.getFullYear(),
+        month: startDate.getMonth(),
+        weekNumber: getWeekNumber(startDate),
+        weekStartDate: startDate,
+      };
+    }
+    // Default: current week
+    const monday = new Date(today);
+    const day = monday.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    monday.setDate(monday.getDate() + diff);
+    return {
+      type: "week",
+      year: monday.getFullYear(),
+      month: monday.getMonth(),
+      weekNumber: getWeekNumber(monday),
+      weekStartDate: monday,
+    };
+  }
+
+  if (viewType === "day") {
+    const dateStr = searchParams.get("date");
+    if (dateStr) {
+      const [y, m, d] = dateStr.split("-").map(Number);
+      const date = new Date(y!, m! - 1, d!);
+      return { type: "day", year: date.getFullYear(), month: date.getMonth(), date };
+    }
+    return { type: "day", year: today.getFullYear(), month: today.getMonth(), date: today };
+  }
+
+  if (viewType === "employee") {
+    const year = Number(searchParams.get("year")) || today.getFullYear();
+    const month = Number(searchParams.get("month")) ?? today.getMonth();
+    const employeeId = searchParams.get("id") || undefined;
+    return { type: "employee", year, month, employeeId };
+  }
+
+  // Default: month
+  const year = Number(searchParams.get("year")) || today.getFullYear();
+  const month = Number(searchParams.get("month")) ?? today.getMonth();
+  return { type: "month", year, month };
+}
+
+export default function SchedulePageWrapper() {
+  return (
+    <Suspense>
+      <SchedulePage />
+    </Suspense>
+  );
+}
+
+function SchedulePage() {
   const { data: session } = useSession();
   const isAdmin = session?.user?.role === "ADMIN";
-  const today = new Date();
-  const [viewState, setViewState] = useState<ViewState>({
-    type: "month",
-    year: today.getFullYear(),
-    month: today.getMonth(),
-  });
+  const router = useRouter();
+  const params = useParams();
+  const searchParams = useSearchParams();
+  const viewSegments = params.view as string[] | undefined;
+
+  // Initialize viewState from URL
+  const [viewState, setViewStateRaw] = useState<ViewState>(() =>
+    parseUrlToViewState(viewSegments, new URLSearchParams(searchParams.toString())),
+  );
   const [monthViewMode, setMonthViewMode] = useState<MonthViewMode>("table");
+
+  // Wrap setViewState to also push URL
+  const setViewState = useCallback((newState: ViewState | ((prev: ViewState) => ViewState)) => {
+    setViewStateRaw((prev) => {
+      const resolved = typeof newState === "function" ? newState(prev) : newState;
+      // Push URL update (after render to avoid conflicts)
+      queueMicrotask(() => {
+        const url = viewStateToUrl(resolved);
+        router.replace(url, { scroll: false });
+      });
+      return resolved;
+    });
+  }, [router]);
+
+  // Redirect bare /schedule to /schedule/month
+  useEffect(() => {
+    if (!viewSegments || viewSegments.length === 0) {
+      router.replace(viewStateToUrl(viewState), { scroll: false });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

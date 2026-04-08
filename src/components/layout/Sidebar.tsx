@@ -17,6 +17,9 @@ import {
 } from "@mui/material";
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
+import CalendarViewWeekIcon from "@mui/icons-material/CalendarViewWeek";
+import TodayIcon from "@mui/icons-material/Today";
+import PersonIcon from "@mui/icons-material/Person";
 import PeopleIcon from "@mui/icons-material/People";
 import SettingsIcon from "@mui/icons-material/Settings";
 import AssignmentIcon from "@mui/icons-material/Assignment";
@@ -26,8 +29,14 @@ const DRAWER_WIDTH = 260;
 
 const menuItems = [
   { text: "Dashboard", icon: <DashboardIcon />, href: "/" },
-  { text: "Monatplan", icon: <CalendarMonthIcon />, href: "/schedule" },
   { text: "Mitarbeiter", icon: <PeopleIcon />, href: "/employees" },
+];
+
+const scheduleItems = [
+  { text: "Monatsansicht", icon: <CalendarMonthIcon />, href: "/schedule/month" },
+  { text: "Wochenansicht", icon: <CalendarViewWeekIcon />, href: "/schedule/week" },
+  { text: "Tagesansicht", icon: <TodayIcon />, href: "/schedule/day" },
+  { text: "Mitarbeiteransicht", icon: <PersonIcon />, href: "/schedule/employee" },
 ];
 
 const secondaryItems = [
@@ -121,6 +130,48 @@ export default function Sidebar() {
               </ListItemButton>
             </ListItem>
           ))}
+        </List>
+        <Divider sx={{ my: 2 }} />
+        <Typography
+          variant="overline"
+          sx={{ px: 3, color: "text.secondary", fontSize: 11 }}
+        >
+          Dienstplan
+        </Typography>
+        <List>
+          {scheduleItems.map((item) => {
+            const isActive =
+              pathname === item.href ||
+              pathname?.startsWith(item.href + "?") ||
+              (item.href === "/schedule/month" && (pathname === "/schedule" || pathname === "/schedule/"));
+            return (
+              <ListItem key={item.text} disablePadding sx={{ px: 1 }}>
+                <ListItemButton
+                  component={Link}
+                  href={item.href}
+                  selected={isActive}
+                  sx={{
+                    borderRadius: 1,
+                    mb: 0.5,
+                    py: 0.5,
+                    "&.Mui-selected": {
+                      bgcolor: "primary.main",
+                      color: "white",
+                      "&:hover": {
+                        bgcolor: "primary.dark",
+                      },
+                      "& .MuiListItemIcon-root": {
+                        color: "white",
+                      },
+                    },
+                  }}
+                >
+                  <ListItemIcon sx={{ minWidth: 36 }}>{item.icon}</ListItemIcon>
+                  <ListItemText primary={item.text} primaryTypographyProps={{ fontSize: 14 }} />
+                </ListItemButton>
+              </ListItem>
+            );
+          })}
         </List>
         <Divider sx={{ my: 2 }} />
         <Typography
