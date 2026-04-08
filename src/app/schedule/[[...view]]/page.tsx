@@ -1553,7 +1553,7 @@ export default function SchedulePage() {
         <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}>
           <CircularProgress />
         </Box>
-      ) : schedule ? (
+      ) : (
         <>
           {viewState.type === "month" && monthViewMode === "table" && (
             <MonthTableView
@@ -1641,7 +1641,7 @@ export default function SchedulePage() {
             />
           )}
         </>
-      ) : null}
+      )}
 
       {/* Clear schedule confirmation */}
       <Dialog open={clearConfirmOpen} onClose={() => setClearConfirmOpen(false)}>

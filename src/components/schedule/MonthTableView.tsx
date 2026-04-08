@@ -1105,11 +1105,17 @@ export default function MonthTableView({
         borderRadius: 1,
       }}
     >
-      {renderSection("Station 1", stationGroups[1]!, { station: 1 })}
-      {renderSection("Station 2", stationGroups[2]!, { station: 2 })}
-      {renderSection("Station 3", stationGroups[3]!, { station: 3 })}
-      {renderSection("Nacht (gesamtes Gebäude)", nightEmployees, "night-only")}
-      {renderUnassignedSection()}
+      {assignments.length === 0 ? (
+        renderSection("Mitarbeiter", employees, "none")
+      ) : (
+        <>
+          {renderSection("Station 1", stationGroups[1]!, { station: 1 })}
+          {renderSection("Station 2", stationGroups[2]!, { station: 2 })}
+          {renderSection("Station 3", stationGroups[3]!, { station: 3 })}
+          {renderSection("Nacht (gesamtes Gebäude)", nightEmployees, "night-only")}
+          {renderUnassignedSection()}
+        </>
+      )}
 
       {/* ── Left-click menu (Row 1: profiles + status | Row 2/3: markings) ── */}
       <Menu
