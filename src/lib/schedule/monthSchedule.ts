@@ -2,7 +2,6 @@ export type ScheduleSummary = {
   id: string;
   periodStart: string;
   periodEnd: string;
-  status: string;
 };
 
 export function monthRangeIso(year: number, month: number): {
@@ -24,7 +23,7 @@ function overlaps(
 }
 
 /**
- * Prefer a **DRAFT** schedule overlapping the month; else most recent **PUBLISHED** overlap.
+ * Pick the most recent schedule overlapping the month.
  */
 export function pickScheduleForMonth(
   schedules: ScheduleSummary[],
@@ -35,11 +34,8 @@ export function pickScheduleForMonth(
     overlaps(s.periodStart, s.periodEnd, monthStart, monthEnd),
   );
   if (hit.length === 0) return null;
-  const drafts = hit.filter((s) => s.status === "DRAFT");
-  const pool = drafts.length > 0 ? drafts : hit.filter((s) => s.status === "PUBLISHED");
-  if (pool.length === 0) return null;
-  pool.sort((a, b) => b.periodStart.localeCompare(a.periodStart));
-  return pool[0] ?? null;
+  hit.sort((a, b) => b.periodStart.localeCompare(a.periodStart));
+  return hit[0] ?? null;
 }
 
 export function isoDateInRange(

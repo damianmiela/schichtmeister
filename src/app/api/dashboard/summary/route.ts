@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { EmployeeStatus, ScheduleStatus } from "@prisma/client";
+import { EmployeeStatus } from "@prisma/client";
 import { plannerJsonErrors } from "@/lib/api/validation";
 import { requirePlanner } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
@@ -124,11 +124,8 @@ export async function GET() {
 
   /* ── schedule info ── */
   const currentSchedule =
-    schedules.find((s) => s.status === ScheduleStatus.PUBLISHED && s.periodStart <= today && s.periodEnd >= today) ??
     schedules.find((s) => s.periodStart <= today && s.periodEnd >= today) ??
     null;
-
-  const isPublished = currentSchedule?.status === ScheduleStatus.PUBLISHED;
 
   /* ── staffing requirements by shiftType+station ── */
   type ReqKey = string;
@@ -295,7 +292,6 @@ export async function GET() {
     schedule: currentSchedule
       ? {
           id: currentSchedule.id,
-          status: currentSchedule.status,
           periodStart: isoDate(currentSchedule.periodStart),
           periodEnd: isoDate(currentSchedule.periodEnd),
         }

@@ -19,8 +19,6 @@ export type ScheduleJson = {
   id: string;
   periodStart: string;
   periodEnd: string;
-  status: string;
-  publishedAt: string | null;
   warnings?: string[];
   preGenWishes?: PreGenWishesJson | null;
 };

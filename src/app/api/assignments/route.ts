@@ -5,7 +5,6 @@ import {
 } from "@/lib/api/assignmentHttp";
 import { assignmentCreateBodySchema } from "@/lib/api/assignmentSchemas";
 import {
-  loadDraftScheduleForFacility,
   loadScheduleForFacility,
   requireActiveProfile,
   requireEmployee,
@@ -60,10 +59,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const created = await prisma.$transaction(async (tx) => {
-      // force=true allows modifying published schedules and skips rule validation
-      const sched = parsed.data.force
-        ? await loadScheduleForFacility(tx, parsed.data.scheduleId, facilityId)
-        : await loadDraftScheduleForFacility(tx, parsed.data.scheduleId, facilityId);
+      const sched = await loadScheduleForFacility(tx, parsed.data.scheduleId, facilityId);
       if (!sched.ok) {
         throw new AssignmentOpRejected(sched.failure);
       }

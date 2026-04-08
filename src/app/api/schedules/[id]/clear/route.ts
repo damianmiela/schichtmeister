@@ -37,8 +37,6 @@ export async function POST(_request: Request, context: RouteCtx) {
     await tx.schedule.update({
       where: { id: scheduleId },
       data: {
-        status: "DRAFT",
-        publishedAt: null,
         warningsJson: null,
         preGenWishesJson: savedEntriesJson,
         generationLog: null,

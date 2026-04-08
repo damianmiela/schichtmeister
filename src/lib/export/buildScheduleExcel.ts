@@ -27,8 +27,6 @@ export async function buildScheduleExcelBuffer(
   const meta = wb.addWorksheet("Meta", { views: [{ state: "frozen", ySplit: 1 }] });
   meta.getCell("A1").value = "Zeitraum";
   meta.getCell("B1").value = `${toIsoDateOnly(schedule.periodStart)} – ${toIsoDateOnly(schedule.periodEnd)}`;
-  meta.getCell("A2").value = "Status";
-  meta.getCell("B2").value = schedule.status;
   meta.getColumn(1).width = 18;
   meta.getColumn(2).width = 40;
 

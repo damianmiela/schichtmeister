@@ -80,7 +80,7 @@ type DashboardData = {
   coveragePct: number | null;
   todayLabel: string;
   totalAssignmentsToday: number;
-  schedule: { id: string; status: string; periodStart: string; periodEnd: string } | null;
+  schedule: { id: string; periodStart: string; periodEnd: string } | null;
   todayStations: StationData[];
   todayNight: StationShift;
   weekPreview: DayPreview[];
@@ -224,7 +224,7 @@ export default function DashboardPage() {
           color="#00897b"
           label="Schichten heute"
           value={data.totalAssignmentsToday}
-          subtitle={data.schedule ? (data.schedule.status === "PUBLISHED" ? "Plan veröffentlicht" : "Plan aktiv") : "Kein Plan"}
+          subtitle={data.schedule ? "Plan aktiv" : "Kein Plan"}
           onClick={() => router.push("/schedule")}
         />
       </Box>

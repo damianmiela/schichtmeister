@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import type { Assignment, Prisma } from "@prisma/client";
-import { ScheduleStatus } from "@prisma/client";
 import type { PlanningValidationResult } from "@/lib/api/planningScheduleValidation";
 import { validateScheduleAssignments } from "@/lib/api/planningScheduleValidation";
 import type { AssignmentInput } from "@/lib/planning/types";
@@ -20,36 +19,8 @@ function toInputs(rows: Assignment[]): AssignmentInput[] {
   }));
 }
 
-/** Load any schedule (DRAFT or PUBLISHED) for the facility. */
+/** Load a schedule for the facility. */
 export async function loadScheduleForFacility(
-  tx: DbTx,
-  scheduleId: string,
-  facilityId: string,
-): Promise<
-  | { ok: true; schedule: { id: string; status: string; periodStart: Date; periodEnd: Date } }
-  | { ok: false; failure: AssignmentOpFailure }
-> {
-  const schedule = await tx.schedule.findFirst({
-    where: { id: scheduleId, facilityId },
-  });
-  if (!schedule) {
-    return {
-      ok: false,
-      failure: { kind: "http", status: 404, error: "Dienstplan nicht gefunden." },
-    };
-  }
-  return {
-    ok: true,
-    schedule: {
-      id: schedule.id,
-      status: schedule.status,
-      periodStart: schedule.periodStart,
-      periodEnd: schedule.periodEnd,
-    },
-  };
-}
-
-export async function loadDraftScheduleForFacility(
   tx: DbTx,
   scheduleId: string,
   facilityId: string,
@@ -64,16 +35,6 @@ export async function loadDraftScheduleForFacility(
     return {
       ok: false,
       failure: { kind: "http", status: 404, error: "Dienstplan nicht gefunden." },
-    };
-  }
-  if (schedule.status !== ScheduleStatus.DRAFT) {
-    return {
-      ok: false,
-      failure: {
-        kind: "http",
-        status: 409,
-        error: "Nur Entwürfe können bearbeitet werden.",
-      },
     };
   }
   return {

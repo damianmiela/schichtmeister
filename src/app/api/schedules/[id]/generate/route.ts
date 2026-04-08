@@ -293,7 +293,6 @@ export async function POST(request: Request, context: RouteCtx) {
         id: schedule.id,
         periodStart: toIsoDateOnly(schedule.periodStart),
         periodEnd: toIsoDateOnly(schedule.periodEnd),
-        status: schedule.status,
       },
       employeeNames,
       profileNames,

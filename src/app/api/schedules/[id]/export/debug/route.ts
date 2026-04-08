@@ -136,7 +136,6 @@ export async function GET(_request: Request, context: RouteCtx) {
       id: schedule.id,
       periodStart: toIsoDateOnly(schedule.periodStart),
       periodEnd: toIsoDateOnly(schedule.periodEnd),
-      status: schedule.status,
     },
     facility: {
       id: facility.id,

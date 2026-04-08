@@ -5,7 +5,7 @@ import {
 } from "@/lib/api/assignmentHttp";
 import { assignmentPatchBodySchema } from "@/lib/api/assignmentSchemas";
 import {
-  loadDraftScheduleForFacility,
+  loadScheduleForFacility,
   requireActiveProfile,
   requireEmployee,
   validatePatchedAssignmentInTx,
@@ -76,7 +76,7 @@ export async function PATCH(request: NextRequest, context: RouteCtx) {
         });
       }
 
-      const sched = await loadDraftScheduleForFacility(tx, row.scheduleId, facilityId);
+      const sched = await loadScheduleForFacility(tx, row.scheduleId, facilityId);
       if (!sched.ok) throw new AssignmentOpRejected(sched.failure);
 
       if (parsed.data.shiftProfileId !== undefined) {
@@ -172,8 +172,6 @@ export async function DELETE(_request: NextRequest, context: RouteCtx) {
           error: "Zuweisung nicht gefunden.",
         });
       }
-      // Allow deletion on both DRAFT and PUBLISHED schedules
-      // (manual corrections after publishing are allowed)
       await writeAuditLog(tx, {
         entityType: AUDIT_ENTITY_ASSIGNMENT,
         entityId: assignmentId,

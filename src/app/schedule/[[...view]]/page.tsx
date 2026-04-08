@@ -41,7 +41,7 @@ import {
 import AddIcon from "@mui/icons-material/Add";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
-import PublishIcon from "@mui/icons-material/Publish";
+
 import DownloadIcon from "@mui/icons-material/Download";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import CalendarViewWeekIcon from "@mui/icons-material/CalendarViewWeek";
@@ -221,7 +221,7 @@ export default function SchedulePage() {
   const [employees, setEmployees] = useState<EmployeeJson[]>([]);
   const [profilesById, setProfilesById] = useState<Record<string, ShiftProfileJson>>({});
   const [staffing, setStaffing] = useState<StaffingJson[]>([]);
-  const [publishBusy, setPublishBusy] = useState(false);
+
   const [generateBusy, setGenerateBusy] = useState(false);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [actionDebugPayload, setActionDebugPayload] = useState<unknown>(null);
@@ -639,43 +639,6 @@ export default function SchedulePage() {
     return s;
   }, [schedule]);
 
-  const onPublish = async () => {
-    if (!schedule) return;
-    setPublishBusy(true);
-    setActionMsg(null);
-    setActionDebugPayload(null);
-    setActionAlertSeverity("info");
-    try {
-      const res = await fetchJson<{ alreadyPublished?: boolean }>(
-        `/api/schedules/${schedule.id}/publish`,
-        { method: "POST" },
-      );
-      await loadBundle({ preserveActionMessage: true });
-      setActionAlertSeverity("success");
-      setActionMsg(
-        res.alreadyPublished === true
-          ? "War bereits veröffentlicht."
-          : "Dienstplan veröffentlicht.",
-      );
-    } catch (e) {
-      setActionAlertSeverity("error");
-      if (e instanceof ApiError) {
-        const msg =
-          e.body &&
-          typeof e.body === "object" &&
-          e.body !== null &&
-          "error" in e.body &&
-          typeof (e.body as { error: unknown }).error === "string"
-            ? (e.body as { error: string }).error
-            : "Veröffentlichen fehlgeschlagen.";
-        setActionMsg(msg);
-      } else {
-        setActionMsg("Veröffentlichen fehlgeschlagen (Netzwerk).");
-      }
-    } finally {
-      setPublishBusy(false);
-    }
-  };
 
   const downloadExport = async (kind: "excel" | "pdf" | "employees-pdf" | "debug" | "score") => {
     if (!schedule) return;
@@ -1196,12 +1159,6 @@ export default function SchedulePage() {
     }
   };
 
-  const statusChip =
-    schedule?.status === "PUBLISHED" ? (
-      <Chip label="VERÖFFENTLICHT" color="success" size="small" />
-    ) : (
-      <Chip label="ENTWURF" color="warning" size="small" />
-    );
 
   return (
     <MainLayout title="Monatplan">
@@ -1291,7 +1248,7 @@ export default function SchedulePage() {
           <IconButton onClick={handleNext} disabled={loading}>
             <ChevronRightIcon />
           </IconButton>
-          {schedule && statusChip}
+
         </Box>
         <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
           {viewState.type === "employee" && sortedEmployees.length > 0 && (
@@ -1474,14 +1431,6 @@ export default function SchedulePage() {
               )}
             </>
           )}
-          <Button
-            variant="contained"
-            startIcon={<PublishIcon />}
-            disabled={loading || !schedule || schedule.status !== "DRAFT" || publishBusy || editMode}
-            onClick={() => void onPublish()}
-          >
-            {publishBusy ? <CircularProgress size={20} color="inherit" /> : "Veröffentlichen"}
-          </Button>
           {displayWarnings.length > 0 && (
             <Tooltip title="Warnungen anzeigen">
               <IconButton
@@ -1649,7 +1598,7 @@ export default function SchedulePage() {
         <DialogContent>
           <DialogContentText>
             Alle Zuweisungen für {MONTH_NAMES[viewState.month]} {viewState.year} werden
-            unwiderruflich gelöscht. Der Plan wird auf Entwurf zurückgesetzt.
+            unwiderruflich gelöscht.
           </DialogContentText>
         </DialogContent>
         <DialogActions>

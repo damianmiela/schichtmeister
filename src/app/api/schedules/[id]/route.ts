@@ -41,8 +41,6 @@ function serializeSchedule(s: {
   id: string;
   periodStart: Date;
   periodEnd: Date;
-  status: string;
-  publishedAt: Date | null;
   warningsJson: string | null;
   preGenWishesJson?: string | null;
   createdAt: Date;
@@ -52,8 +50,6 @@ function serializeSchedule(s: {
     id: s.id,
     periodStart: toIsoDateOnly(s.periodStart),
     periodEnd: toIsoDateOnly(s.periodEnd),
-    status: s.status,
-    publishedAt: s.publishedAt?.toISOString() ?? null,
     warnings: parseWarnings(s.warningsJson),
     preGenWishes: parsePreGenWishes(s.preGenWishesJson ?? null),
     createdAt: s.createdAt.toISOString(),
