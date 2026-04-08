@@ -205,14 +205,16 @@ function parseUrlToViewState(
 
   if (viewType === "employee") {
     const year = Number(searchParams.get("year")) || today.getFullYear();
-    const month = Number(searchParams.get("month")) ?? today.getMonth();
+    const monthParam = searchParams.get("month");
+    const month = monthParam !== null ? Number(monthParam) : today.getMonth();
     const employeeId = searchParams.get("id") || undefined;
     return { type: "employee", year, month, employeeId };
   }
 
   // Default: month
   const year = Number(searchParams.get("year")) || today.getFullYear();
-  const month = Number(searchParams.get("month")) ?? today.getMonth();
+  const monthParam = searchParams.get("month");
+  const month = monthParam !== null ? Number(monthParam) : today.getMonth();
   return { type: "month", year, month };
 }
 
@@ -482,6 +484,16 @@ function SchedulePage() {
   useEffect(() => {
     void loadBundle();
   }, [loadBundle]);
+
+  // Auto-select first employee alphabetically when entering employee view without an id
+  useEffect(() => {
+    if (viewState.type === "employee" && !viewState.employeeId && employees.length > 0) {
+      const sorted = [...employees].sort((a, b) =>
+        `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`),
+      );
+      setViewState({ ...viewState, employeeId: sorted[0]!.id });
+    }
+  }, [viewState.type, viewState.employeeId, employees]);
 
   // Fetch employee-specific warnings when viewing an employee
   useEffect(() => {
