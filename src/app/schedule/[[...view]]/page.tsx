@@ -1,7 +1,7 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import MainLayout from "@/components/layout/MainLayout";
 import MonthView from "@/components/schedule/MonthView";
@@ -139,47 +139,14 @@ const MONTH_NAMES = [
 /* ── URL ↔ ViewState sync helpers ── */
 
 function viewStateToUrl(vs: ViewState): string {
-  const base = "/schedule";
-  if (vs.type === "month") {
-    return `${base}/month?year=${vs.year}&month=${vs.month}`;
-  }
-  if (vs.type === "week" && vs.weekStartDate) {
-    const iso = `${vs.weekStartDate.getFullYear()}-${String(vs.weekStartDate.getMonth() + 1).padStart(2, "0")}-${String(vs.weekStartDate.getDate()).padStart(2, "0")}`;
-    return `${base}/week?start=${iso}`;
-  }
-  if (vs.type === "day" && vs.date) {
-    const iso = `${vs.date.getFullYear()}-${String(vs.date.getMonth() + 1).padStart(2, "0")}-${String(vs.date.getDate()).padStart(2, "0")}`;
-    return `${base}/day?date=${iso}`;
-  }
-  if (vs.type === "employee") {
-    let url = `${base}/employee?year=${vs.year}&month=${vs.month}`;
-    if (vs.employeeId) url += `&id=${vs.employeeId}`;
-    return url;
-  }
-  return `${base}/month?year=${vs.year}&month=${vs.month}`;
+  return `/schedule/${vs.type}`;
 }
 
-function parseUrlToViewState(
-  viewSegments: string[] | undefined,
-  searchParams: URLSearchParams,
-): ViewState {
+function parseUrlToViewState(viewSegments: string[] | undefined): ViewState {
   const today = new Date();
   const viewType = viewSegments?.[0] as ViewType | undefined;
 
   if (viewType === "week") {
-    const startStr = searchParams.get("start");
-    if (startStr) {
-      const [y, m, d] = startStr.split("-").map(Number);
-      const startDate = new Date(y!, m! - 1, d!);
-      return {
-        type: "week",
-        year: startDate.getFullYear(),
-        month: startDate.getMonth(),
-        weekNumber: getWeekNumber(startDate),
-        weekStartDate: startDate,
-      };
-    }
-    // Default: current week
     const monday = new Date(today);
     const day = monday.getDay();
     const diff = day === 0 ? -6 : 1 - day;
@@ -194,49 +161,27 @@ function parseUrlToViewState(
   }
 
   if (viewType === "day") {
-    const dateStr = searchParams.get("date");
-    if (dateStr) {
-      const [y, m, d] = dateStr.split("-").map(Number);
-      const date = new Date(y!, m! - 1, d!);
-      return { type: "day", year: date.getFullYear(), month: date.getMonth(), date };
-    }
     return { type: "day", year: today.getFullYear(), month: today.getMonth(), date: today };
   }
 
   if (viewType === "employee") {
-    const year = Number(searchParams.get("year")) || today.getFullYear();
-    const monthParam = searchParams.get("month");
-    const month = monthParam !== null ? Number(monthParam) : today.getMonth();
-    const employeeId = searchParams.get("id") || undefined;
-    return { type: "employee", year, month, employeeId };
+    return { type: "employee", year: today.getFullYear(), month: today.getMonth() };
   }
 
   // Default: month
-  const year = Number(searchParams.get("year")) || today.getFullYear();
-  const monthParam = searchParams.get("month");
-  const month = monthParam !== null ? Number(monthParam) : today.getMonth();
-  return { type: "month", year, month };
+  return { type: "month", year: today.getFullYear(), month: today.getMonth() };
 }
 
-export default function SchedulePageWrapper() {
-  return (
-    <Suspense>
-      <SchedulePage />
-    </Suspense>
-  );
-}
-
-function SchedulePage() {
+export default function SchedulePage() {
   const { data: session } = useSession();
   const isAdmin = session?.user?.role === "ADMIN";
   const router = useRouter();
   const params = useParams();
-  const searchParams = useSearchParams();
   const viewSegments = params.view as string[] | undefined;
 
-  // Initialize viewState from URL
+  // Initialize viewState from URL path
   const [viewState, setViewStateRaw] = useState<ViewState>(() =>
-    parseUrlToViewState(viewSegments, new URLSearchParams(searchParams.toString())),
+    parseUrlToViewState(viewSegments),
   );
   const [monthViewMode, setMonthViewMode] = useState<MonthViewMode>("table");
 
@@ -487,13 +432,10 @@ function SchedulePage() {
 
   // Auto-select first employee alphabetically when entering employee view without an id
   useEffect(() => {
-    if (viewState.type === "employee" && !viewState.employeeId && employees.length > 0) {
-      const sorted = [...employees].sort((a, b) =>
-        `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`),
-      );
-      setViewState({ ...viewState, employeeId: sorted[0]!.id });
+    if (viewState.type === "employee" && !viewState.employeeId && sortedEmployees.length > 0) {
+      setViewState({ ...viewState, employeeId: sortedEmployees[0]!.id });
     }
-  }, [viewState.type, viewState.employeeId, employees]);
+  }, [viewState.type, viewState.employeeId, sortedEmployees]);
 
   // Fetch employee-specific warnings when viewing an employee
   useEffect(() => {
@@ -645,11 +587,8 @@ function SchedulePage() {
   };
 
   const getViewTitle = () => {
-    if (viewState.type === "employee" && viewState.employeeId) {
-      const emp = employeesById[viewState.employeeId];
-      return emp
-        ? `${emp.firstName} ${emp.lastName}`
-        : "Mitarbeiter";
+    if (viewState.type === "employee") {
+      return `${MONTH_NAMES[viewState.month]} ${viewState.year}`;
     }
     if (viewState.type === "month") {
       return `${MONTH_NAMES[viewState.month]} ${viewState.year}`;
@@ -1347,6 +1286,26 @@ function SchedulePage() {
           {schedule && statusChip}
         </Box>
         <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
+          {viewState.type === "employee" && sortedEmployees.length > 0 && (
+            <Autocomplete
+              size="small"
+              options={sortedEmployees}
+              getOptionLabel={(e) => `${e.lastName} ${e.firstName}`}
+              value={
+                viewState.employeeId
+                  ? sortedEmployees.find((e) => e.id === viewState.employeeId) ?? undefined
+                  : undefined
+              }
+              onChange={(_, emp) => {
+                if (emp) setViewState({ ...viewState, employeeId: emp.id });
+              }}
+              disableClearable
+              sx={{ minWidth: 250 }}
+              renderInput={(inputProps) => (
+                <TextField {...inputProps} label="Mitarbeiter" />
+              )}
+            />
+          )}
           {viewState.type === "month" && (
             <>
               <ToggleButtonGroup
