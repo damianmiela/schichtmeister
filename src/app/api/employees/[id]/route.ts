@@ -151,6 +151,21 @@ export async function DELETE(_request: NextRequest, context: RouteCtx) {
     return NextResponse.json({ error: "Nicht gefunden" }, { status: 404 });
   }
 
+  // Block hard deletion if employee has assignments (preserves history)
+  const assignmentCount = await prisma.assignment.count({
+    where: { employeeId: id },
+  });
+  if (assignmentCount > 0) {
+    return NextResponse.json(
+      {
+        error:
+          "Mitarbeiter hat Dienstplan-Zuweisungen und kann nicht gelöscht werden. " +
+          'Bitte stattdessen auf "Inaktiv" setzen, um historische Daten zu bewahren.',
+      },
+      { status: 409 },
+    );
+  }
+
   try {
     await prisma.employee.delete({ where: { id } });
     return new NextResponse(null, { status: 204 });

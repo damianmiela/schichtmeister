@@ -1,7 +1,7 @@
 import type { RuleContext, RuleResult } from "@/lib/planning/types";
 import { isPlannable } from "@/lib/planning/types";
 import { assignmentPaidHours, utcMonthKey } from "@/lib/planning/time";
-import { computeSollHours } from "@/lib/holidays";
+import { computeSollHours, countWorkingDaysInRange } from "@/lib/holidays";
 
 /**
  * Soll-Stunden Abweichungsbereich:
@@ -36,8 +36,22 @@ export function sollDeltaRule(ctx: RuleContext): RuleResult {
     // Skip non-plannable employees (Inaktiv, Krank, Langzeitkrank, etc.)
     if (!ctx.targetFilter && !isPlannable(emp)) continue;
 
-    const soll = computeSollHours(year, month, emp.targetHoursPercent);
-    if (soll == null) continue;
+    const baseSoll = computeSollHours(year, month, emp.targetHoursPercent);
+    if (baseSoll == null) continue;
+
+    // Reduce Soll by absence working days (same logic as solver)
+    let absenceReduction = 0;
+    if (ctx.absences) {
+      for (const abs of ctx.absences) {
+        if (abs.employeeId !== empId) continue;
+        // Clamp absence range to the schedule period
+        const clampedStart = abs.startDate < ctx.periodStart ? ctx.periodStart : abs.startDate;
+        const clampedEnd = abs.endDate > ctx.periodEnd ? ctx.periodEnd : abs.endDate;
+        const workDays = countWorkingDaysInRange(clampedStart, clampedEnd);
+        absenceReduction += workDays * 8 * (emp.targetHoursPercent / 100);
+      }
+    }
+    const soll = baseSoll - absenceReduction;
 
     const lower = soll + minDelta;
     const upper = soll + maxDelta;

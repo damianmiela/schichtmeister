@@ -39,12 +39,16 @@ export async function POST(request: NextRequest, context: RouteCtx) {
     where: { scheduleId },
   });
 
-  const assignmentInputs: AssignmentInput[] = allRows.map((a) => ({
-    id: a.id,
-    date: a.date,
-    shiftProfileId: a.shiftProfileId,
-    employeeId: a.employeeId,
-  }));
+  // Filter out absence/status-only assignments (KRANK, URLAUB, FREI, etc.)
+  // These are markers, not real shifts — they shouldn't trigger rule violations
+  const assignmentInputs: AssignmentInput[] = allRows
+    .filter((a) => !a.dayStatus)
+    .map((a) => ({
+      id: a.id,
+      date: a.date,
+      shiftProfileId: a.shiftProfileId,
+      employeeId: a.employeeId,
+    }));
 
   const v = await validateScheduleAssignments(
     prisma,

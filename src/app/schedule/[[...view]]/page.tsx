@@ -285,6 +285,12 @@ export default function SchedulePage() {
     [employees],
   );
 
+  /** Active employees only — used in pre-gen planning (exclude INACTIVE and long-term absent) */
+  const planningEmployees = useMemo(
+    () => sortedEmployees.filter((e) => e.status === "ACTIVE"),
+    [sortedEmployees],
+  );
+
   const updateEntry = (idx: number, patch: Partial<PreGenEntry>) => {
     setPreGenEntries((prev) =>
       prev.map((p, i) => (i === idx ? { ...p, ...patch } : p)),
@@ -1108,7 +1114,7 @@ export default function SchedulePage() {
     : (schedule?.warnings ?? []);
 
   const addPreGenEntry = (type: "shift" | "frei" | "absence") => {
-    const first = sortedEmployees[0];
+    const first = planningEmployees[0];
     if (!first || daysInMonth.length === 0) return;
     const firstDay = daysInMonth[0]!.iso;
     setPreGenEntries((prev) => [
@@ -1649,8 +1655,8 @@ export default function SchedulePage() {
                 >
                   <Autocomplete
                     size="small"
-                    options={sortedEmployees}
-                    value={sortedEmployees.find((e) => e.id === entry.employeeId) ?? undefined}
+                    options={planningEmployees}
+                    value={planningEmployees.find((e) => e.id === entry.employeeId) ?? undefined}
                     onChange={(_, val) => {
                       if (val) updateEntry(idx, { employeeId: val.id });
                     }}
@@ -1844,7 +1850,7 @@ export default function SchedulePage() {
               variant="outlined"
               startIcon={<AddIcon />}
               onClick={() => addPreGenEntry("shift")}
-              disabled={sortedEmployees.length === 0}
+              disabled={planningEmployees.length === 0}
             >
               Dienstwunsch
             </Button>
@@ -1854,7 +1860,7 @@ export default function SchedulePage() {
               color="secondary"
               startIcon={<AddIcon />}
               onClick={() => addPreGenEntry("frei")}
-              disabled={sortedEmployees.length === 0}
+              disabled={planningEmployees.length === 0}
             >
               Frei-Wunsch
             </Button>
@@ -1864,7 +1870,7 @@ export default function SchedulePage() {
               color="error"
               startIcon={<SickIcon />}
               onClick={() => addPreGenEntry("absence")}
-              disabled={sortedEmployees.length === 0}
+              disabled={planningEmployees.length === 0}
             >
               Abwesenheit
             </Button>

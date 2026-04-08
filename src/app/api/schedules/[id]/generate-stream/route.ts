@@ -460,13 +460,15 @@ export async function POST(request: Request, context: RouteCtx) {
           const staffingRequirements = [
             ...genCtx.mergedStaffing.entries(),
           ].map(([key, entry]) => ({ key, ...entry }));
-          const currentAssignments = rows.map((a) => ({
-            employeeId: a.employeeId,
-            date: toIsoDateOnly(a.date),
-            shiftProfileId: a.shiftProfileId,
-            shiftType: profileShiftTypes[a.shiftProfileId] ?? "?",
-            stationNumber: a.stationNumber,
-          }));
+          const currentAssignments = rows
+            .filter((a) => !a.dayStatus) // Exclude absence markers from scoring
+            .map((a) => ({
+              employeeId: a.employeeId,
+              date: toIsoDateOnly(a.date),
+              shiftProfileId: a.shiftProfileId,
+              shiftType: profileShiftTypes[a.shiftProfileId] ?? "?",
+              stationNumber: a.stationNumber,
+            }));
           const debugJson = {
             schedule: {
               id: schedule.id,
