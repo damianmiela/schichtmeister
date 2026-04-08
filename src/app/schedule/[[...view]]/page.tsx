@@ -255,6 +255,7 @@ export default function SchedulePage() {
   const [scoreContent, setScoreContent] = useState<string | null>(null);
   const [scoreLoading, setScoreLoading] = useState(false);
   const [employeeWarnings, setEmployeeWarnings] = useState<string[]>([]);
+  const [warningDays, setWarningDays] = useState<Set<string>>(new Set());
 
   const daysInMonth = useMemo(() => {
     const { year, month } = viewState;
@@ -388,13 +389,14 @@ export default function SchedulePage() {
 
         // Re-run validation on load so warnings reflect day-view edits
         try {
-          const rv = await fetchJson<{ warnings: string[] }>(
+          const rv = await fetchJson<{ warnings: string[]; warningDays?: string[] }>(
             `/api/schedules/${picked.id}/revalidate`,
             { method: "POST" },
           );
           setSchedule((prev) =>
             prev ? { ...prev, warnings: rv.warnings } : prev,
           );
+          setWarningDays(new Set(rv.warningDays ?? []));
         } catch {
           // Non-critical — keep the cached warnings
         }
@@ -1527,6 +1529,7 @@ export default function SchedulePage() {
               shiftProfiles={allProfiles}
               onToggleWish={handleToggleWish}
               holidayMap={holidays}
+              warningDays={warningDays}
             />
           )}
 

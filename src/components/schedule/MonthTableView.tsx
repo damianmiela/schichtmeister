@@ -19,6 +19,7 @@ import {
   Typography,
 } from "@mui/material";
 import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
+import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import { localIsoFromParts } from "@/lib/schedule/monthSchedule";
 import type { AssignmentJson, EmployeeJson, ShiftProfileJson } from "@/lib/schedule/scheduleTypes";
 import QualificationPills from "@/components/schedule/QualificationPills";
@@ -52,6 +53,7 @@ interface MonthTableViewProps {
   shiftProfiles?: ShiftProfileJson[];
   onToggleWish?: (employeeId: string, date: string, type: "shift" | "frei") => void;
   holidayMap?: Map<string, string>;
+  warningDays?: Set<string>;
 }
 
 /* ──────────────────────── helpers ──────────────────────── */
@@ -318,6 +320,7 @@ export default function MonthTableView({
   shiftProfiles,
   onToggleWish,
   holidayMap,
+  warningDays,
 }: MonthTableViewProps) {
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [menuCell, setMenuCell] = useState<{ empId: string; iso: string } | null>(null);
@@ -493,12 +496,24 @@ export default function MonthTableView({
                   weekday: "short",
                 });
                 const hName = holidayMap?.get(iso);
+                const hasWarning = warningDays?.has(iso);
                 const inner = (
                   <>
                     <Typography variant="caption" display="block" color="text.secondary">
                       {wd}
                     </Typography>
                     {d}
+                    {hasWarning && (
+                      <WarningAmberIcon
+                        sx={{
+                          display: "block",
+                          mx: "auto",
+                          fontSize: 14,
+                          color: "#ed6c02",
+                          mt: "1px",
+                        }}
+                      />
+                    )}
                   </>
                 );
                 return (
@@ -515,8 +530,11 @@ export default function MonthTableView({
                     }}
                     onClick={() => onDayClick(new Date(y!, m! - 1, d!))}
                   >
-                    {hName ? (
-                      <Tooltip title={hName} arrow>
+                    {(hName || hasWarning) ? (
+                      <Tooltip
+                        title={[hName, hasWarning && "Warnungen vorhanden"].filter(Boolean).join(" · ")}
+                        arrow
+                      >
                         <Box>{inner}</Box>
                       </Tooltip>
                     ) : (

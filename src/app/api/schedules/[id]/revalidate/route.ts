@@ -79,6 +79,7 @@ export async function POST(request: NextRequest, context: RouteCtx) {
 
   let warningStrings: string[] = [];
   let employeeWarnings: string[] | undefined;
+  const warningDaysSet = new Set<string>();
 
   if (v.ok) {
     const allMessages = [...v.result.errors, ...v.result.warnings];
@@ -91,6 +92,15 @@ export async function POST(request: NextRequest, context: RouteCtx) {
 
       // Full warnings for schedule storage
       warningStrings = formatRuleViolations(allMessages, empNames);
+
+      // Extract all ISO dates mentioned in raw rule messages for per-day indicators
+      const isoDateRe = /\d{4}-\d{2}-\d{2}/g;
+      for (const msg of allMessages) {
+        let match: RegExpExecArray | null;
+        while ((match = isoDateRe.exec(msg.message)) !== null) {
+          warningDaysSet.add(match[0]);
+        }
+      }
 
       // Employee-specific warnings if requested
       if (employeeIdFilter) {
@@ -109,8 +119,11 @@ export async function POST(request: NextRequest, context: RouteCtx) {
     data: { warningsJson: warningStrings.length > 0 ? JSON.stringify(warningStrings) : null },
   });
 
+  const warningDays = [...warningDaysSet].sort();
+
   return NextResponse.json({
     warnings: warningStrings,
+    warningDays,
     ...(employeeWarnings !== undefined && { employeeWarnings }),
   });
 }
