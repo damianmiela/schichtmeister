@@ -167,26 +167,34 @@ export async function POST(request: Request, context: RouteCtx) {
 
   // Load previous month's last 7 days for cross-month boundary checks
   const BOUNDARY_DAYS = 7;
-  const prevSchedule = await prisma.schedule.findFirst({
-    where: { facilityId, periodEnd: { lt: schedule.periodStart } },
-    orderBy: { periodEnd: "desc" },
-  });
-  const previousAssignments: { employeeId: string; date: string; shiftProfileId: string }[] = [];
-  if (prevSchedule) {
-    const cutoff = new Date(schedule.periodStart);
-    cutoff.setUTCDate(cutoff.getUTCDate() - BOUNDARY_DAYS);
-    const prevRows = await prisma.assignment.findMany({
-      where: { scheduleId: prevSchedule.id, date: { gte: cutoff, lt: schedule.periodStart }, dayStatus: null },
+  let previousAssignments: { employeeId: string; date: string; shiftProfileId: string }[] = [];
+  try {
+    const prevSchedule = await prisma.schedule.findFirst({
+      where: { facilityId, periodEnd: { lt: schedule.periodStart } },
+      orderBy: { periodEnd: "desc" },
     });
-    for (const a of prevRows) {
-      previousAssignments.push({
-        employeeId: a.employeeId,
-        date: toIsoDateOnly(a.date),
-        shiftProfileId: a.shiftProfileId,
+    console.log("[generate-stream] prevSchedule:", prevSchedule?.id ?? "NONE");
+    if (prevSchedule) {
+      const cutoff = new Date(schedule.periodStart);
+      cutoff.setUTCDate(cutoff.getUTCDate() - BOUNDARY_DAYS);
+      const prevRows = await prisma.assignment.findMany({
+        where: { scheduleId: prevSchedule.id, date: { gte: cutoff, lt: schedule.periodStart }, dayStatus: null },
       });
+      console.log("[generate-stream] boundary assignments loaded:", prevRows.length);
+      for (const a of prevRows) {
+        previousAssignments.push({
+          employeeId: a.employeeId,
+          date: toIsoDateOnly(a.date),
+          shiftProfileId: a.shiftProfileId,
+        });
+      }
     }
+  } catch (boundaryErr) {
+    console.error("[generate-stream] ERROR loading boundary assignments:", boundaryErr);
+    previousAssignments = [];
   }
 
+  console.log("[generate-stream] Building solver payload...");
   const payload = buildSolverPayload(
     scheduleId,
     schedule.periodStart,
@@ -227,17 +235,21 @@ export async function POST(request: Request, context: RouteCtx) {
         // Call solver streaming endpoint
         // Timeout = configured solve time + 60s buffer for model build + result extraction
         const solverTimeoutMs = ((payload.maxSolveTimeSeconds ?? 120) + 60) * 1000;
+        console.log(`[generate-stream] Calling solver at ${SOLVER_URL}/solve-stream, timeout=${solverTimeoutMs}ms, previousAssignments=${payload.previousAssignments?.length ?? 0}`);
         const solverResp = await fetch(`${SOLVER_URL}/solve-stream`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
           signal: AbortSignal.timeout(solverTimeoutMs),
         });
+        console.log(`[generate-stream] Solver response status: ${solverResp.status}, hasBody: ${!!solverResp.body}`);
 
         if (!solverResp.ok || !solverResp.body) {
+          const errBody = await solverResp.text().catch(() => "");
+          console.error(`[generate-stream] Solver error: ${solverResp.status} — ${errBody.slice(0, 500)}`);
           send({
             type: "error",
-            error: `Solver returned ${solverResp.status}`,
+            error: `Solver returned ${solverResp.status}: ${errBody.slice(0, 200)}`,
           });
           controller.close();
           return;

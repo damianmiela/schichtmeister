@@ -124,24 +124,31 @@ export async function POST(request: Request, context: RouteCtx) {
   );
 
   // Load previous month's last 7 days of assignments for cross-month boundary checks
-  const prevSchedule = await prisma.schedule.findFirst({
-    where: { facilityId, periodEnd: { lt: schedule.periodStart } },
-    orderBy: { periodEnd: "desc" },
-  });
-  const previousAssignments: { employeeId: string; date: string; shiftProfileId: string }[] = [];
-  if (prevSchedule) {
-    const cutoff = new Date(schedule.periodStart);
-    cutoff.setUTCDate(cutoff.getUTCDate() - BOUNDARY_DAYS);
-    const prevRows = await prisma.assignment.findMany({
-      where: { scheduleId: prevSchedule.id, date: { gte: cutoff, lt: schedule.periodStart }, dayStatus: null },
+  let previousAssignments: { employeeId: string; date: string; shiftProfileId: string }[] = [];
+  try {
+    const prevSchedule = await prisma.schedule.findFirst({
+      where: { facilityId, periodEnd: { lt: schedule.periodStart } },
+      orderBy: { periodEnd: "desc" },
     });
-    for (const a of prevRows) {
-      previousAssignments.push({
-        employeeId: a.employeeId,
-        date: toIsoDateOnly(a.date),
-        shiftProfileId: a.shiftProfileId,
+    console.log("[generate] prevSchedule:", prevSchedule?.id ?? "NONE");
+    if (prevSchedule) {
+      const cutoff = new Date(schedule.periodStart);
+      cutoff.setUTCDate(cutoff.getUTCDate() - BOUNDARY_DAYS);
+      const prevRows = await prisma.assignment.findMany({
+        where: { scheduleId: prevSchedule.id, date: { gte: cutoff, lt: schedule.periodStart }, dayStatus: null },
       });
+      console.log("[generate] boundary assignments loaded:", prevRows.length);
+      for (const a of prevRows) {
+        previousAssignments.push({
+          employeeId: a.employeeId,
+          date: toIsoDateOnly(a.date),
+          shiftProfileId: a.shiftProfileId,
+        });
+      }
     }
+  } catch (boundaryErr) {
+    console.error("[generate] ERROR loading boundary assignments:", boundaryErr);
+    previousAssignments = [];
   }
 
   const TX_MAX_WAIT_MS = 20_000;
