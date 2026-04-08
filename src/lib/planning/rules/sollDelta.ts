@@ -1,7 +1,7 @@
 import type { RuleContext, RuleResult } from "@/lib/planning/types";
 import { isPlannable } from "@/lib/planning/types";
 import { assignmentPaidHours, utcMonthKey } from "@/lib/planning/time";
-import { computeSollHours, countWorkingDaysInRange } from "@/lib/holidays";
+import { computeSollHours, isWorkingDayIso } from "@/lib/holidays";
 
 /**
  * Soll-Stunden Abweichungsbereich:
@@ -39,19 +39,32 @@ export function sollDeltaRule(ctx: RuleContext): RuleResult {
     const baseSoll = computeSollHours(year, month, emp.targetHoursPercent);
     if (baseSoll == null) continue;
 
-    // Reduce Soll by absence working days (same logic as solver)
-    let absenceReduction = 0;
+    // Reduce Soll by absence working days (same logic as solver).
+    // Deduplicate by date to avoid double-counting when both
+    // EmployeeAbsence records and dayStatus markers exist.
+    const absenceDates = new Set<string>();
     if (ctx.absences) {
       for (const abs of ctx.absences) {
         if (abs.employeeId !== empId) continue;
-        // Clamp absence range to the schedule period
         const clampedStart = abs.startDate < ctx.periodStart ? ctx.periodStart : abs.startDate;
         const clampedEnd = abs.endDate > ctx.periodEnd ? ctx.periodEnd : abs.endDate;
-        const workDays = countWorkingDaysInRange(clampedStart, clampedEnd);
-        absenceReduction += workDays * 8 * ((emp.targetHoursPercent ?? 100) / 100);
+        const d = new Date(clampedStart);
+        while (d <= clampedEnd) {
+          absenceDates.add(d.toISOString().slice(0, 10));
+          d.setDate(d.getDate() + 1);
+        }
       }
     }
-    const soll = baseSoll - absenceReduction;
+    let absenceWorkDays = 0;
+    for (const iso of absenceDates) {
+      const [y2, m2] = iso.split("-").map(Number);
+      // Only count days in our target month
+      if (y2 !== year || m2 !== month + 1) continue;
+      if (!isWorkingDayIso(iso)) continue; // skip weekends + holidays
+      absenceWorkDays++;
+    }
+    const pct = (emp.targetHoursPercent ?? 100) / 100;
+    const soll = baseSoll - absenceWorkDays * 8 * pct;
 
     const lower = soll + minDelta;
     const upper = soll + maxDelta;

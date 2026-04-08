@@ -4,7 +4,7 @@ import { requirePlanner } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 import { validateScheduleAssignments } from "@/lib/api/planningScheduleValidation";
 import { formatRuleViolations } from "@/lib/schedule/formatRuleViolations";
-import type { AssignmentInput } from "@/lib/planning/types";
+import type { AbsenceInput, AssignmentInput } from "@/lib/planning/types";
 
 type RouteCtx = { params: Promise<{ id: string }> };
 
@@ -39,15 +39,33 @@ export async function POST(request: NextRequest, context: RouteCtx) {
     where: { scheduleId },
   });
 
-  // Filter out absence/status-only assignments (KRANK, URLAUB, FREI, etc.)
-  // These are markers, not real shifts — they shouldn't trigger rule violations
-  const assignmentInputs: AssignmentInput[] = allRows
-    .filter((a) => !a.dayStatus)
-    .map((a) => ({
-      id: a.id,
-      date: a.date,
-      shiftProfileId: a.shiftProfileId,
-      employeeId: a.employeeId,
+  // Separate real shifts from absence/status markers (K, U, FREI, etc.)
+  const ABSENCE_STATUSES = new Set(["K", "U", "LZ", "MS", "KU"]);
+  const assignmentInputs: AssignmentInput[] = [];
+  const dayStatusRows: { employeeId: string; date: Date; dayStatus: string }[] = [];
+
+  for (const a of allRows) {
+    if (a.dayStatus) {
+      dayStatusRows.push({ employeeId: a.employeeId, date: a.date, dayStatus: a.dayStatus });
+    } else {
+      assignmentInputs.push({
+        id: a.id,
+        date: a.date,
+        shiftProfileId: a.shiftProfileId,
+        employeeId: a.employeeId,
+      });
+    }
+  }
+
+  // Build synthetic per-day absences from dayStatus markers so the sollDelta
+  // rule can reduce Soll correctly (these complement EmployeeAbsence DB records)
+  const extraAbsences: AbsenceInput[] = dayStatusRows
+    .filter((r) => ABSENCE_STATUSES.has(r.dayStatus))
+    .map((r) => ({
+      employeeId: r.employeeId,
+      startDate: r.date,
+      endDate: r.date,
+      type: r.dayStatus === "K" ? "KRANK" : "URLAUB",
     }));
 
   const v = await validateScheduleAssignments(
@@ -55,6 +73,7 @@ export async function POST(request: NextRequest, context: RouteCtx) {
     facilityId,
     { periodStart: schedule.periodStart, periodEnd: schedule.periodEnd },
     assignmentInputs,
+    { extraAbsences },
   );
 
   let warningStrings: string[] = [];

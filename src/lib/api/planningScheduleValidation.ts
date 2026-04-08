@@ -72,6 +72,7 @@ function buildProfileInput(p: {
 
 export type ValidateScheduleAssignmentsOptions = {
   ruleScope?: RuleScope;
+  extraAbsences?: AbsenceInput[];
 };
 
 export async function validateScheduleAssignments(
@@ -154,12 +155,15 @@ export async function validateScheduleAssignments(
 
   const snapshot = mergePlanningRules(facility, defaultPlanningRulesConfig);
 
-  const absences: AbsenceInput[] = absenceRows.map((a) => ({
-    employeeId: a.employeeId,
-    startDate: a.startDate,
-    endDate: a.endDate,
-    type: a.type,
-  }));
+  const absences: AbsenceInput[] = [
+    ...absenceRows.map((a) => ({
+      employeeId: a.employeeId,
+      startDate: a.startDate,
+      endDate: a.endDate,
+      type: a.type,
+    })),
+    ...(options?.extraAbsences ?? []),
+  ];
 
   const ctx: RuleContext = {
     periodStart: schedule.periodStart,
