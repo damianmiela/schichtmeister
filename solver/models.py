@@ -74,6 +74,15 @@ class BlockedDateInput(BaseModel):
     date: str
 
 
+class PreviousAssignment(BaseModel):
+    """Fixed assignment from the previous month's schedule (last ~7 days).
+    Used by constraints that span month boundaries (consecutive days/nights,
+    rest between shifts, alternating weekends)."""
+    employeeId: str
+    date: str
+    shiftProfileId: str
+
+
 class RulesInput(BaseModel):
     minRestHours: float = 11
     maxConsecutiveNights: int = 3
@@ -100,6 +109,7 @@ class SolveRequest(BaseModel):
     wishes: list[WishInput] = []
     manualPlacements: list[ManualPlacementInput] = []
     blockedDates: list[BlockedDateInput] = []
+    previousAssignments: list[PreviousAssignment] = []
     rules: RulesInput = Field(default_factory=RulesInput)
     monthlyWorkingDays: int | None = None
     monthlySollHoursByEmployee: dict[str, float] | None = None

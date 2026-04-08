@@ -165,6 +165,28 @@ export async function POST(request: Request, context: RouteCtx) {
     },
   });
 
+  // Load previous month's last 7 days for cross-month boundary checks
+  const BOUNDARY_DAYS = 7;
+  const prevSchedule = await prisma.schedule.findFirst({
+    where: { facilityId, periodEnd: { lt: schedule.periodStart } },
+    orderBy: { periodEnd: "desc" },
+  });
+  const previousAssignments: { employeeId: string; date: string; shiftProfileId: string }[] = [];
+  if (prevSchedule) {
+    const cutoff = new Date(schedule.periodStart);
+    cutoff.setUTCDate(cutoff.getUTCDate() - BOUNDARY_DAYS);
+    const prevRows = await prisma.assignment.findMany({
+      where: { scheduleId: prevSchedule.id, date: { gte: cutoff, lt: schedule.periodStart }, dayStatus: null },
+    });
+    for (const a of prevRows) {
+      previousAssignments.push({
+        employeeId: a.employeeId,
+        date: toIsoDateOnly(a.date),
+        shiftProfileId: a.shiftProfileId,
+      });
+    }
+  }
+
   const payload = buildSolverPayload(
     scheduleId,
     schedule.periodStart,
@@ -174,6 +196,7 @@ export async function POST(request: Request, context: RouteCtx) {
     manualPlacements,
     blockedDates,
     clientAbsences,
+    previousAssignments,
   );
 
   // Allow client to override solve time limit per generation

@@ -18,8 +18,9 @@ export function maxConsecutiveDaysRule(ctx: RuleContext): RuleResult {
     (ctx.snapshot.ruleStates.restAfter6Days?.params?.threshold as number | undefined) ??
     DEFAULT_REST_AFTER_6_THRESHOLD;
 
+  const allAssignments = [...(ctx.boundaryAssignments ?? []), ...ctx.assignments];
   const byEmployee = new Map<string, string[]>();
-  for (const a of ctx.assignments) {
+  for (const a of allAssignments) {
     // When targeted, only check the target employee (all assignments for streak calc)
     if (ctx.targetFilter && a.employeeId !== ctx.targetFilter.employeeId) continue;
     const day = utcDayKey(a.date);

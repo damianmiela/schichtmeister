@@ -10,9 +10,10 @@ export function maxConsecutiveNightsRule(ctx: RuleContext): RuleResult {
     (ctx.snapshot.ruleStates.maxConsecutiveNights?.params?.maxCount as number | undefined) ??
     DEFAULT_MAX_COUNT;
 
+  const allAssignments = [...(ctx.boundaryAssignments ?? []), ...ctx.assignments];
   const byEmployee = new Map<string, string[]>();
 
-  for (const a of ctx.assignments) {
+  for (const a of allAssignments) {
     // When targeted, only check the target employee (but all their assignments for streak calc)
     if (ctx.targetFilter && a.employeeId !== ctx.targetFilter.employeeId) continue;
     const profile = ctx.profilesById.get(a.shiftProfileId);

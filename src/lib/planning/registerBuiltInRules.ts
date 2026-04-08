@@ -15,9 +15,9 @@ import {
   targetHoursBalanceRule,
   wishFulfillmentRule,
   restAfter6DaysRule,
-  alternatingWeekendsRule,
   wblWeekendLimitRule,
 } from "@/lib/planning/rules/softStubs";
+import { alternatingWeekendsRule } from "@/lib/planning/rules/alternatingWeekends";
 import { staffingMinimumRule } from "@/lib/planning/rules/staffingMinimum";
 import { blWeekendHolidayRule } from "@/lib/planning/rules/blWeekendHoliday";
 import { stationCoverageGapRule } from "@/lib/planning/rules/stationCoverageGap";

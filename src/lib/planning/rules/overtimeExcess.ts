@@ -1,6 +1,6 @@
 import type { RuleContext, RuleResult } from "@/lib/planning/types";
 import { isPlannable } from "@/lib/planning/types";
-import { assignmentPaidHours } from "@/lib/planning/time";
+import { assignmentPaidHours, utcMonthKey } from "@/lib/planning/time";
 import { computeSollHours } from "@/lib/holidays";
 
 export function overtimeExcessRule(ctx: RuleContext): RuleResult {
@@ -8,6 +8,7 @@ export function overtimeExcessRule(ctx: RuleContext): RuleResult {
 
   const year = ctx.periodStart.getUTCFullYear();
   const month = ctx.periodStart.getUTCMonth();
+  const monthKey = `${year}-${String(month + 1).padStart(2, "0")}`;
 
   // When targeted, only check the target employee
   const employeeIds = ctx.targetFilter
@@ -26,6 +27,7 @@ export function overtimeExcessRule(ctx: RuleContext): RuleResult {
     let hours = 0;
     for (const a of ctx.assignments) {
       if (a.employeeId !== empId) continue;
+      if (utcMonthKey(a.date) !== monthKey) continue;
       const p = ctx.profilesById.get(a.shiftProfileId);
       if (!p) continue;
       hours += assignmentPaidHours(a.date, p.startTime, p.endTime, p.breakMinutes);

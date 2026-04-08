@@ -1,4 +1,5 @@
-import type { Prisma, PrismaClient } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
+import { type PrismaClient } from "@prisma/client";
 import { mergePlanningRules } from "@/lib/planning/merge";
 import { defaultPlanningRulesConfig } from "@/lib/planning/defaultConfig";
 import { registerBuiltInPlanningRules } from "@/lib/planning/registerBuiltInRules";
@@ -74,6 +75,50 @@ export type ValidateScheduleAssignmentsOptions = {
   ruleScope?: RuleScope;
   extraAbsences?: AbsenceInput[];
 };
+
+const BOUNDARY_DAYS = 7;
+
+/**
+ * Load the last `BOUNDARY_DAYS` days of assignments from the previous month's
+ * schedule.  Used by rules that need cross-month context (consecutive days,
+ * rest between shifts, alternating weekends).
+ */
+async function loadBoundaryAssignments(
+  db: ScheduleValidationDb & Pick<PrismaClient, "schedule" | "assignment">,
+  facilityId: string,
+  periodStart: Date,
+): Promise<AssignmentInput[]> {
+  // Find the previous month's schedule
+  const prevSchedule = await (db as unknown as PrismaClient).schedule.findFirst({
+    where: {
+      facilityId,
+      periodEnd: { lt: periodStart },
+    },
+    orderBy: { periodEnd: "desc" },
+  });
+
+  if (!prevSchedule) return [];
+
+  // Load last BOUNDARY_DAYS of assignments from that schedule
+  const cutoff = new Date(periodStart);
+  cutoff.setUTCDate(cutoff.getUTCDate() - BOUNDARY_DAYS);
+
+  const rows = await (db as unknown as PrismaClient).assignment.findMany({
+    where: {
+      scheduleId: prevSchedule.id,
+      date: { gte: cutoff, lt: periodStart },
+      dayStatus: null,  // exclude absence markers
+    },
+  });
+
+  return rows.map((a: { id: string; date: Date; shiftProfileId: string; employeeId: string; stationNumber: number | null }) => ({
+    id: a.id,
+    date: a.date,
+    shiftProfileId: a.shiftProfileId,
+    employeeId: a.employeeId,
+    ...(a.stationNumber != null && a.stationNumber >= 1 && a.stationNumber <= 3 && { stationNumber: a.stationNumber }),
+  } as AssignmentInput));
+}
 
 export async function validateScheduleAssignments(
   db: ScheduleValidationDb,
@@ -155,6 +200,13 @@ export async function validateScheduleAssignments(
 
   const snapshot = mergePlanningRules(facility, defaultPlanningRulesConfig);
 
+  // Load boundary assignments from the previous month for cross-month rules
+  const boundaryAssignments = await loadBoundaryAssignments(
+    db as unknown as ScheduleValidationDb & Pick<PrismaClient, "schedule" | "assignment">,
+    facilityId,
+    schedule.periodStart,
+  );
+
   const absences: AbsenceInput[] = [
     ...absenceRows.map((a) => ({
       employeeId: a.employeeId,
@@ -175,6 +227,7 @@ export async function validateScheduleAssignments(
     wishes: [],
     snapshot,
     absences,
+    boundaryAssignments,
   };
 
   registerBuiltInPlanningRules();

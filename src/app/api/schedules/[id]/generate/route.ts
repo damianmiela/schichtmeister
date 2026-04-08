@@ -11,6 +11,8 @@ import type { GenerateReport, ManualPlacementInput } from "@/lib/schedule/genera
 import { loadGenerateContext } from "@/lib/schedule/generateDraftSchedule";
 import { runCpsatGeneration, SolverError, callScorer, buildSolverPayload, type CpsatGenerateResult } from "@/lib/schedule/solverClient";
 
+const BOUNDARY_DAYS = 7;
+
 /**
  * Replaces the roster: **deletes all assignments** on this schedule, then
  * runs the CP-SAT solver to generate an optimal schedule.
@@ -121,6 +123,27 @@ export async function POST(request: Request, context: RouteCtx) {
     schedule.periodEnd,
   );
 
+  // Load previous month's last 7 days of assignments for cross-month boundary checks
+  const prevSchedule = await prisma.schedule.findFirst({
+    where: { facilityId, periodEnd: { lt: schedule.periodStart } },
+    orderBy: { periodEnd: "desc" },
+  });
+  const previousAssignments: { employeeId: string; date: string; shiftProfileId: string }[] = [];
+  if (prevSchedule) {
+    const cutoff = new Date(schedule.periodStart);
+    cutoff.setUTCDate(cutoff.getUTCDate() - BOUNDARY_DAYS);
+    const prevRows = await prisma.assignment.findMany({
+      where: { scheduleId: prevSchedule.id, date: { gte: cutoff, lt: schedule.periodStart }, dayStatus: null },
+    });
+    for (const a of prevRows) {
+      previousAssignments.push({
+        employeeId: a.employeeId,
+        date: toIsoDateOnly(a.date),
+        shiftProfileId: a.shiftProfileId,
+      });
+    }
+  }
+
   const TX_MAX_WAIT_MS = 20_000;
   const TX_TIMEOUT_MS = 300_000;
 
@@ -144,6 +167,7 @@ export async function POST(request: Request, context: RouteCtx) {
           facility,
           manualPlacements,
           blockedDates,
+          previousAssignments,
         );
       },
       { maxWait: TX_MAX_WAIT_MS, timeout: TX_TIMEOUT_MS },

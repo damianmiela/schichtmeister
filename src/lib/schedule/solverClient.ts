@@ -87,6 +87,12 @@ interface SolverRules {
   sollMaxDelta: number;
 }
 
+interface SolverPreviousAssignment {
+  employeeId: string;
+  date: string;
+  shiftProfileId: string;
+}
+
 export interface SolverPayload {
   schemaVersion: number;
   scheduleId: string;
@@ -102,6 +108,7 @@ export interface SolverPayload {
   rules: SolverRules;
   monthlyWorkingDays: number | null;
   monthlySollHoursByEmployee: Record<string, number> | null;
+  previousAssignments: SolverPreviousAssignment[];
 }
 
 interface SolverAssignment {
@@ -169,6 +176,7 @@ export function buildSolverPayload(
   manualPlacements: ManualPlacementInput[],
   blockedDates: BlockedDateInput[],
   absences: AbsenceInput[] = [],
+  previousAssignments: SolverPreviousAssignment[] = [],
 ): SolverPayload {
   const snapshot = mergePlanningRules(facility, defaultPlanningRulesConfig);
 
@@ -331,6 +339,7 @@ export function buildSolverPayload(
     monthlyWorkingDays: wd,
     monthlySollHoursByEmployee:
       Object.keys(sollByEmployee).length > 0 ? sollByEmployee : null,
+    previousAssignments,
   };
 }
 
@@ -520,6 +529,7 @@ export async function runCpsatGeneration(
   facility: FacilityRulesSlice,
   manualPlacements: ManualPlacementInput[],
   blockedDates: BlockedDateInput[],
+  previousAssignments: SolverPreviousAssignment[] = [],
 ): Promise<CpsatGenerateResult> {
   const payload = buildSolverPayload(
     scheduleId,
@@ -529,6 +539,8 @@ export async function runCpsatGeneration(
     facility,
     manualPlacements,
     blockedDates,
+    [],
+    previousAssignments,
   );
 
   const response = await callSolver(payload);

@@ -99,6 +99,9 @@ export type RuleContext = {
   wishes: WishInput[];
   snapshot: PlanningRulesSnapshot;
   absences?: AbsenceInput[];
+  /** Assignments from the previous month's last ~7 days, used by rules
+   *  that need cross-month context (consecutive days, rest, weekends). */
+  boundaryAssignments?: AssignmentInput[];
   /** When set, rules should scope their checks to the target only. */
   targetFilter?: TargetFilter;
 };

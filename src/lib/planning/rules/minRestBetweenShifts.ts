@@ -6,7 +6,8 @@ export function minRestBetweenShiftsRule(ctx: RuleContext): RuleResult {
   const minRestMs = ctx.snapshot.minRestHours * 60 * 60 * 1000;
   const byEmployee = new Map<string, { id: string; startMs: number; endMs: number }[]>();
 
-  for (const a of ctx.assignments) {
+  const allAssignments = [...(ctx.boundaryAssignments ?? []), ...ctx.assignments];
+  for (const a of allAssignments) {
     // When targeted, only collect assignments for the target employee
     // (need ALL of their assignments to check gaps, not just target date)
     if (ctx.targetFilter && a.employeeId !== ctx.targetFilter.employeeId) continue;

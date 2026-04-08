@@ -79,6 +79,10 @@ function buildWarningsByDay(
         desc = `Fehlende Ruhetage: ${empName(msg.employeeIds)}`;
         break;
       }
+      case "ALTERNATING_WEEKEND_VIOLATION": {
+        desc = `Wochenendregelung: ${empName(msg.employeeIds)}`;
+        break;
+      }
       case "BL_WEEKEND_HOLIDAY": {
         desc = `BL am Wochenende/Feiertag: ${empName(msg.employeeIds)}`;
         break;

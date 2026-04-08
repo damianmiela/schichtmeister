@@ -85,6 +85,9 @@ export function formatRuleViolations(
   // ── INSUFFICIENT_REST_AFTER_MAX_DAYS: group by employee, collect dates ──
   const restAfterMaxByEmp = new Map<string, { dates: string[]; restDays: number; maxDays: number }>();
 
+  // ── ALTERNATING_WEEKEND_VIOLATION: group by employee, collect dates ──
+  const weekendByEmp = new Map<string, string[]>();
+
   // ── ABSENCE_CONFLICT: group by employee, collect dates ──
   const absenceByEmp = new Map<string, { dates: string[]; type: string }>();
 
@@ -203,6 +206,16 @@ export function formatRuleViolations(
         const hrs = parseNumber(msg.message, /has (\d+\.?\d*)h/) ?? 0;
         const soll = parseNumber(msg.message, /Soll: (\d+\.?\d*)h/) ?? 0;
         out.push(`Überstunden: ${name} hat ${hrs.toFixed(1)}h geplant (Soll: ${soll.toFixed(1)}h, max. +8h Überstunden erlaubt).`);
+        break;
+      }
+      case "ALTERNATING_WEEKEND_VIOLATION": {
+        const date = parseString(msg.message, /(\d{4}-\d{2}-\d{2})/) ?? "";
+        const prev = weekendByEmp.get(empKey);
+        if (prev) {
+          if (!prev.includes(date)) prev.push(date);
+        } else {
+          weekendByEmp.set(empKey, [date]);
+        }
         break;
       }
       case "STATION_COVERAGE_GAP": {
@@ -327,6 +340,15 @@ export function formatRuleViolations(
         `Soll-Stunden: ${name} hat ${hours.toFixed(1)}h geplant, über dem Höchstbereich (Soll: ${soll.toFixed(1)}h).`,
       );
     }
+  }
+
+  for (const [empId, dates] of weekendByEmp) {
+    const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
+    const sortedDates = [...dates].sort();
+    const dateList = sortedDates.map(fmtDate).join(", ");
+    out.push(
+      `Wochenendregelung: ${name} arbeitet an aufeinanderfolgenden Wochenenden (${dateList}).`,
+    );
   }
 
   for (const [station, dates] of gapByStation) {
