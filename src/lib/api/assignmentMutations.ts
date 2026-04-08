@@ -16,7 +16,8 @@ function toInputs(rows: Assignment[]): AssignmentInput[] {
     date: a.date,
     shiftProfileId: a.shiftProfileId,
     employeeId: a.employeeId,
-  }));
+    ...(a.stationNumber != null && { stationNumber: a.stationNumber }),
+  } as AssignmentInput));
 }
 
 /** Load a schedule for the facility. */
@@ -138,20 +139,22 @@ export async function validatePatchedAssignmentInTx(
       failure: { kind: "http", status: 404, error: "Zuweisung nicht gefunden." },
     };
   }
-  const proposed: AssignmentInput[] = existing.map((a) =>
+  const proposed = existing.map((a) =>
     a.id === assignmentId
       ? {
           id: a.id,
           date: patch.date ?? a.date,
           shiftProfileId: patch.shiftProfileId ?? a.shiftProfileId,
           employeeId: patch.employeeId ?? a.employeeId,
+          ...(a.stationNumber != null && { stationNumber: a.stationNumber }),
         }
       : {
           id: a.id,
           date: a.date,
           shiftProfileId: a.shiftProfileId,
           employeeId: a.employeeId,
+          ...(a.stationNumber != null && { stationNumber: a.stationNumber }),
         },
-  );
+  ) as AssignmentInput[];
   return runPlanningValidation(tx, facilityId, schedule, proposed);
 }

@@ -20,6 +20,7 @@ import {
 } from "@/lib/planning/rules/softStubs";
 import { staffingMinimumRule } from "@/lib/planning/rules/staffingMinimum";
 import { blWeekendHolidayRule } from "@/lib/planning/rules/blWeekendHoliday";
+import { stationCoverageGapRule } from "@/lib/planning/rules/stationCoverageGap";
 
 /** Idempotent: overwrites any prior registration for the same rule ids. */
 export function registerBuiltInPlanningRules(): void {
@@ -98,5 +99,9 @@ export function registerBuiltInPlanningRules(): void {
   registerRule(
     { id: "blWeekendHoliday", severity: "hard", scope: "employee", description: "BL-Schichten sind an Wochenenden und Feiertagen nicht erlaubt." },
     blWeekendHolidayRule,
+  );
+  registerRule(
+    { id: "stationCoverageGap", severity: "soft", scope: "global", description: "Warnung bei Zeitlücken in der Stationsabdeckung zwischen aufeinanderfolgenden Schichten." },
+    stationCoverageGapRule,
   );
 }

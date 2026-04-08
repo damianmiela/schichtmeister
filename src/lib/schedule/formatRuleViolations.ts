@@ -202,6 +202,11 @@ export function formatRuleViolations(
         out.push(`Überstunden: ${name} hat ${hrs.toFixed(1)}h geplant (Soll: ${soll.toFixed(1)}h, max. +8h Überstunden erlaubt).`);
         break;
       }
+      case "STATION_COVERAGE_GAP": {
+        // Pass through directly — already formatted in German
+        out.push(msg.message);
+        break;
+      }
       case "INSUFFICIENT_REST_AFTER_MAX_DAYS": {
         const date = parseString(msg.message, /works on (\S+)/) ?? "";
         const restDays = parseNumber(msg.message, /needs (\d+) rest/) ?? 2;

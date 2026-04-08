@@ -18,6 +18,7 @@
     { "id": "restAfter6Days", "enabled": true, "params": { "requiredRestDays": 2 }, "description": "Nach 6+ aufeinanderfolgenden Arbeitstagen sind zusätzliche Ruhetage erforderlich." },
     { "id": "alternatingWeekends", "enabled": true, "params": {}, "description": "Jedes zweite Wochenende muss frei sein." },
     { "id": "wblWeekendLimit", "enabled": true, "params": { "maxWeekendDays": 3 }, "description": "WBL-Mitarbeiter können max. 1,5 Wochenenden pro Monat arbeiten." },
-    { "id": "sollDelta", "enabled": true, "params": { "minDelta": -4, "maxDelta": 8 }, "description": "Soll-Stunden-Abweichung: Zielbereich für alle Mitarbeiter." }
+    { "id": "sollDelta", "enabled": true, "params": { "minDelta": -4, "maxDelta": 8 }, "description": "Soll-Stunden-Abweichung: Zielbereich für alle Mitarbeiter." },
+    { "id": "stationCoverageGap", "enabled": true, "params": {}, "description": "Warnung bei Zeitlücken in der Stationsabdeckung." }
   ]
 }

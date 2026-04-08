@@ -1045,6 +1045,8 @@ function TimelineView({
     const nightRows: EmpRow[] = [];
 
     for (const a of dayAssignments) {
+      // Skip absence/status markers — they aren't real shifts
+      if (a.dayStatus) continue;
       const profile = profilesById[a.shiftProfileId];
       if (!profile) continue;
       const employee = employeesById[a.employeeId];

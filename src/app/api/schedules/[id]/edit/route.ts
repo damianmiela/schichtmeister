@@ -183,12 +183,13 @@ export async function POST(request: Request, context: RouteCtx) {
     orderBy: [{ date: "asc" }, { id: "asc" }],
   });
 
-  const assignmentInputs: AssignmentInput[] = allRows.map((a) => ({
+  const assignmentInputs = allRows.map((a) => ({
     id: a.id,
     date: a.date,
     shiftProfileId: a.shiftProfileId,
     employeeId: a.employeeId,
-  }));
+    ...(a.stationNumber != null && { stationNumber: a.stationNumber }),
+  })) as AssignmentInput[];
 
   const v = await validateScheduleAssignments(
     prisma,
