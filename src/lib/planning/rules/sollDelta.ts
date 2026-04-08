@@ -48,7 +48,7 @@ export function sollDeltaRule(ctx: RuleContext): RuleResult {
         const clampedStart = abs.startDate < ctx.periodStart ? ctx.periodStart : abs.startDate;
         const clampedEnd = abs.endDate > ctx.periodEnd ? ctx.periodEnd : abs.endDate;
         const workDays = countWorkingDaysInRange(clampedStart, clampedEnd);
-        absenceReduction += workDays * 8 * (emp.targetHoursPercent / 100);
+        absenceReduction += workDays * 8 * ((emp.targetHoursPercent ?? 100) / 100);
       }
     }
     const soll = baseSoll - absenceReduction;
