@@ -53,7 +53,7 @@ interface MonthTableViewProps {
   shiftProfiles?: ShiftProfileJson[];
   onToggleWish?: (employeeId: string, date: string, type: "shift" | "frei") => void;
   holidayMap?: Map<string, string>;
-  warningDays?: Set<string>;
+  warningsByDay?: Record<string, string[]>;
 }
 
 /* ──────────────────────── helpers ──────────────────────── */
@@ -320,7 +320,7 @@ export default function MonthTableView({
   shiftProfiles,
   onToggleWish,
   holidayMap,
-  warningDays,
+  warningsByDay,
 }: MonthTableViewProps) {
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [menuCell, setMenuCell] = useState<{ empId: string; iso: string } | null>(null);
@@ -496,7 +496,8 @@ export default function MonthTableView({
                   weekday: "short",
                 });
                 const hName = holidayMap?.get(iso);
-                const hasWarning = warningDays?.has(iso);
+                const dayWarnings = warningsByDay?.[iso];
+                const hasWarning = dayWarnings && dayWarnings.length > 0;
                 const inner = (
                   <>
                     <Typography variant="caption" display="block" color="text.secondary">
@@ -516,6 +517,11 @@ export default function MonthTableView({
                     )}
                   </>
                 );
+
+                const tooltipLines: string[] = [];
+                if (hName) tooltipLines.push(hName);
+                if (hasWarning) tooltipLines.push(...dayWarnings);
+
                 return (
                   <TableCell
                     key={iso}
@@ -530,9 +536,20 @@ export default function MonthTableView({
                     }}
                     onClick={() => onDayClick(new Date(y!, m! - 1, d!))}
                   >
-                    {(hName || hasWarning) ? (
+                    {tooltipLines.length > 0 ? (
                       <Tooltip
-                        title={[hName, hasWarning && "Warnungen vorhanden"].filter(Boolean).join(" · ")}
+                        title={
+                          <Box sx={{ whiteSpace: "pre-line", fontSize: 12 }}>
+                            {tooltipLines.map((line, i) => (
+                              <Box
+                                key={i}
+                                sx={i === 0 && hName ? { fontWeight: 600, mb: 0.5 } : undefined}
+                              >
+                                {i > 0 && !hName ? "" : ""}{line}
+                              </Box>
+                            ))}
+                          </Box>
+                        }
                         arrow
                       >
                         <Box>{inner}</Box>

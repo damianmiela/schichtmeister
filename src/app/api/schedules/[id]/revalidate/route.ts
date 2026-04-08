@@ -4,9 +4,99 @@ import { requirePlanner } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 import { validateScheduleAssignments } from "@/lib/api/planningScheduleValidation";
 import { formatRuleViolations } from "@/lib/schedule/formatRuleViolations";
-import type { AbsenceInput, AssignmentInput } from "@/lib/planning/types";
+import type { AbsenceInput, AssignmentInput, RuleMessage } from "@/lib/planning/types";
 
 type RouteCtx = { params: Promise<{ id: string }> };
+
+const SHIFT_DE: Record<string, string> = {
+  EARLY: "Frühdienst",
+  LATE: "Spätdienst",
+  NIGHT: "Nachtdienst",
+  BL: "Bereichsleitung",
+};
+
+function buildWarningsByDay(
+  messages: RuleMessage[],
+  empNames: Map<string, string>,
+  out: Record<string, string[]>,
+) {
+  const isoRe = /\d{4}-\d{2}-\d{2}/g;
+
+  function addDay(iso: string, desc: string) {
+    (out[iso] ??= []).push(desc);
+  }
+
+  function empName(ids?: string[]): string {
+    if (!ids?.length) return "";
+    return ids.map((id) => empNames.get(id) ?? id).join(", ");
+  }
+
+  for (const msg of messages) {
+    const dates: string[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = isoRe.exec(msg.message)) !== null) dates.push(m[0]);
+    if (dates.length === 0) continue;
+
+    let desc: string;
+    switch (msg.code) {
+      case "UNDERSTAFFED": {
+        const st = msg.message.match(/for (\w+) station/)?.[1] ?? "";
+        const stn = msg.message.match(/station (\d+)/)?.[1] ?? "";
+        desc = `Unterbesetzung ${SHIFT_DE[st] ?? st} Station ${stn}`;
+        break;
+      }
+      case "OVERSTAFFED": {
+        const st = msg.message.match(/(\w+) station/)?.[1] ?? "";
+        const stn = msg.message.match(/station (\d+)/)?.[1] ?? "";
+        desc = `Überbesetzung ${SHIFT_DE[st] ?? st} Station ${stn}`;
+        break;
+      }
+      case "MISSING_QUALIFICATION": {
+        const tag = msg.message.match(/tag "([^"]+)"/)?.[1] ?? "";
+        const st = msg.message.match(/for (\w+) station/)?.[1] ?? "";
+        const stn = msg.message.match(/station (\d+)/)?.[1] ?? "";
+        desc = `Qualifikation "${tag}" fehlt — ${SHIFT_DE[st] ?? st} Station ${stn}`;
+        break;
+      }
+      case "OVERLAP": {
+        desc = `Schichtüberlappung: ${empName(msg.employeeIds)}`;
+        break;
+      }
+      case "INSUFFICIENT_REST": {
+        desc = `Ruhezeit unterschritten: ${empName(msg.employeeIds)}`;
+        break;
+      }
+      case "ABSENCE_CONFLICT": {
+        desc = `Abwesenheitskonflikt: ${empName(msg.employeeIds)}`;
+        break;
+      }
+      case "STATION_COVERAGE_GAP": {
+        const stn = msg.message.match(/Station (\d+)/)?.[1] ?? "";
+        desc = `Abdeckungslücke Station ${stn}`;
+        break;
+      }
+      case "INSUFFICIENT_REST_AFTER_MAX_DAYS": {
+        desc = `Fehlende Ruhetage: ${empName(msg.employeeIds)}`;
+        break;
+      }
+      case "BL_WEEKEND_HOLIDAY": {
+        desc = `BL am Wochenende/Feiertag: ${empName(msg.employeeIds)}`;
+        break;
+      }
+      default: {
+        desc = msg.code;
+        break;
+      }
+    }
+
+    for (const iso of dates) addDay(iso, desc);
+  }
+
+  // Deduplicate per day
+  for (const iso of Object.keys(out)) {
+    out[iso] = [...new Set(out[iso])];
+  }
+}
 
 /**
  * POST /api/schedules/[id]/revalidate?employeeId=xxx
@@ -79,7 +169,7 @@ export async function POST(request: NextRequest, context: RouteCtx) {
 
   let warningStrings: string[] = [];
   let employeeWarnings: string[] | undefined;
-  const warningDaysSet = new Set<string>();
+  const warningsByDay: Record<string, string[]> = {};
 
   if (v.ok) {
     const allMessages = [...v.result.errors, ...v.result.warnings];
@@ -93,14 +183,8 @@ export async function POST(request: NextRequest, context: RouteCtx) {
       // Full warnings for schedule storage
       warningStrings = formatRuleViolations(allMessages, empNames);
 
-      // Extract all ISO dates mentioned in raw rule messages for per-day indicators
-      const isoDateRe = /\d{4}-\d{2}-\d{2}/g;
-      for (const msg of allMessages) {
-        let match: RegExpExecArray | null;
-        while ((match = isoDateRe.exec(msg.message)) !== null) {
-          warningDaysSet.add(match[0]);
-        }
-      }
+      // Build per-day warning descriptions from raw rule messages
+      buildWarningsByDay(allMessages, empNames, warningsByDay);
 
       // Employee-specific warnings if requested
       if (employeeIdFilter) {
@@ -119,11 +203,9 @@ export async function POST(request: NextRequest, context: RouteCtx) {
     data: { warningsJson: warningStrings.length > 0 ? JSON.stringify(warningStrings) : null },
   });
 
-  const warningDays = [...warningDaysSet].sort();
-
   return NextResponse.json({
     warnings: warningStrings,
-    warningDays,
+    warningsByDay,
     ...(employeeWarnings !== undefined && { employeeWarnings }),
   });
 }
