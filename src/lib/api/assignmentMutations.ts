@@ -16,7 +16,7 @@ function toInputs(rows: Assignment[]): AssignmentInput[] {
     date: a.date,
     shiftProfileId: a.shiftProfileId,
     employeeId: a.employeeId,
-    ...(a.stationNumber != null && { stationNumber: a.stationNumber }),
+    ...(a.stationNumber != null && a.stationNumber >= 1 && a.stationNumber <= 3 && { stationNumber: a.stationNumber }),
   } as AssignmentInput));
 }
 
@@ -146,14 +146,14 @@ export async function validatePatchedAssignmentInTx(
           date: patch.date ?? a.date,
           shiftProfileId: patch.shiftProfileId ?? a.shiftProfileId,
           employeeId: patch.employeeId ?? a.employeeId,
-          ...(a.stationNumber != null && { stationNumber: a.stationNumber }),
+          ...(a.stationNumber != null && a.stationNumber >= 1 && a.stationNumber <= 3 && { stationNumber: a.stationNumber }),
         }
       : {
           id: a.id,
           date: a.date,
           shiftProfileId: a.shiftProfileId,
           employeeId: a.employeeId,
-          ...(a.stationNumber != null && { stationNumber: a.stationNumber }),
+          ...(a.stationNumber != null && a.stationNumber >= 1 && a.stationNumber <= 3 && { stationNumber: a.stationNumber }),
         },
   ) as AssignmentInput[];
   return runPlanningValidation(tx, facilityId, schedule, proposed);

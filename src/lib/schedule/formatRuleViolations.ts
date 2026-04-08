@@ -57,6 +57,9 @@ export function formatRuleViolations(
 ): string[] {
   const out: string[] = [];
 
+  // ── STATION_COVERAGE_GAP: group by station, collect dates ──
+  const gapByStation = new Map<number, string[]>(); // station → list of date strings
+
   // ── OVERLAP: group by employee, count occurrences ──
   const overlapByEmp = new Map<string, number>();
   let missingProfileCount = 0;
@@ -203,8 +206,14 @@ export function formatRuleViolations(
         break;
       }
       case "STATION_COVERAGE_GAP": {
-        // Pass through directly — already formatted in German
-        out.push(msg.message);
+        const stn = parseNumber(msg.message, /Station (\d+)/) ?? 0;
+        const date = parseString(msg.message, /(\d{4}-\d{2}-\d{2})/) ?? "";
+        const prev = gapByStation.get(stn);
+        if (prev) {
+          if (!prev.includes(date)) prev.push(date);
+        } else {
+          gapByStation.set(stn, [date]);
+        }
         break;
       }
       case "INSUFFICIENT_REST_AFTER_MAX_DAYS": {
@@ -318,6 +327,14 @@ export function formatRuleViolations(
         `Soll-Stunden: ${name} hat ${hours.toFixed(1)}h geplant, über dem Höchstbereich (Soll: ${soll.toFixed(1)}h).`,
       );
     }
+  }
+
+  for (const [station, dates] of gapByStation) {
+    const sortedDates = [...dates].sort();
+    const dateList = sortedDates.map(fmtDate).join(", ");
+    out.push(
+      `Abdeckungslücke Station ${station}: ${sortedDates.length} Tag(e) mit Lücke zwischen frühschicht und spätschicht — ${dateList}`,
+    );
   }
 
   return out;

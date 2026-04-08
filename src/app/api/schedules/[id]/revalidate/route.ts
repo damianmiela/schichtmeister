@@ -53,7 +53,7 @@ export async function POST(request: NextRequest, context: RouteCtx) {
         date: a.date,
         shiftProfileId: a.shiftProfileId,
         employeeId: a.employeeId,
-        ...(a.stationNumber != null && { stationNumber: a.stationNumber }),
+        ...(a.stationNumber != null && a.stationNumber >= 1 && a.stationNumber <= 3 && { stationNumber: a.stationNumber }),
       } as AssignmentInput);
     }
   }
