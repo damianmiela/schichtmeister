@@ -3,6 +3,7 @@ import { utcDayKey } from "@/lib/planning/time";
 
 const DEFAULT_MAX_DAYS = 7;
 const DEFAULT_REQUIRED_REST_DAYS = 2;
+const DEFAULT_REST_AFTER_6_THRESHOLD = 6;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export function maxConsecutiveDaysRule(ctx: RuleContext): RuleResult {
@@ -13,6 +14,9 @@ export function maxConsecutiveDaysRule(ctx: RuleContext): RuleResult {
   const requiredRestDays =
     (ctx.snapshot.ruleStates.maxConsecutiveDays?.params?.requiredRestDays as number | undefined) ??
     DEFAULT_REQUIRED_REST_DAYS;
+  const restAfter6Threshold =
+    (ctx.snapshot.ruleStates.restAfter6Days?.params?.threshold as number | undefined) ??
+    DEFAULT_REST_AFTER_6_THRESHOLD;
 
   const byEmployee = new Map<string, string[]>();
   for (const a of ctx.assignments) {
@@ -53,13 +57,16 @@ export function maxConsecutiveDaysRule(ctx: RuleContext): RuleResult {
         }
       } else {
         const prevStreakLength = i - streakStart;
-        if (prevStreakLength >= maxDays && diffDays <= requiredRestDays) {
+        // Only require multiple rest days if the streak hit the global threshold (e.g. 6+).
+        // Shorter streaks that just hit a personal limit need only 1 rest day.
+        const neededRest = prevStreakLength >= restAfter6Threshold ? requiredRestDays : 1;
+        if (prevStreakLength >= maxDays && diffDays <= neededRest) {
           errors.push({
             ruleId: "maxConsecutiveDays",
             code: "INSUFFICIENT_REST_AFTER_MAX_DAYS",
             message: ctx.targetFilter
-              ? `${name}: Arbeitet am ${sorted[i]} ohne ${requiredRestDays} Ruhetag(e) nach ${maxDays} Arbeitstagen.`
-              : `Employee works on ${sorted[i]} but needs ${requiredRestDays} rest day(s) after ${maxDays} consecutive working days.`,
+              ? `${name}: Arbeitet am ${sorted[i]} ohne ${neededRest} Ruhetag(e) nach ${prevStreakLength} Arbeitstagen.`
+              : `Employee works on ${sorted[i]} but needs ${neededRest} rest day(s) after ${prevStreakLength} consecutive working days.`,
             employeeIds: [employeeId],
           });
         }
