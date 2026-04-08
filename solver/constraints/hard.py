@@ -732,6 +732,7 @@ def add_alternating_weekends(
     # can conflict with staffing minimums and make the problem infeasible.
 
     # Standard alternating weekends within the period
+    for emp in req.employees:
         if len(weekends) < 2:
             continue
 
