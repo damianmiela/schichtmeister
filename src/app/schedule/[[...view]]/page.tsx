@@ -142,9 +142,11 @@ function viewStateToUrl(vs: ViewState): string {
   return `/schedule/${vs.type}`;
 }
 
-function parseUrlToViewState(viewSegments: string[] | undefined): ViewState {
+/** Holds the target state when navigating between view types so it survives re-mount */
+let _pendingViewState: ViewState | null = null;
+
+function defaultViewState(viewType: ViewType | undefined): ViewState {
   const today = new Date();
-  const viewType = viewSegments?.[0] as ViewType | undefined;
 
   if (viewType === "week") {
     const monday = new Date(today);
@@ -179,10 +181,15 @@ export default function SchedulePage() {
   const params = useParams();
   const viewSegments = params.view as string[] | undefined;
 
-  // Initialize viewState from URL path
-  const [viewState, setViewStateRaw] = useState<ViewState>(() =>
-    parseUrlToViewState(viewSegments),
-  );
+  // Initialize viewState: use pending state from navigation, otherwise default from URL
+  const [viewState, setViewStateRaw] = useState<ViewState>(() => {
+    if (_pendingViewState) {
+      const state = _pendingViewState;
+      _pendingViewState = null;
+      return state;
+    }
+    return defaultViewState(viewSegments?.[0] as ViewType | undefined);
+  });
   const [monthViewMode, setMonthViewMode] = useState<MonthViewMode>("table");
 
   // Wrap setViewState to push URL only when view type changes
@@ -190,6 +197,7 @@ export default function SchedulePage() {
     setViewStateRaw((prev) => {
       const resolved = typeof newState === "function" ? newState(prev) : newState;
       if (resolved.type !== prev.type) {
+        _pendingViewState = resolved;
         queueMicrotask(() => {
           router.replace(viewStateToUrl(resolved), { scroll: false });
         });
