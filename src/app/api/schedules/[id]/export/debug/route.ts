@@ -4,11 +4,13 @@ import { plannerJsonErrors } from "@/lib/api/validation";
 import { requirePlanner } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 import { loadGenerateContext } from "@/lib/schedule/generateDraftSchedule";
-import { buildSolverPayload, type SolverPayload } from "@/lib/schedule/solverClient";
+import { buildSolverPayload, type SolverPayload, type SolverPreviousAssignment } from "@/lib/schedule/solverClient";
 import { mergePlanningRules, type FacilityRulesSlice } from "@/lib/planning/merge";
 import { defaultPlanningRulesConfig } from "@/lib/planning/defaultConfig";
 
 export const runtime = "nodejs";
+
+const BOUNDARY_DAYS = 7;
 
 type RouteCtx = { params: Promise<{ id: string }> };
 
@@ -55,6 +57,31 @@ export async function GET(_request: Request, context: RouteCtx) {
       select: { employeeId: true, startDate: true, endDate: true, type: true },
     }),
   ]);
+
+  // Load previous month's last 7 days of assignments for cross-month boundary checks
+  let previousAssignments: SolverPreviousAssignment[] = [];
+  try {
+    const prevSchedule = await prisma.schedule.findFirst({
+      where: { facilityId, periodEnd: { lt: schedule.periodStart } },
+      orderBy: { periodEnd: "desc" },
+    });
+    if (prevSchedule) {
+      const cutoff = new Date(schedule.periodStart);
+      cutoff.setUTCDate(cutoff.getUTCDate() - BOUNDARY_DAYS);
+      const prevRows = await prisma.assignment.findMany({
+        where: { scheduleId: prevSchedule.id, date: { gte: cutoff, lt: schedule.periodStart }, dayStatus: null },
+      });
+      for (const a of prevRows) {
+        previousAssignments.push({
+          employeeId: a.employeeId,
+          date: toIsoDateOnly(a.date),
+          shiftProfileId: a.shiftProfileId,
+        });
+      }
+    }
+  } catch {
+    previousAssignments = [];
+  }
 
   const employeeNames: Record<string, string> = {};
   for (const e of employees) {
@@ -108,6 +135,7 @@ export async function GET(_request: Request, context: RouteCtx) {
       facilitySlice,
       [],
       [],
+      previousAssignments,
     );
   } catch {
     solverPayload = null;
@@ -148,6 +176,7 @@ export async function GET(_request: Request, context: RouteCtx) {
     profileNames,
     staffingRequirements,
     currentAssignments,
+    previousAssignments,
     solverPayload,
   };
 

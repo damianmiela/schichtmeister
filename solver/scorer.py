@@ -13,6 +13,8 @@ import contextlib
 from datetime import date, timedelta
 
 
+BOUNDARY_DAYS = 7
+
 # ── helpers ──────────────────────────────────────────────────────────────────
 
 def _dates_in_range(start: str, end: str) -> list[date]:
@@ -69,12 +71,27 @@ def _run(data: dict) -> None:
     soll_map: dict[str, float] = solver.get("monthlySollHoursByEmployee") or {}
     employees: list[dict] = solver.get("employees") or []
     profiles: list[dict] = solver.get("shiftProfiles") or []
+    previous_assignments: list[dict] = data.get("previousAssignments") or solver.get("previousAssignments") or []
+    employee_absences: list[dict] = data.get("employeeAbsences") or []
+    rules: dict = solver.get("rules") or data.get("planningRules") or {}
 
     prof_type = {p["id"]: p["shiftType"] for p in profiles}
     prof_hours = {p["id"]: p["paidHours"] for p in profiles}
     emp_stations = {e["id"]: set(e.get("assignedStations", [])) for e in employees}
     emp_is_wbl = {e["id"]: e.get("isWbl", False) for e in employees}
     emp_quals = {e["id"]: set(e.get("qualificationTags", [])) for e in employees}
+
+    # Build absence date sets per employee
+    absent_dates: dict[str, set[date]] = collections.defaultdict(set)
+    for ab in employee_absences:
+        eid = ab["employeeId"]
+        for d in _dates_in_range(ab["startDate"], ab["endDate"]):
+            absent_dates[eid].add(d)
+
+    # Build previous assignments index
+    prev_by_emp: dict[str, list[dict]] = collections.defaultdict(list)
+    for pa in previous_assignments:
+        prev_by_emp[pa["employeeId"]].append(pa)
 
     # -- index -----------------------------------------------------------------
     by_date_type: dict[tuple[str, str], list[dict]] = collections.defaultdict(list)
@@ -87,6 +104,11 @@ def _run(data: dict) -> None:
     print("=" * 80)
     print(f"SCHEDULE QUALITY REPORT  {period_start} -> {period_end}")
     print(f"  {len(dates)} days, {len(emp_names)} employees, {len(assignments)} assignments")
+    if previous_assignments:
+        print(f"  Cross-month boundary: {len(previous_assignments)} previous assignments loaded")
+    if employee_absences:
+        absent_emp_count = len(set(ab["employeeId"] for ab in employee_absences))
+        print(f"  Absences: {len(employee_absences)} entries affecting {absent_emp_count} employees")
     print("=" * 80)
 
     # -- 1. Staffing coverage --------------------------------------------------
@@ -371,6 +393,7 @@ def _run(data: dict) -> None:
 
     deviations: list[tuple[str, str, float, float, float, int]] = []
     unassigned: list[str] = []
+    on_leave: list[str] = []
     for eid, name in sorted(emp_names.items(), key=lambda x: x[1]):
         soll = soll_map.get(eid)
         actual = emp_actual.get(eid, 0)
@@ -380,8 +403,16 @@ def _run(data: dict) -> None:
         delta = actual - soll
         deviations.append((eid, name, soll, actual, delta, shifts))
         if shifts == 0:
-            unassigned.append(name)
+            # Check if fully absent for the entire period
+            emp_absent = absent_dates.get(eid, set())
+            all_absent = all(d in emp_absent for d in dates)
+            if all_absent:
+                on_leave.append(name)
+            else:
+                unassigned.append(name)
 
+    if on_leave:
+        print(f"  On leave (full period, {len(on_leave)}): {', '.join(on_leave)}")
     if unassigned:
         print(f"  !! UNASSIGNED employees ({len(unassigned)}): {', '.join(unassigned)}")
 
@@ -430,28 +461,46 @@ def _run(data: dict) -> None:
         sign = "+" if delta >= 0 else ""
         print(f"  {name:<35} {shifts:>6} {soll:>6.0f} {actual:>6.1f} {sign}{delta:>6.1f}  {types_str}")
 
-    # -- 7. Consecutive days ---------------------------------------------------
+    # -- 7. Consecutive days (with cross-month boundary) -------------------------
     print("\n-- 7. MAX CONSECUTIVE WORKING DAYS --")
-    max_consec_limit = 7
-    violations: list[tuple[str, int]] = []
+    max_consec_limit = int(rules.get("maxConsecutiveDays", 7))
+    violations: list[tuple[str, int, str]] = []
     rest_after_6_violations: list[tuple[str, int, str, int]] = []
+
+    # Build extended date range including previous boundary days
+    prev_work_dates_by_emp: dict[str, set[date]] = collections.defaultdict(set)
+    for pa in previous_assignments:
+        prev_work_dates_by_emp[pa["employeeId"]].add(date.fromisoformat(pa["date"]))
+
+    # Extended dates: up to 7 days before period start + period dates
+    boundary_start = dates[0] - timedelta(days=BOUNDARY_DAYS) if dates else date.today()
+    extended_dates = _dates_in_range(boundary_start.isoformat(), period_end) if dates else []
+
     for eid, name in emp_names.items():
         work_dates: set[date] = set()
         for a in by_emp.get(eid, []):
             work_dates.add(date.fromisoformat(a["date"]))
-        if not work_dates:
+        prev_dates = prev_work_dates_by_emp.get(eid, set())
+        all_work = work_dates | prev_dates
+        if not all_work:
             continue
+
         consec = 0
         max_consec = 0
-        for i, d in enumerate(dates):
-            if d in work_dates:
+        max_consec_end = ""
+        for i, d in enumerate(extended_dates):
+            if d in all_work:
                 consec += 1
-                max_consec = max(max_consec, consec)
+                if consec > max_consec:
+                    max_consec = consec
+                    max_consec_end = d.isoformat()
             else:
-                if consec >= 6:
+                # Check rest-after-6 only for days within the actual period
+                if consec >= 6 and d >= dates[0]:
                     rest_count = 0
-                    for j in range(1, 3):
-                        if i + j - 1 < len(dates) and dates[i + j - 1] not in work_dates:
+                    for j in range(0, 2):
+                        check_d = d + timedelta(days=j)
+                        if check_d not in all_work and check_d <= dates[-1]:
                             rest_count += 1
                         else:
                             break
@@ -459,11 +508,13 @@ def _run(data: dict) -> None:
                         rest_after_6_violations.append((name, consec, d.isoformat(), rest_count))
                 consec = 0
         if max_consec > max_consec_limit:
-            violations.append((name, max_consec))
+            boundary_note = " (cross-month)" if any(d < dates[0] for d in prev_dates) else ""
+            violations.append((name, max_consec, f"ending {max_consec_end}{boundary_note}"))
+
     if violations:
         print(f"  !! {len(violations)} employees exceed {max_consec_limit} consecutive days:")
-        for name, c in sorted(violations, key=lambda x: -x[1]):
-            print(f"    {name}: {c} consecutive days")
+        for name, c, note in sorted(violations, key=lambda x: -x[1]):
+            print(f"    {name}: {c} consecutive days ({note})")
     else:
         print(f"  OK No employee exceeds {max_consec_limit} consecutive days")
 
@@ -474,9 +525,27 @@ def _run(data: dict) -> None:
     else:
         print(f"  OK '2 rest days after 6+ consecutive work days' respected")
 
-    # -- 8. Alternating weekends -----------------------------------------------
+    # -- 8. Alternating weekends (with cross-month boundary) ---------------------
     print("\n-- 8. ALTERNATING WEEKENDS --")
+
+    # Find previous weekend (last Sat-Sun before period start) from boundary data
+    prev_weekend: tuple[date | None, date | None] | None = None
+    if previous_assignments:
+        first_date = dates[0]
+        prev_sat = None
+        for offset in range(1, 8):
+            d = first_date - timedelta(days=offset)
+            if d.isoweekday() == 6:
+                prev_sat = d
+                break
+        if prev_sat:
+            prev_sun = prev_sat + timedelta(days=1)
+            prev_weekend = (prev_sat, prev_sun)
+
     weekends: list[tuple[date | None, date | None]] = []
+    if prev_weekend:
+        weekends.append(prev_weekend)
+
     i = 0
     while i < len(dates):
         d = dates[i]
@@ -493,24 +562,35 @@ def _run(data: dict) -> None:
 
     alt_wknd_violations: list[tuple] = []
     for eid, name in emp_names.items():
+        # Current period work dates
         work_dates: set[date] = set()
         for a in by_emp.get(eid, []):
             work_dates.add(date.fromisoformat(a["date"]))
+        # Previous month work dates
+        prev_dates = prev_work_dates_by_emp.get(eid, set())
+        all_work = work_dates | prev_dates
+
         for wi in range(len(weekends) - 1):
             sat_k, sun_k = weekends[wi]
             sat_next, sun_next = weekends[wi + 1]
-            worked_this = (sat_k and sat_k in work_dates) or (sun_k and sun_k in work_dates)
-            worked_next = (sat_next and sat_next in work_dates) or (sun_next and sun_next in work_dates)
+            worked_this = (sat_k and sat_k in all_work) or (sun_k and sun_k in all_work)
+            worked_next = (sat_next and sat_next in all_work) or (sun_next and sun_next in all_work)
             if worked_this and worked_next:
-                alt_wknd_violations.append((name, weekends[wi], weekends[wi + 1]))
+                is_boundary = prev_weekend and weekends[wi] == prev_weekend
+                alt_wknd_violations.append((name, weekends[wi], weekends[wi + 1], is_boundary))
 
     if alt_wknd_violations:
+        boundary_count = sum(1 for _, _, _, b in alt_wknd_violations if b)
+        within_count = len(alt_wknd_violations) - boundary_count
         print(f"  !! {len(alt_wknd_violations)} violations (worked consecutive weekends):")
+        if boundary_count:
+            print(f"     ({boundary_count} cross-month boundary, {within_count} within-month)")
         shown: dict[str, list[str]] = {}
-        for name, wk1, wk2 in alt_wknd_violations:
-            shown.setdefault(name, []).append(f"{wk1[0] or wk1[1]}")
+        for name, wk1, wk2, is_boundary in alt_wknd_violations:
+            marker = " [boundary]" if is_boundary else ""
+            shown.setdefault(name, []).append(f"{wk1[0] or wk1[1]}{marker}")
         for name, wks in sorted(shown.items()):
-            print(f"    {name}: weekends starting {', '.join(wks[:3])}")
+            print(f"    {name}: weekends starting {', '.join(wks[:5])}")
     else:
         print(f"  OK All employees have alternating weekends free")
 
@@ -533,8 +613,111 @@ def _run(data: dict) -> None:
     else:
         print(f"  OK All WBL employees have <=3 weekend-days")
 
-    # -- 10. Soll delta range --------------------------------------------------
-    print("\n-- 10. SOLL DELTA RANGE (-4h to +8h) --")
+    # -- 10. Max consecutive nights (with cross-month boundary) -----------------
+    print("\n-- 10. MAX CONSECUTIVE NIGHTS --")
+    max_consec_nights_limit = int(rules.get("maxConsecutiveNights", 3))
+    night_violations: list[tuple[str, int, str]] = []
+    for eid, name in emp_names.items():
+        # Current period night dates
+        night_dates: set[date] = set()
+        for a in by_emp.get(eid, []):
+            st = a.get("shiftType") or prof_type.get(a["shiftProfileId"], "?")
+            if st == "NIGHT":
+                night_dates.add(date.fromisoformat(a["date"]))
+        # Previous month night dates
+        prev_night_dates: set[date] = set()
+        for pa in prev_by_emp.get(eid, []):
+            pid = pa.get("shiftProfileId", "")
+            st = prof_type.get(pid, "?")
+            if st == "NIGHT":
+                prev_night_dates.add(date.fromisoformat(pa["date"]))
+        all_nights = night_dates | prev_night_dates
+        if not all_nights:
+            continue
+
+        consec = 0
+        max_n = 0
+        max_n_end = ""
+        for d in extended_dates:
+            if d in all_nights:
+                consec += 1
+                if consec > max_n:
+                    max_n = consec
+                    max_n_end = d.isoformat()
+            else:
+                consec = 0
+        if max_n > max_consec_nights_limit:
+            boundary_note = " (cross-month)" if prev_night_dates else ""
+            night_violations.append((name, max_n, f"ending {max_n_end}{boundary_note}"))
+
+    if night_violations:
+        print(f"  !! {len(night_violations)} employees exceed {max_consec_nights_limit} consecutive nights:")
+        for name, c, note in sorted(night_violations, key=lambda x: -x[1]):
+            print(f"    {name}: {c} consecutive nights ({note})")
+    else:
+        print(f"  OK No employee exceeds {max_consec_nights_limit} consecutive nights")
+
+    # -- 11. Min rest hours between shifts --------------------------------------
+    print("\n-- 11. MIN REST HOURS BETWEEN SHIFTS --")
+    min_rest = float(rules.get("minRestHours", 11))
+    prof_start_end: dict[str, tuple[str, str]] = {}
+    for p in profiles:
+        prof_start_end[p["id"]] = (p.get("startTime", "06:00"), p.get("endTime", "14:00"))
+
+    def _time_to_minutes(t: str) -> int:
+        parts = t.split(":")
+        return int(parts[0]) * 60 + (int(parts[1]) if len(parts) > 1 else 0)
+
+    rest_violations: list[tuple[str, str, str, str, float]] = []
+    for eid, name in emp_names.items():
+        # Combine current + previous assignments with shift times
+        emp_shifts: list[tuple[date, str, str, str]] = []  # (date, profileId, start, end)
+        for a in by_emp.get(eid, []):
+            pid = a["shiftProfileId"]
+            se = prof_start_end.get(pid, ("06:00", "14:00"))
+            emp_shifts.append((date.fromisoformat(a["date"]), pid, se[0], se[1]))
+        for pa in prev_by_emp.get(eid, []):
+            pid = pa.get("shiftProfileId", "")
+            se = prof_start_end.get(pid, ("06:00", "14:00"))
+            emp_shifts.append((date.fromisoformat(pa["date"]), pid, se[0], se[1]))
+
+        emp_shifts.sort(key=lambda x: (x[0], _time_to_minutes(x[2])))
+        for i in range(len(emp_shifts) - 1):
+            d1, pid1, _, end1 = emp_shifts[i]
+            d2, pid2, start2, _ = emp_shifts[i + 1]
+            end_min = _time_to_minutes(end1)
+            start_min = _time_to_minutes(start2)
+            # End time on day d1, start time on day d2
+            day_diff = (d2 - d1).days
+            if day_diff == 0:
+                continue  # Same day, skip (shouldn't have two shifts same day normally)
+            if day_diff > 1:
+                continue  # More than 1 day gap, rest is fine
+            # Consecutive days: rest = (24:00 - end1) + start2
+            # If end time is after midnight (e.g., night shift ending at 06:00), account for it
+            if end_min > start_min:
+                # Night shift scenario: end1 is next morning, start2 is same day
+                rest_hours = start_min / 60.0  # start2 is hours from midnight
+            else:
+                rest_hours = (start_min - end_min) / 60.0 + 24.0 * (day_diff - 1)
+            if rest_hours < min_rest:
+                rest_violations.append((
+                    name,
+                    d1.isoformat(),
+                    prof_names.get(pid1, pid1[:8]),
+                    prof_names.get(pid2, pid2[:8]),
+                    rest_hours,
+                ))
+
+    if rest_violations:
+        print(f"  !! {len(rest_violations)} violations (< {min_rest}h rest between shifts):")
+        for name, d, p1, p2, rest_h in sorted(rest_violations, key=lambda x: x[4])[:15]:
+            print(f"    {name}: {d} {p1} -> next day {p2} = {rest_h:.1f}h rest")
+    else:
+        print(f"  OK All shifts have >= {min_rest}h rest between them")
+
+    # -- 12. Soll delta range --------------------------------------------------
+    print("\n-- 12. SOLL DELTA RANGE (-4h to +8h) --")
     soll_range_ok = 0
     soll_range_warn: list[tuple[str, float]] = []
     for eid, name, soll, actual, delta, shifts in deviations:
@@ -561,11 +744,18 @@ def _run(data: dict) -> None:
     print(f"  Qualification gaps (station): {len(qual_violations)}")
     print(f"  Unresolved station days: {len(unplaced_days)}/{total_days}")
     print(f"  Unassigned employees: {len(unassigned)}")
+    print(f"  On leave (full period): {len(on_leave)}")
     print(f"  Avg hours deviation: {sum(deltas) / len(deltas):.1f}h" if deltas else "  No soll data")
     print(f"  Soll delta in range: {soll_range_ok}/{len(deviations)}" if deviations else "")
     print(f"  BL violations: {len(non_wbl_bl)} non-WBL")
     print(f"  Consecutive day violations: {len(violations)}")
+    print(f"  Consecutive night violations: {len(night_violations)}")
     print(f"  Rest-after-6 violations: {len(rest_after_6_violations)}")
+    print(f"  Min rest violations: {len(rest_violations)}")
     print(f"  Alternating weekend violations: {len(alt_wknd_violations)}")
+    if alt_wknd_violations:
+        bnd = sum(1 for _, _, _, b in alt_wknd_violations if b)
+        if bnd:
+            print(f"    (of which {bnd} cross-month boundary)")
     print(f"  WBL weekend-day violations: {len(wbl_wknd_violations)}")
     print("=" * 80)
