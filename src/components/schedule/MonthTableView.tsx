@@ -1,15 +1,17 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   alpha,
   Box,
+  Chip,
   Divider,
   ListItemIcon,
   ListItemText,
   ListSubheader,
   Menu,
   MenuItem,
+  Paper,
   Table,
   TableBody,
   TableCell,
@@ -20,8 +22,9 @@ import {
 } from "@mui/material";
 import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
+import LocationOnIcon from "@mui/icons-material/LocationOn";
 import { localIsoFromParts } from "@/lib/schedule/monthSchedule";
-import type { AssignmentJson, EmployeeJson, ShiftProfileJson } from "@/lib/schedule/scheduleTypes";
+import type { AssignmentJson, EmployeeJson, ShiftProfileJson, StaffingJson } from "@/lib/schedule/scheduleTypes";
 import QualificationPills from "@/components/schedule/QualificationPills";
 import { monthlyWorkingDaysWithHolidays, isWorkingDayIso } from "@/lib/holidays";
 
@@ -54,6 +57,7 @@ interface MonthTableViewProps {
   onToggleWish?: (employeeId: string, date: string, type: "shift" | "frei") => void;
   holidayMap?: Map<string, string>;
   warningsByDay?: Record<string, string[]>;
+  staffingRequirements?: StaffingJson[];
 }
 
 /* ──────────────────────── helpers ──────────────────────── */
@@ -122,6 +126,8 @@ const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
 const WISH_SHIFT_BG = "#e8f5e9";
 const WISH_FREI_BG = "#e3f2fd";
 const EDIT_CHANGED_BORDER = "2px dashed #ff9800";
+const SELECTED_BORDER = "2px solid #1976d2";
+const SELECTED_BG = "rgba(25, 118, 210, 0.08)";
 const ROW_HEIGHT = 56;
 const NAME_COL_WIDTH = 300;
 
@@ -321,6 +327,7 @@ export default function MonthTableView({
   onToggleWish,
   holidayMap,
   warningsByDay,
+  staffingRequirements,
 }: MonthTableViewProps) {
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [menuCell, setMenuCell] = useState<{ empId: string; iso: string } | null>(null);
@@ -330,6 +337,13 @@ export default function MonthTableView({
     empId: string;
     iso: string;
   } | null>(null);
+
+  /* ── Multi-cell selection state ── */
+  const [selectedCells, setSelectedCells] = useState<Set<string>>(new Set());
+  const [lastClickedCell, setLastClickedCell] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartRef = useRef<string | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const workDays = workingDaysInMonth(year, monthIndex);
 
@@ -417,6 +431,132 @@ export default function MonthTableView({
     return hours;
   }, [assignments, editMode, editedCells, byEmpDay, profilesById]);
 
+  /* ── Live staffing counters (edit mode) ── */
+  const liveStaffing = useMemo(() => {
+    if (!editMode || !staffingRequirements?.length) return null;
+    // Build effective shift type per emp+date considering edits
+    const effectiveShift = (empId: string, iso: string): { shiftType: string; stationNumbers: number[] } | null => {
+      const key = `${empId}|${iso}`;
+      const edit = editedCells?.get(key);
+      if (edit?.dayStatus) return null; // status = not a real shift
+      const assignment = byEmpDay.get(key);
+      let pid: string | null = null;
+      if (edit?.shiftProfileId !== undefined) {
+        pid = edit.shiftProfileId ?? null;
+      } else if (assignment && !assignment.dayStatus) {
+        pid = assignment.shiftProfileId;
+      }
+      if (!pid) return null;
+      const profile = profilesById[pid];
+      if (!profile) return null;
+      const emp = employeesById[empId];
+      const stNum = edit?.stationNumber ?? assignment?.stationNumber ?? emp?.mainStation;
+      return { shiftType: profile.shiftType, stationNumbers: stNum != null ? [stNum] : (emp?.assignedStations ?? []) };
+    };
+
+    // Count per iso -> shiftType -> station
+    const counts = new Map<string, Map<string, Map<number, number>>>();
+    for (const iso of dayCols) {
+      const byType = new Map<string, Map<number, number>>();
+      counts.set(iso, byType);
+      for (const emp of employees) {
+        const s = effectiveShift(emp.id, iso);
+        if (!s) continue;
+        let byStation = byType.get(s.shiftType);
+        if (!byStation) { byStation = new Map(); byType.set(s.shiftType, byStation); }
+        for (const st of s.stationNumbers) {
+          byStation.set(st, (byStation.get(st) ?? 0) + 1);
+        }
+        // Count facility-wide (station 0)
+        byStation.set(0, (byStation.get(0) ?? 0) + 1);
+      }
+    }
+    return counts;
+  }, [editMode, staffingRequirements, editedCells, byEmpDay, profilesById, employeesById, dayCols, employees]);
+
+  /* ── Selection helpers ── */
+  const allEmployeeIds = useMemo(() => employees.map(e => e.id), [employees]);
+
+  const getCellsBetween = useCallback((cellA: string, cellB: string): string[] => {
+    const [empA, isoA] = cellA.split("|");
+    const [empB, isoB] = cellB.split("|");
+    const idxA = allEmployeeIds.indexOf(empA!);
+    const idxB = allEmployeeIds.indexOf(empB!);
+    const dayA = dayCols.indexOf(isoA!);
+    const dayB = dayCols.indexOf(isoB!);
+    const minEmp = Math.min(idxA, idxB);
+    const maxEmp = Math.max(idxA, idxB);
+    const minDay = Math.min(dayA, dayB);
+    const maxDay = Math.max(dayA, dayB);
+    const cells: string[] = [];
+    for (let e = minEmp; e <= maxEmp; e++) {
+      for (let d = minDay; d <= maxDay; d++) {
+        cells.push(`${allEmployeeIds[e]}|${dayCols[d]}`);
+      }
+    }
+    return cells;
+  }, [allEmployeeIds, dayCols]);
+
+  const handleCellClick = useCallback((empId: string, iso: string, ev: React.MouseEvent) => {
+    if (!editMode) return;
+    const key = `${empId}|${iso}`;
+
+    if (ev.shiftKey && lastClickedCell) {
+      // Shift+click: range select
+      const range = getCellsBetween(lastClickedCell, key);
+      setSelectedCells(new Set(range));
+      return;
+    }
+
+    if (ev.ctrlKey || ev.metaKey) {
+      // Ctrl+click: toggle individual cell
+      setSelectedCells(prev => {
+        const next = new Set(prev);
+        if (next.has(key)) next.delete(key); else next.add(key);
+        return next;
+      });
+      setLastClickedCell(key);
+      return;
+    }
+
+    // Plain click: select single cell (or deselect if already the only one selected)
+    if (selectedCells.size === 1 && selectedCells.has(key)) {
+      setSelectedCells(new Set());
+      setLastClickedCell(null);
+    } else {
+      setSelectedCells(new Set([key]));
+      setLastClickedCell(key);
+    }
+  }, [editMode, lastClickedCell, selectedCells, getCellsBetween]);
+
+  const handleCellMouseDown = useCallback((empId: string, iso: string, ev: React.MouseEvent) => {
+    if (!editMode || ev.shiftKey || ev.ctrlKey || ev.metaKey || ev.button !== 0) return;
+    dragStartRef.current = `${empId}|${iso}`;
+    setIsDragging(false);
+  }, [editMode]);
+
+  const handleCellMouseEnter = useCallback((empId: string, iso: string) => {
+    if (!editMode || !dragStartRef.current) return;
+    setIsDragging(true);
+    const range = getCellsBetween(dragStartRef.current, `${empId}|${iso}`);
+    setSelectedCells(new Set(range));
+  }, [editMode, getCellsBetween]);
+
+  const handleMouseUp = useCallback(() => {
+    dragStartRef.current = null;
+    setIsDragging(false);
+  }, []);
+
+  const applyToSelected = useCallback((edit: Partial<CellEdit>) => {
+    if (!onCellChange) return;
+    for (const key of selectedCells) {
+      const [eid, date] = key.split("|");
+      onCellChange(eid!, date!, edit);
+    }
+    setSelectedCells(new Set());
+    setLastClickedCell(null);
+  }, [selectedCells, onCellChange]);
+
   /* ──── menu helpers ──── */
 
   const closeMenu = () => {
@@ -438,10 +578,16 @@ export default function MonthTableView({
     // grouped by mainStation). Exclude completely unassigned (they appear in "Nicht eingeplant").
     let filtered = sectionEmployees;
     const assignedEmpIds = new Set(assignments.map((a) => a.employeeId));
+    const hasEdits = editMode && editedCells && editedCells.size > 0;
     if (typeof filter === "object" && "station" in filter) {
-      filtered = sectionEmployees.filter((emp) => assignedEmpIds.has(emp.id));
+      // In edit mode, show all employees in their station (even without assignments yet)
+      if (!editMode) {
+        filtered = sectionEmployees.filter((emp) => assignedEmpIds.has(emp.id));
+      }
     } else if (filter === "night-only") {
       // Already filtered by getNightEmployees
+      // In edit mode on empty schedule, skip night section (no assignments to detect night from)
+      if (editMode && assignments.length === 0 && !hasEdits) return null;
     }
     if (filtered.length === 0) return null;
     const sorted = sortEmployees(filtered);
@@ -498,12 +644,57 @@ export default function MonthTableView({
                 const hName = holidayMap?.get(iso);
                 const dayWarnings = warningsByDay?.[iso];
                 const hasWarning = dayWarnings && dayWarnings.length > 0;
+
+                // Live staffing counters for this day + station section
+                let staffingLabel: React.ReactNode = null;
+                if (editMode && liveStaffing && typeof filter === "object" && "station" in filter) {
+                  const dayData = liveStaffing.get(iso);
+                  const stationNum = filter.station;
+                  // Show EARLY+LATE counts for the station
+                  const earlyCount = dayData?.get("EARLY")?.get(stationNum) ?? 0;
+                  const lateCount = dayData?.get("LATE")?.get(stationNum) ?? 0;
+                  const earlyReq = staffingRequirements?.find(s => s.shiftType === "EARLY" && s.stationNumber === stationNum && !s.isFacilityWide);
+                  const lateReq = staffingRequirements?.find(s => s.shiftType === "LATE" && s.stationNumber === stationNum && !s.isFacilityWide);
+                  const earlyMin = earlyReq?.minTotalCount ?? 0;
+                  const lateMin = lateReq?.minTotalCount ?? 0;
+                  staffingLabel = (
+                    <Box sx={{ display: "flex", gap: 0.3, justifyContent: "center", mt: "1px" }}>
+                      <Typography variant="caption" sx={{
+                        fontSize: 9, fontWeight: 700, lineHeight: 1,
+                        color: earlyCount >= earlyMin ? "success.main" : "error.main",
+                      }}>
+                        F{earlyCount}
+                      </Typography>
+                      <Typography variant="caption" sx={{
+                        fontSize: 9, fontWeight: 700, lineHeight: 1,
+                        color: lateCount >= lateMin ? "success.main" : "error.main",
+                      }}>
+                        S{lateCount}
+                      </Typography>
+                    </Box>
+                  );
+                } else if (editMode && liveStaffing && filter === "night-only") {
+                  const dayData = liveStaffing.get(iso);
+                  const nightCount = dayData?.get("NIGHT")?.get(0) ?? 0; // facility-wide
+                  const nightReq = staffingRequirements?.find(s => s.shiftType === "NIGHT" && s.isFacilityWide);
+                  const nightMin = nightReq?.minTotalCount ?? 0;
+                  staffingLabel = (
+                    <Typography variant="caption" sx={{
+                      fontSize: 9, fontWeight: 700, lineHeight: 1, mt: "1px",
+                      color: nightCount >= nightMin ? "success.main" : "error.main",
+                    }}>
+                      N{nightCount}
+                    </Typography>
+                  );
+                }
+
                 const inner = (
                   <>
                     <Typography variant="caption" display="block" color="text.secondary">
                       {wd}
                     </Typography>
                     {d}
+                    {staffingLabel}
                     {hasWarning && (
                       <WarningAmberIcon
                         sx={{
@@ -726,6 +917,7 @@ export default function MonthTableView({
                       shiftWishSet?.has(cellKey) && !display.isStatus;
                     const isFreiWish = freiWishSet?.has(cellKey);
                     const isChanged = editMode && editedCells?.has(cellKey);
+                    const isSelected = editMode && selectedCells.has(cellKey);
                     const statusStyle =
                       display.isStatus && display.statusCode
                         ? STATUS_COLORS[display.statusCode]
@@ -733,7 +925,9 @@ export default function MonthTableView({
 
                     let cellBg: string | undefined;
                     let cellColor: string | undefined;
-                    if (statusStyle) {
+                    if (isSelected) {
+                      cellBg = SELECTED_BG;
+                    } else if (statusStyle) {
                       cellBg = statusStyle.bg;
                       cellColor = statusStyle.color;
                     } else if (isShiftWish) {
@@ -766,12 +960,17 @@ export default function MonthTableView({
                       >
                         <TableCell
                           align="center"
-                          onClick={() => {
+                          data-cell-key={cellKey}
+                          onClick={(ev) => {
                             if (!editMode) {
                               const [y, m, d] = iso.split("-").map(Number);
                               onDayClick(new Date(y!, m! - 1, d!));
+                            } else {
+                              handleCellClick(emp.id, iso, ev);
                             }
                           }}
+                          onMouseDown={(ev) => handleCellMouseDown(emp.id, iso, ev)}
+                          onMouseEnter={() => handleCellMouseEnter(emp.id, iso)}
                           onContextMenu={(ev) => {
                             if (editMode && onToggleWish) {
                               ev.preventDefault();
@@ -793,10 +992,12 @@ export default function MonthTableView({
                             borderRightColor: "divider",
                             borderBottom: "2px solid",
                             borderBottomColor: "grey.400",
+                            userSelect: editMode ? "none" : undefined,
                             "&:hover": { opacity: 0.85 },
                             ...(isShiftWish && { fontWeight: 700 }),
                             ...(isFreiWish && { fontStyle: "italic" }),
-                            ...(isChanged && { border: EDIT_CHANGED_BORDER }),
+                            ...(isSelected && { border: SELECTED_BORDER }),
+                            ...(isChanged && !isSelected && { border: EDIT_CHANGED_BORDER }),
                           }}
                         >
                           <Box
@@ -914,7 +1115,7 @@ export default function MonthTableView({
                             {/* Row 1 – shift profile / status */}
                             <Box
                               onClick={(ev) => {
-                                if (editMode) {
+                                if (editMode && selectedCells.size === 0 && !ev.shiftKey && !ev.ctrlKey && !ev.metaKey) {
                                   ev.stopPropagation();
                                   setMenuCell({ empId: emp.id, iso });
                                   setMenuRow(1);
@@ -945,7 +1146,7 @@ export default function MonthTableView({
                             {/* Row 2 – marking */}
                             <Box
                               onClick={(ev) => {
-                                if (editMode) {
+                                if (editMode && selectedCells.size === 0 && !ev.shiftKey && !ev.ctrlKey && !ev.metaKey) {
                                   ev.stopPropagation();
                                   setMenuCell({ empId: emp.id, iso });
                                   setMenuRow(2);
@@ -976,7 +1177,7 @@ export default function MonthTableView({
                             {/* Row 3 – marking */}
                             <Box
                               onClick={(ev) => {
-                                if (editMode) {
+                                if (editMode && selectedCells.size === 0 && !ev.shiftKey && !ev.ctrlKey && !ev.metaKey) {
                                   ev.stopPropagation();
                                   setMenuCell({ empId: emp.id, iso });
                                   setMenuRow(3);
@@ -1132,15 +1333,18 @@ export default function MonthTableView({
 
   return (
     <Box
+      ref={containerRef}
+      onMouseUp={handleMouseUp}
       sx={{
         maxHeight: "70vh",
         overflow: "auto",
         border: 1,
         borderColor: "divider",
         borderRadius: 1,
+        position: "relative",
       }}
     >
-      {assignments.length === 0 ? (
+      {assignments.length === 0 && !editMode ? (
         renderSection("Mitarbeiter", employees, "none")
       ) : (
         <>
@@ -1235,6 +1439,59 @@ export default function MonthTableView({
                 </MenuItem>
               )),
 
+              <Divider key="div-station" />,
+
+              <ListSubheader key="hdr-station" sx={{ lineHeight: "32px" }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                  <LocationOnIcon sx={{ fontSize: 16 }} />
+                  Station zuweisen
+                </Box>
+              </ListSubheader>,
+
+              ...[1, 2, 3].map((sNum) => (
+                <MenuItem
+                  key={`station-${sNum}`}
+                  dense
+                  sx={{ pl: 4 }}
+                  onClick={() => {
+                    if (menuCell && onCellChange)
+                      onCellChange(menuCell.empId, menuCell.iso, {
+                        stationNumber: sNum,
+                      });
+                    closeMenu();
+                  }}
+                >
+                  <Box
+                    component="span"
+                    sx={{
+                      width: 20, height: 20, borderRadius: "50%",
+                      bgcolor: STATION_COLORS[sNum]?.light, color: STATION_COLORS[sNum]?.main,
+                      border: `1.5px solid ${STATION_COLORS[sNum]?.main}`,
+                      display: "inline-flex", alignItems: "center", justifyContent: "center",
+                      fontSize: 11, fontWeight: 700, mr: 1,
+                    }}
+                  >{sNum}</Box>
+                  Station {sNum}
+                </MenuItem>
+              )),
+
+              <MenuItem
+                key="station-clear"
+                dense
+                sx={{ pl: 4 }}
+                onClick={() => {
+                  if (menuCell && onCellChange)
+                    onCellChange(menuCell.empId, menuCell.iso, {
+                      stationNumber: null,
+                    });
+                  closeMenu();
+                }}
+              >
+                <Typography variant="body2" color="text.secondary" sx={{ fontSize: 13 }}>
+                  Hauptstation verwenden
+                </Typography>
+              </MenuItem>,
+
               <Divider key="div-remove" />,
 
               <MenuItem
@@ -1326,6 +1583,131 @@ export default function MonthTableView({
             : "Als Frei-Wunsch markieren"}
         </MenuItem>
       </Menu>
+
+      {/* ── Floating toolbar (visible when cells are selected) ── */}
+      {editMode && selectedCells.size > 0 && (
+        <Paper
+          elevation={6}
+          sx={{
+            position: "sticky",
+            bottom: 0,
+            left: 0,
+            right: 0,
+            zIndex: 10,
+            display: "flex",
+            alignItems: "center",
+            gap: 1,
+            px: 2,
+            py: 1.5,
+            bgcolor: "background.paper",
+            borderTop: "2px solid",
+            borderColor: "primary.main",
+            flexWrap: "wrap",
+          }}
+        >
+          <Chip
+            size="small"
+            label={`${selectedCells.size} Zellen`}
+            color="primary"
+            variant="outlined"
+            sx={{ fontWeight: 700, mr: 1 }}
+          />
+
+          {/* Shift profile buttons grouped by type */}
+          {SHIFT_TYPE_ORDER.map((type) => {
+            const profiles = profilesByType.get(type);
+            if (!profiles?.length) return null;
+            return (
+              <Box key={type} sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 600, fontSize: 10, mr: 0.5 }}>
+                  {SHIFT_TYPE_LABELS[type]}
+                </Typography>
+                {profiles.map((p) => (
+                  <Chip
+                    key={p.id}
+                    size="small"
+                    label={p.name}
+                    onClick={() => applyToSelected({ shiftProfileId: p.id, dayStatus: null })}
+                    sx={{
+                      cursor: "pointer",
+                      fontSize: 11,
+                      height: 26,
+                      "&:hover": { bgcolor: "action.hover" },
+                    }}
+                  />
+                ))}
+              </Box>
+            );
+          })}
+
+          <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+
+          {/* Status code buttons */}
+          {STATUS_CODES.map(({ code, label }) => (
+            <Chip
+              key={code}
+              size="small"
+              label={code}
+              title={label}
+              onClick={() => applyToSelected({ dayStatus: code })}
+              sx={{
+                cursor: "pointer",
+                fontSize: 11,
+                height: 26,
+                bgcolor: STATUS_COLORS[code]?.bg,
+                color: STATUS_COLORS[code]?.color,
+                fontWeight: 700,
+                "&:hover": { opacity: 0.8 },
+              }}
+            />
+          ))}
+
+          <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+
+          {/* Station override buttons */}
+          {[1, 2, 3].map((sNum) => (
+            <Chip
+              key={`st-${sNum}`}
+              size="small"
+              label={`St${sNum}`}
+              title={`Station ${sNum}`}
+              onClick={() => applyToSelected({ stationNumber: sNum })}
+              sx={{
+                cursor: "pointer",
+                fontSize: 11,
+                height: 26,
+                bgcolor: STATION_COLORS[sNum]?.light,
+                color: STATION_COLORS[sNum]?.main,
+                fontWeight: 700,
+                border: `1px solid ${STATION_COLORS[sNum]?.main}`,
+                "&:hover": { opacity: 0.8 },
+              }}
+            />
+          ))}
+
+          <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+
+          {/* Remove / clear button */}
+          <Chip
+            size="small"
+            label="Entfernen"
+            icon={<RemoveCircleOutlineIcon sx={{ fontSize: 16 }} />}
+            onClick={() => applyToSelected({ shiftProfileId: null, dayStatus: null })}
+            color="error"
+            variant="outlined"
+            sx={{ cursor: "pointer", fontSize: 11, height: 26 }}
+          />
+
+          {/* Deselect button */}
+          <Chip
+            size="small"
+            label="Abwählen"
+            onClick={() => { setSelectedCells(new Set()); setLastClickedCell(null); }}
+            variant="outlined"
+            sx={{ cursor: "pointer", fontSize: 11, height: 26, ml: "auto" }}
+          />
+        </Paper>
+      )}
     </Box>
   );
 }

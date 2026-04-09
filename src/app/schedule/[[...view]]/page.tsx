@@ -59,6 +59,7 @@ import DescriptionIcon from "@mui/icons-material/Description";
 import SickIcon from "@mui/icons-material/Sick";
 import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
 import CleaningServicesIcon from "@mui/icons-material/CleaningServices";
+import DrawIcon from "@mui/icons-material/Draw";
 import { ApiError, fetchJson } from "@/lib/api/fetchJson";
 import {
   monthRangeIso,
@@ -1406,6 +1407,17 @@ export default function SchedulePage() {
                 {clearBusy ? <CircularProgress size={20} /> : "Leeren"}
               </Button>
               {!editMode ? (
+                <>
+                <Button
+                  variant="outlined"
+                  startIcon={<DrawIcon />}
+                  disabled={
+                    loading || !schedule || assignments.length > 0 || generateBusy || editMode
+                  }
+                  onClick={enterEditMode}
+                >
+                  Manuell erstellen
+                </Button>
                 <Button
                   variant="outlined"
                   startIcon={<EditIcon />}
@@ -1417,6 +1429,7 @@ export default function SchedulePage() {
                 >
                   Bearbeiten
                 </Button>
+                </>
               ) : (
                 <>
                   <Button
@@ -1530,6 +1543,7 @@ export default function SchedulePage() {
               onToggleWish={handleToggleWish}
               holidayMap={holidays}
               warningsByDay={warningsByDay}
+              staffingRequirements={staffing}
             />
           )}
 
