@@ -87,7 +87,7 @@ interface SolverRules {
   sollMaxDelta: number;
 }
 
-interface SolverPreviousAssignment {
+export interface SolverPreviousAssignment {
   employeeId: string;
   date: string;
   shiftProfileId: string;
