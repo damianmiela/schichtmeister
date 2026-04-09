@@ -133,8 +133,9 @@ export async function GET(_request: Request, context: RouteCtx) {
       schedule.periodEnd,
       genCtx,
       facilitySlice,
-      [],
-      [],
+      [], // manualPlacements
+      [], // blockedDates
+      [], // absences
       previousAssignments,
     );
   } catch {
