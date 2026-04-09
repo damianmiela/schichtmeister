@@ -38,7 +38,7 @@ W_WISH_NORMAL = 3_000
 W_WISH_STRONG = 6_000
 W_PREFERENCE = 1
 # Tier 2b — Cross-month boundary weekends (strong but not infeasible)
-W_WEEKEND_BOUNDARY = 40_000
+W_WEEKEND_BOUNDARY = 80_000
 
 
 def _emp_station_map(req: SolveRequest) -> dict[str, set[int]]:
@@ -652,9 +652,132 @@ def add_shift_distribution_soft(
     return terms
 
 
-# ── Cross-month alternating weekends (soft) ──────────────────────────
+# ── Cross-month boundary soft constraints ────────────────────────────
+
+W_CONSEC_DAYS_BOUNDARY = 80_000
+W_REST_AFTER_6_BOUNDARY = 70_000
 
 WorksDay = dict[tuple[str, str], cp_model.IntVar]
+
+
+def add_consecutive_days_boundary_soft(
+    model: cp_model.CpModel,
+    works_day: WorksDay,
+    req: SolveRequest,
+) -> list[tuple[cp_model.IntVar, int]]:
+    """Soft penalty for cross-month consecutive day streaks exceeding maxConsecutiveDays.
+
+    Looks at previous assignments to find employees who worked the last N days
+    of the previous month.  For each such employee, penalizes working on the
+    first days of the current period that would extend their streak beyond the
+    max.
+    """
+    terms: list[tuple[cp_model.IntVar, int]] = []
+
+    if not req.previousAssignments:
+        return terms
+
+    dates = dates_in_range(req.periodStart, req.periodEnd)
+    if not dates:
+        return terms
+
+    global_max = req.rules.maxConsecutiveDays
+    first_date = dates[0]
+
+    # Build previous work dates per employee
+    prev_worked: dict[str, set[str]] = {}
+    for pa in req.previousAssignments:
+        prev_worked.setdefault(pa.employeeId, set()).add(pa.date)
+
+    for emp in req.employees:
+        max_days = emp.maxConsecutiveDays if emp.maxConsecutiveDays is not None else global_max
+        emp_dates = prev_worked.get(emp.id, set())
+        if not emp_dates:
+            continue
+
+        # Count consecutive days worked immediately before period start
+        streak = 0
+        for offset in range(1, 8):
+            d = first_date - timedelta(days=offset)
+            if d.isoformat() in emp_dates:
+                streak += 1
+            else:
+                break
+
+        if streak == 0:
+            continue
+
+        # Penalize working on the first days that would push streak > max_days
+        remaining_before_violation = max(0, max_days - streak)
+        # For each day in the current period that extends the streak past max_days,
+        # add penalty.  But only if all prior current-period days are also worked.
+        # Simplification: penalize days 0..min(streak, 3) of the current period
+        # proportionally to how close the streak is to the limit.
+        days_to_penalize = max(0, streak - remaining_before_violation + 1)
+        for i in range(min(days_to_penalize, len(dates))):
+            ds = dates[i].isoformat()
+            key = (emp.id, ds)
+            if key in works_day:
+                # Higher penalty for days that definitively break the limit
+                terms.append((works_day[key], W_CONSEC_DAYS_BOUNDARY))
+
+    return terms
+
+
+def add_rest_after_streak_boundary_soft(
+    model: cp_model.CpModel,
+    works_day: WorksDay,
+    req: SolveRequest,
+) -> list[tuple[cp_model.IntVar, int]]:
+    """Soft penalty for missing rest days after a 6+ day streak that spans
+    the month boundary.
+
+    If an employee worked 6+ consecutive days ending at the previous month's
+    last day, penalize working on the first 2 days of the current period
+    (they should be resting).
+    """
+    terms: list[tuple[cp_model.IntVar, int]] = []
+
+    if not req.previousAssignments:
+        return terms
+
+    dates = dates_in_range(req.periodStart, req.periodEnd)
+    if not dates:
+        return terms
+
+    rest_required = req.rules.requiredRestDaysAfter6
+    first_date = dates[0]
+
+    prev_worked: dict[str, set[str]] = {}
+    for pa in req.previousAssignments:
+        prev_worked.setdefault(pa.employeeId, set()).add(pa.date)
+
+    for emp in req.employees:
+        emp_dates = prev_worked.get(emp.id, set())
+        if not emp_dates:
+            continue
+
+        # Count consecutive work days ending at the day before period start
+        streak = 0
+        for offset in range(1, 8):
+            d = first_date - timedelta(days=offset)
+            if d.isoformat() in emp_dates:
+                streak += 1
+            else:
+                break
+
+        if streak < 6:
+            continue
+
+        # Employee had 6+ consecutive days before period start.
+        # Penalize working on the first rest_required days.
+        for i in range(min(rest_required, len(dates))):
+            ds = dates[i].isoformat()
+            key = (emp.id, ds)
+            if key in works_day:
+                terms.append((works_day[key], W_REST_AFTER_6_BOUNDARY))
+
+    return terms
 
 
 def add_alternating_weekends_boundary_soft(

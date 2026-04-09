@@ -80,6 +80,8 @@ def _run(data: dict) -> None:
     emp_stations = {e["id"]: set(e.get("assignedStations", [])) for e in employees}
     emp_is_wbl = {e["id"]: e.get("isWbl", False) for e in employees}
     emp_quals = {e["id"]: set(e.get("qualificationTags", [])) for e in employees}
+    sh_emp_ids = {e["id"] for e in employees if "SH" in e.get("qualificationTags", [])}
+    bl_profile_ids = {p["id"] for p in profiles if p.get("shiftType") == "BL"}
 
     # Build absence date sets per employee
     absent_dates: dict[str, set[date]] = collections.defaultdict(set)
@@ -221,6 +223,11 @@ def _run(data: dict) -> None:
 
             for a in assigned_list:
                 eid = a["employeeId"]
+                # SH employees and BL profiles don't count toward station coverage
+                if eid in sh_emp_ids:
+                    continue
+                if a.get("shiftProfileId") in bl_profile_ids:
+                    continue
                 sn = a.get("stationNumber")
                 if sn is not None:
                     try:
@@ -278,7 +285,9 @@ def _run(data: dict) -> None:
                 1
                 for a in assignments
                 if (
-                    _shift_type_of(a, prof_type) == stype
+                    a["employeeId"] not in sh_emp_ids
+                    and a.get("shiftProfileId") not in bl_profile_ids
+                    and _shift_type_of(a, prof_type) == stype
                     and _physical_station(a, a["employeeId"], emp_stations) == s
                 )
             )
@@ -683,23 +692,37 @@ def _run(data: dict) -> None:
 
         emp_shifts.sort(key=lambda x: (x[0], _time_to_minutes(x[2])))
         for i in range(len(emp_shifts) - 1):
-            d1, pid1, _, end1 = emp_shifts[i]
-            d2, pid2, start2, _ = emp_shifts[i + 1]
-            end_min = _time_to_minutes(end1)
-            start_min = _time_to_minutes(start2)
-            # End time on day d1, start time on day d2
+            d1, pid1, start1, end1 = emp_shifts[i]
+            d2, pid2, start2, end2 = emp_shifts[i + 1]
+            start1_min = _time_to_minutes(start1)
+            end1_min = _time_to_minutes(end1)
+            start2_min = _time_to_minutes(start2)
             day_diff = (d2 - d1).days
-            if day_diff == 0:
-                continue  # Same day, skip (shouldn't have two shifts same day normally)
-            if day_diff > 1:
-                continue  # More than 1 day gap, rest is fine
-            # Consecutive days: rest = (24:00 - end1) + start2
-            # If end time is after midnight (e.g., night shift ending at 06:00), account for it
-            if end_min > start_min:
-                # Night shift scenario: end1 is next morning, start2 is same day
-                rest_hours = start_min / 60.0  # start2 is hours from midnight
-            else:
-                rest_hours = (start_min - end_min) / 60.0 + 24.0 * (day_diff - 1)
+            if day_diff == 0 or day_diff > 2:
+                continue
+
+            # A shift crosses midnight if its end time < start time (e.g. 21:00-06:30)
+            shift1_crosses_midnight = end1_min < start1_min
+
+            if day_diff == 1:
+                if shift1_crosses_midnight:
+                    # Shift1 actually ends at end1_min on d1+1 = d2
+                    # Shift2 starts at start2_min on d2
+                    rest_min = start2_min - end1_min
+                else:
+                    # Shift1 ends at end1_min on d1
+                    # Shift2 starts at start2_min on d2 = d1+1
+                    rest_min = (1440 - end1_min) + start2_min
+            else:  # day_diff == 2
+                if shift1_crosses_midnight:
+                    # Shift1 ends at end1_min on d1+1
+                    # Shift2 starts at start2_min on d1+2
+                    rest_min = (1440 - end1_min) + start2_min
+                else:
+                    # Shift1 ends on d1, shift2 starts on d1+2 → always >24h
+                    continue
+
+            rest_hours = rest_min / 60.0
             if rest_hours < min_rest:
                 rest_violations.append((
                     name,

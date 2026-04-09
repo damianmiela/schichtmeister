@@ -47,6 +47,8 @@ from constraints.soft import (
     add_preference_bonus,
     add_shift_distribution_soft,
     add_alternating_weekends_boundary_soft,
+    add_consecutive_days_boundary_soft,
+    add_rest_after_streak_boundary_soft,
 )
 
 
@@ -387,6 +389,8 @@ def solve(request: SolveRequest) -> SolveResponse:
     objective_terms.extend(add_preference_bonus(model, shift, request))
     objective_terms.extend(add_shift_distribution_soft(model, shift, request))
     objective_terms.extend(add_alternating_weekends_boundary_soft(model, works_day, request))
+    objective_terms.extend(add_consecutive_days_boundary_soft(model, works_day, request))
+    objective_terms.extend(add_rest_after_streak_boundary_soft(model, works_day, request))
 
     if objective_terms:
         model.Minimize(sum(var * weight for var, weight in objective_terms))
@@ -576,6 +580,8 @@ def solve_streaming(request: SolveRequest) -> Generator[str, None, None]:
     objective_terms.extend(add_preference_bonus(model, shift, request))
     objective_terms.extend(add_shift_distribution_soft(model, shift, request))
     objective_terms.extend(add_alternating_weekends_boundary_soft(model, works_day, request))
+    objective_terms.extend(add_consecutive_days_boundary_soft(model, works_day, request))
+    objective_terms.extend(add_rest_after_streak_boundary_soft(model, works_day, request))
 
     if objective_terms:
         model.Minimize(sum(var * weight for var, weight in objective_terms))
