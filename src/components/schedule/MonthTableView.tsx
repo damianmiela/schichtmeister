@@ -975,9 +975,9 @@ export default function MonthTableView({
                             if (!editMode) {
                               const [y, m, d] = iso.split("-").map(Number);
                               onDayClick(new Date(y!, m! - 1, d!));
-                            } else {
-                              handleCellClick(emp.id, iso, ev);
                             }
+                            // Selection clicks are handled via handleCellClick
+                            // which is called from the row boxes or from here only for modifier keys
                           }}
                           onMouseDown={(ev) => handleCellMouseDown(emp.id, iso, ev)}
                           onMouseEnter={() => handleCellMouseEnter(emp.id, iso)}
@@ -1125,12 +1125,17 @@ export default function MonthTableView({
                             {/* Row 1 – shift profile / status */}
                             <Box
                               onClick={(ev) => {
-                                if (editMode && selectedCells.size === 0 && !ev.shiftKey && !ev.ctrlKey && !ev.metaKey) {
-                                  ev.stopPropagation();
-                                  setMenuCell({ empId: emp.id, iso });
-                                  setMenuRow(1);
-                                  setMenuAnchor(ev.currentTarget as HTMLElement);
+                                if (!editMode) return;
+                                ev.stopPropagation();
+                                // Modifier keys or existing selection → multi-cell selection mode
+                                if (ev.shiftKey || ev.ctrlKey || ev.metaKey || selectedCells.size > 0) {
+                                  handleCellClick(emp.id, iso, ev);
+                                  return;
                                 }
+                                // Plain click, no selection → open single-cell menu
+                                setMenuCell({ empId: emp.id, iso });
+                                setMenuRow(1);
+                                setMenuAnchor(ev.currentTarget as HTMLElement);
                               }}
                               sx={{
                                 fontSize: 12,
@@ -1156,12 +1161,15 @@ export default function MonthTableView({
                             {/* Row 2 – marking */}
                             <Box
                               onClick={(ev) => {
-                                if (editMode && selectedCells.size === 0 && !ev.shiftKey && !ev.ctrlKey && !ev.metaKey) {
-                                  ev.stopPropagation();
-                                  setMenuCell({ empId: emp.id, iso });
-                                  setMenuRow(2);
-                                  setMenuAnchor(ev.currentTarget as HTMLElement);
+                                if (!editMode) return;
+                                ev.stopPropagation();
+                                if (ev.shiftKey || ev.ctrlKey || ev.metaKey || selectedCells.size > 0) {
+                                  handleCellClick(emp.id, iso, ev);
+                                  return;
                                 }
+                                setMenuCell({ empId: emp.id, iso });
+                                setMenuRow(2);
+                                setMenuAnchor(ev.currentTarget as HTMLElement);
                               }}
                               sx={{
                                 fontSize: "0.65rem",
@@ -1187,12 +1195,15 @@ export default function MonthTableView({
                             {/* Row 3 – marking */}
                             <Box
                               onClick={(ev) => {
-                                if (editMode && selectedCells.size === 0 && !ev.shiftKey && !ev.ctrlKey && !ev.metaKey) {
-                                  ev.stopPropagation();
-                                  setMenuCell({ empId: emp.id, iso });
-                                  setMenuRow(3);
-                                  setMenuAnchor(ev.currentTarget as HTMLElement);
+                                if (!editMode) return;
+                                ev.stopPropagation();
+                                if (ev.shiftKey || ev.ctrlKey || ev.metaKey || selectedCells.size > 0) {
+                                  handleCellClick(emp.id, iso, ev);
+                                  return;
                                 }
+                                setMenuCell({ empId: emp.id, iso });
+                                setMenuRow(3);
+                                setMenuAnchor(ev.currentTarget as HTMLElement);
                               }}
                               sx={{
                                 fontSize: "0.65rem",
