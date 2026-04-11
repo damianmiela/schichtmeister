@@ -883,8 +883,16 @@ export default function MonthTableView({
 
                     if (filter !== "none" && !display.isStatus) {
                       const asgn = byEmpDay.get(cellKey);
-                      if (asgn) {
-                        const prof = profilesById[asgn.shiftProfileId];
+                      const edit = editedCells?.get(cellKey);
+
+                      // Resolve effective shift profile (edit overrides assignment)
+                      const effectivePid = edit?.shiftProfileId !== undefined
+                        ? edit.shiftProfileId
+                        : asgn?.shiftProfileId ?? null;
+                      const effectiveProf = effectivePid ? profilesById[effectivePid] : null;
+
+                      if (effectiveProf || asgn) {
+                        const prof = effectiveProf ?? (asgn ? profilesById[asgn.shiftProfileId] : null);
                         if (filter === "night-only") {
                           if (prof?.shiftType !== "NIGHT") {
                             display = { row1: "X", row2: "", row3: "", isStatus: true, statusCode: "X" };
@@ -897,15 +905,17 @@ export default function MonthTableView({
                               crossIndicator: { label: "N", ...NIGHT_COLOR },
                             };
                           } else {
-                            const asgnStation = asgn.stationNumber
+                            // Resolve effective station: edit > assignment > employee default
+                            const effectiveStation = (edit?.stationNumber !== undefined ? edit.stationNumber : null)
+                              ?? asgn?.stationNumber
                               ?? emp.mainStation
                               ?? (emp.assignedStations?.length === 1 ? emp.assignedStations[0] : null);
-                            if (asgnStation != null && asgnStation !== filter.station) {
+                            if (effectiveStation != null && effectiveStation !== filter.station) {
                               // Different station — split cell: left badge + right shift info
-                              const stColor = STATION_COLORS[asgnStation] ?? { main: "#78909c", light: "#eceff1" };
+                              const stColor = STATION_COLORS[effectiveStation] ?? { main: "#78909c", light: "#eceff1" };
                               display = {
                                 ...display,
-                                crossStationBadge: { label: String(asgnStation), ...stColor },
+                                crossStationBadge: { label: String(effectiveStation), ...stColor },
                               };
                             }
                           }
