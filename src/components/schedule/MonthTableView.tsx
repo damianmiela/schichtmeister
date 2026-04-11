@@ -344,6 +344,7 @@ export default function MonthTableView({
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const workDays = workingDaysInMonth(year, monthIndex);
 
@@ -501,15 +502,16 @@ export default function MonthTableView({
     if (!editMode) return;
     const key = `${empId}|${iso}`;
 
+    // Modifier keys fire immediately (no double-click ambiguity)
     if (ev.shiftKey && lastClickedCell) {
-      // Shift+click: range select
+      if (clickTimerRef.current) { clearTimeout(clickTimerRef.current); clickTimerRef.current = null; }
       const range = getCellsBetween(lastClickedCell, key);
       setSelectedCells(new Set(range));
       return;
     }
 
     if (ev.ctrlKey || ev.metaKey) {
-      // Ctrl+click: toggle individual cell
+      if (clickTimerRef.current) { clearTimeout(clickTimerRef.current); clickTimerRef.current = null; }
       setSelectedCells(prev => {
         const next = new Set(prev);
         if (next.has(key)) next.delete(key); else next.add(key);
@@ -519,14 +521,18 @@ export default function MonthTableView({
       return;
     }
 
-    // Plain click: select single cell (or deselect if already the only one selected)
-    if (selectedCells.size === 1 && selectedCells.has(key)) {
-      setSelectedCells(new Set());
-      setLastClickedCell(null);
-    } else {
-      setSelectedCells(new Set([key]));
-      setLastClickedCell(key);
-    }
+    // Plain click: debounce to distinguish from double-click
+    if (clickTimerRef.current) { clearTimeout(clickTimerRef.current); clickTimerRef.current = null; }
+    clickTimerRef.current = setTimeout(() => {
+      clickTimerRef.current = null;
+      if (selectedCells.size === 1 && selectedCells.has(key)) {
+        setSelectedCells(new Set());
+        setLastClickedCell(null);
+      } else {
+        setSelectedCells(new Set([key]));
+        setLastClickedCell(key);
+      }
+    }, 200);
   }, [editMode, lastClickedCell, selectedCells, getCellsBetween]);
 
   const handleCellMouseDown = useCallback((empId: string, iso: string, ev: React.MouseEvent) => {
@@ -975,9 +981,22 @@ export default function MonthTableView({
                             if (!editMode) {
                               const [y, m, d] = iso.split("-").map(Number);
                               onDayClick(new Date(y!, m! - 1, d!));
+                            } else {
+                              // Single click = select cell (for toolbar operations)
+                              handleCellClick(emp.id, iso, ev);
                             }
-                            // Selection clicks are handled via handleCellClick
-                            // which is called from the row boxes or from here only for modifier keys
+                          }}
+                          onDoubleClick={(ev) => {
+                            if (!editMode) return;
+                            ev.stopPropagation();
+                            // Cancel pending single-click selection
+                            if (clickTimerRef.current) { clearTimeout(clickTimerRef.current); clickTimerRef.current = null; }
+                            // Double-click = open single-cell detail menu
+                            setSelectedCells(new Set());
+                            setLastClickedCell(null);
+                            setMenuCell({ empId: emp.id, iso });
+                            setMenuRow(1);
+                            setMenuAnchor(ev.currentTarget as HTMLElement);
                           }}
                           onMouseDown={(ev) => handleCellMouseDown(emp.id, iso, ev)}
                           onMouseEnter={() => handleCellMouseEnter(emp.id, iso)}
@@ -1124,19 +1143,6 @@ export default function MonthTableView({
                             <>
                             {/* Row 1 – shift profile / status */}
                             <Box
-                              onClick={(ev) => {
-                                if (!editMode) return;
-                                ev.stopPropagation();
-                                // Modifier keys or existing selection → multi-cell selection mode
-                                if (ev.shiftKey || ev.ctrlKey || ev.metaKey || selectedCells.size > 0) {
-                                  handleCellClick(emp.id, iso, ev);
-                                  return;
-                                }
-                                // Plain click, no selection → open single-cell menu
-                                setMenuCell({ empId: emp.id, iso });
-                                setMenuRow(1);
-                                setMenuAnchor(ev.currentTarget as HTMLElement);
-                              }}
                               sx={{
                                 fontSize: 12,
                                 fontWeight: 600,
@@ -1160,17 +1166,6 @@ export default function MonthTableView({
 
                             {/* Row 2 – marking */}
                             <Box
-                              onClick={(ev) => {
-                                if (!editMode) return;
-                                ev.stopPropagation();
-                                if (ev.shiftKey || ev.ctrlKey || ev.metaKey || selectedCells.size > 0) {
-                                  handleCellClick(emp.id, iso, ev);
-                                  return;
-                                }
-                                setMenuCell({ empId: emp.id, iso });
-                                setMenuRow(2);
-                                setMenuAnchor(ev.currentTarget as HTMLElement);
-                              }}
                               sx={{
                                 fontSize: "0.65rem",
                                 lineHeight: 1.2,
@@ -1194,17 +1189,6 @@ export default function MonthTableView({
 
                             {/* Row 3 – marking */}
                             <Box
-                              onClick={(ev) => {
-                                if (!editMode) return;
-                                ev.stopPropagation();
-                                if (ev.shiftKey || ev.ctrlKey || ev.metaKey || selectedCells.size > 0) {
-                                  handleCellClick(emp.id, iso, ev);
-                                  return;
-                                }
-                                setMenuCell({ empId: emp.id, iso });
-                                setMenuRow(3);
-                                setMenuAnchor(ev.currentTarget as HTMLElement);
-                              }}
                               sx={{
                                 fontSize: "0.65rem",
                                 lineHeight: 1.2,
