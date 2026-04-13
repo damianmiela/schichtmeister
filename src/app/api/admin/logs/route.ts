@@ -33,33 +33,43 @@ export async function GET(request: NextRequest) {
   const startDate = params.get("startDate") ?? undefined;
   const endDate = params.get("endDate") ?? undefined;
 
-  if (action === "users") {
-    const users = getLogUsers(logType, startDate, endDate);
-    return NextResponse.json({ users });
+  try {
+    if (action === "users") {
+      const users = getLogUsers(logType, startDate, endDate);
+      return NextResponse.json({ users });
+    }
+
+    if (action === "stats") {
+      const date = params.get("date") ?? undefined;
+      const stats = getLogStats(logType, date);
+      return NextResponse.json({ stats });
+    }
+
+    // Default: return entries
+    const userId = params.get("userId") ?? undefined;
+    const eventTypesRaw = params.get("eventTypes");
+    const eventTypes = eventTypesRaw ? eventTypesRaw.split(",") : undefined;
+    const limit = Math.min(500, Math.max(1, Number(params.get("limit")) || 200));
+    const offset = Math.max(0, Number(params.get("offset")) || 0);
+
+    const result = readLogs({
+      type: logType,
+      startDate,
+      endDate,
+      userId,
+      eventTypes,
+      limit,
+      offset,
+    });
+
+    return NextResponse.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? err.stack : undefined;
+    console.error("[admin/logs] Error:", message, stack);
+    return NextResponse.json(
+      { error: message, stack: process.env.NODE_ENV === "development" ? stack : undefined },
+      { status: 500 },
+    );
   }
-
-  if (action === "stats") {
-    const date = params.get("date") ?? undefined;
-    const stats = getLogStats(logType, date);
-    return NextResponse.json({ stats });
-  }
-
-  // Default: return entries
-  const userId = params.get("userId") ?? undefined;
-  const eventTypesRaw = params.get("eventTypes");
-  const eventTypes = eventTypesRaw ? eventTypesRaw.split(",") : undefined;
-  const limit = Math.min(500, Math.max(1, Number(params.get("limit")) || 200));
-  const offset = Math.max(0, Number(params.get("offset")) || 0);
-
-  const result = readLogs({
-    type: logType,
-    startDate,
-    endDate,
-    userId,
-    eventTypes,
-    limit,
-    offset,
-  });
-
-  return NextResponse.json(result);
 }
