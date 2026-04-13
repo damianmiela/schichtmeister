@@ -19,6 +19,8 @@ import {
   TableRow,
   Tooltip,
   Typography,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
@@ -130,7 +132,8 @@ const EDIT_CHANGED_BORDER = "2px dashed #ff9800";
 const SELECTED_BORDER = "2px solid #1976d2";
 const SELECTED_BG = "rgba(25, 118, 210, 0.08)";
 const ROW_HEIGHT = 56;
-const NAME_COL_WIDTH = 300;
+const NAME_COL_WIDTH_MOBILE = 120;
+const NAME_COL_WIDTH_DESKTOP = 300;
 
 const STATUS_CODES = [
   { code: "U", label: "Urlaub" },
@@ -331,6 +334,10 @@ export default function MonthTableView({
   staffingRequirements,
   shiftMarkings = [],
 }: MonthTableViewProps) {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const NAME_COL_WIDTH = isMobile ? NAME_COL_WIDTH_MOBILE : NAME_COL_WIDTH_DESKTOP;
+
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [menuCell, setMenuCell] = useState<{ empId: string; iso: string } | null>(null);
   const [menuRow, setMenuRow] = useState<1 | 2 | 3>(1);
@@ -654,7 +661,10 @@ export default function MonthTableView({
                   left: 0,
                   zIndex: 3,
                   bgcolor: sectionBg,
-                  fontSize: "0.875rem",
+                  fontSize: { xs: "0.65rem", sm: "0.75rem", md: "0.875rem" },
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
                 }}
               >
                 {title}
@@ -1143,7 +1153,7 @@ export default function MonthTableView({
                                 </Tooltip>
                                 <Box sx={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}>
                                   <Box sx={{
-                                    fontSize: 11,
+                                    fontSize: { xs: "0.65rem", sm: "0.85rem", md: 11 },
                                     fontWeight: 600,
                                     lineHeight: 1.2,
                                     textAlign: "center",
@@ -1153,11 +1163,15 @@ export default function MonthTableView({
                                     flex: 1,
                                     borderBottom: "1px solid",
                                     borderColor: "grey.200",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    whiteSpace: "nowrap",
+                                    px: { xs: 0.25, sm: 0.5 },
                                   }}>
                                     {displayRow1}
                                   </Box>
                                   <Box sx={{
-                                    fontSize: "0.6rem",
+                                    fontSize: { xs: "0.45rem", sm: "0.55rem", md: "0.6rem" },
                                     lineHeight: 1.1,
                                     color: cellColor ?? "text.secondary",
                                     textAlign: "center",
@@ -1167,11 +1181,15 @@ export default function MonthTableView({
                                     flex: 1,
                                     borderBottom: "1px solid",
                                     borderColor: "grey.200",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    whiteSpace: "nowrap",
+                                    px: { xs: 0.25, sm: 0.5 },
                                   }}>
                                     {display.row2 || "\u00A0"}
                                   </Box>
                                   <Box sx={{
-                                    fontSize: "0.6rem",
+                                    fontSize: { xs: "0.45rem", sm: "0.55rem", md: "0.6rem" },
                                     lineHeight: 1.1,
                                     color: cellColor ?? "text.secondary",
                                     textAlign: "center",
@@ -1179,6 +1197,10 @@ export default function MonthTableView({
                                     alignItems: "center",
                                     justifyContent: "center",
                                     flex: 1,
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    whiteSpace: "nowrap",
+                                    px: { xs: 0.25, sm: 0.5 },
                                   }}>
                                     {display.row3 || "\u00A0"}
                                   </Box>
@@ -1189,7 +1211,7 @@ export default function MonthTableView({
                             {/* Row 1 – shift profile / status */}
                             <Box
                               sx={{
-                                fontSize: 12,
+                                fontSize: { xs: "0.7rem", sm: "0.9rem", md: 12 },
                                 fontWeight: 600,
                                 lineHeight: 1.3,
                                 cursor: editMode ? "pointer" : "inherit",
@@ -1202,6 +1224,10 @@ export default function MonthTableView({
                                 borderBottom: "1px solid",
                                 borderColor: "grey.200",
                                 "&:hover": undefined,
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                                px: { xs: 0.25, sm: 0.5 },
                               }}
                             >
                               {displayRow1}
@@ -1210,7 +1236,7 @@ export default function MonthTableView({
                             {/* Row 2 – marking */}
                             <Box
                               sx={{
-                                fontSize: "0.65rem",
+                                fontSize: { xs: "0.5rem", sm: "0.6rem", md: "0.65rem" },
                                 lineHeight: 1.2,
                                 color: cellColor ?? "text.secondary",
                                 cursor: editMode ? "pointer" : "inherit",
@@ -1223,6 +1249,10 @@ export default function MonthTableView({
                                 borderBottom: "1px solid",
                                 borderColor: "grey.200",
                                 "&:hover": undefined,
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                                px: { xs: 0.25, sm: 0.5 },
                               }}
                             >
                               {display.row2 || "\u00A0"}
@@ -1231,7 +1261,7 @@ export default function MonthTableView({
                             {/* Row 3 – marking */}
                             <Box
                               sx={{
-                                fontSize: "0.65rem",
+                                fontSize: { xs: "0.5rem", sm: "0.6rem", md: "0.65rem" },
                                 lineHeight: 1.2,
                                 color: cellColor ?? "text.secondary",
                                 cursor: editMode ? "pointer" : "inherit",
@@ -1242,6 +1272,10 @@ export default function MonthTableView({
                                 justifyContent: "center",
                                 flex: 1,
                                 "&:hover": undefined,
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                                px: { xs: 0.25, sm: 0.5 },
                               }}
                             >
                               {display.row3 || "\u00A0"}
