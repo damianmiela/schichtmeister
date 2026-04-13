@@ -1336,31 +1336,31 @@ export default function SchedulePage() {
         </Breadcrumbs>
       </Box>
 
-      {/* ── Unified Toolbar ── */}
+      {/* ── Toolbar ── */}
       <Box
         sx={{
           display: "flex",
-          justifyContent: "center",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: 0.75,
           mb: 2.5,
         }}
       >
+        {/* Row 1: Month nav + view toggle */}
         <Box
           sx={{
             display: "flex",
             alignItems: "center",
-            gap: 1,
-            px: 1.5,
-            py: 0.75,
+            gap: 1.5,
+            px: 2,
+            py: 0.5,
             bgcolor: "grey.50",
             border: 1,
             borderColor: "grey.200",
             borderRadius: "10px",
-            flexWrap: "wrap",
-            justifyContent: "center",
           }}
         >
-          {/* ── Navigation ── */}
-          <Box sx={{ display: "flex", alignItems: "center", gap: 0 }}>
+          <Box sx={{ display: "flex", alignItems: "center" }}>
             <IconButton
               onClick={handlePrevious}
               disabled={loading || editMode}
@@ -1390,10 +1390,9 @@ export default function SchedulePage() {
             </IconButton>
           </Box>
 
-          {/* ── Employee picker (employee view only) ── */}
           {viewState.type === "employee" && sortedEmployees.length > 0 && (
             <>
-              <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+              <Divider orientation="vertical" flexItem />
               <Autocomplete
                 size="small"
                 options={sortedEmployees}
@@ -1415,10 +1414,9 @@ export default function SchedulePage() {
             </>
           )}
 
-          {/* ── View toggle (month view only) ── */}
           {viewState.type === "month" && (
             <>
-              <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+              <Divider orientation="vertical" flexItem />
               <ToggleButtonGroup
                 value={monthViewMode}
                 exclusive
@@ -1459,213 +1457,298 @@ export default function SchedulePage() {
               </ToggleButtonGroup>
             </>
           )}
+        </Box>
 
-          {/* ── Actions (month view only) ── */}
-          {viewState.type === "month" && (
-            <>
-              <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
-              <Box sx={{ display: "flex", alignItems: "center", gap: 0.25 }}>
-                {!editMode ? (
+        {/* Row 2: Tool icons with labels (month view only) */}
+        {viewState.type === "month" && (
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 0,
+              px: 1.5,
+              py: 0.5,
+              bgcolor: "grey.50",
+              border: 1,
+              borderColor: "grey.200",
+              borderRadius: "10px",
+            }}
+          >
+            {!editMode ? (
+              <>
+                {/* Labeled icon button helper — vertical stack */}
+                <Box
+                  component="button"
+                  onClick={() => {
+                    const saved = schedule?.preGenWishes?.savedEntries;
+                    if (saved && Array.isArray(saved) && saved.length > 0) {
+                      setPreGenEntries(saved as PreGenEntry[]);
+                    } else {
+                      setPreGenEntries([]);
+                    }
+                    setPreGenOpen(true);
+                  }}
+                  disabled={loading || !schedule || generateBusy}
+                  sx={{
+                    all: "unset",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: 0.25,
+                    px: 1.5,
+                    py: 0.75,
+                    borderRadius: "8px",
+                    cursor: "pointer",
+                    color: "text.secondary",
+                    transition: "background-color 0.15s",
+                    "&:hover:not(:disabled)": { bgcolor: "action.hover" },
+                    "&:disabled": { opacity: 0.38, cursor: "default" },
+                  }}
+                >
+                  {generateBusy ? <CircularProgress size={20} /> : <AutoAwesomeIcon sx={{ fontSize: 20 }} />}
+                  <Typography sx={{ fontSize: "0.62rem", lineHeight: 1.2, color: "inherit" }}>
+                    Generieren
+                  </Typography>
+                </Box>
+
+                <Box
+                  component="button"
+                  onClick={enterEditMode}
+                  disabled={
+                    loading || !schedule || generateBusy ||
+                    (assignments.length > 0 && (viewState.type !== "month" || monthViewMode !== "table"))
+                  }
+                  sx={{
+                    all: "unset",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: 0.25,
+                    px: 1.5,
+                    py: 0.75,
+                    borderRadius: "8px",
+                    cursor: "pointer",
+                    color: "text.secondary",
+                    transition: "background-color 0.15s",
+                    "&:hover:not(:disabled)": { bgcolor: "action.hover" },
+                    "&:disabled": { opacity: 0.38, cursor: "default" },
+                  }}
+                >
+                  {assignments.length === 0 ? <DrawIcon sx={{ fontSize: 20 }} /> : <EditIcon sx={{ fontSize: 20 }} />}
+                  <Typography sx={{ fontSize: "0.62rem", lineHeight: 1.2, color: "inherit" }}>
+                    {assignments.length === 0 ? "Erstellen" : "Bearbeiten"}
+                  </Typography>
+                </Box>
+
+                <Box
+                  component="button"
+                  onClick={(e: React.MouseEvent<HTMLButtonElement>) => setExportMenuEl(e.currentTarget)}
+                  disabled={loading || !schedule || exportBusy || assignments.length === 0}
+                  sx={{
+                    all: "unset",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: 0.25,
+                    px: 1.5,
+                    py: 0.75,
+                    borderRadius: "8px",
+                    cursor: "pointer",
+                    color: "text.secondary",
+                    transition: "background-color 0.15s",
+                    "&:hover:not(:disabled)": { bgcolor: "action.hover" },
+                    "&:disabled": { opacity: 0.38, cursor: "default" },
+                  }}
+                >
+                  {exportBusy ? <CircularProgress size={20} /> : <DownloadIcon sx={{ fontSize: 20 }} />}
+                  <Typography sx={{ fontSize: "0.62rem", lineHeight: 1.2, color: "inherit" }}>
+                    Export
+                  </Typography>
+                </Box>
+                <Menu
+                  anchorEl={exportMenuEl}
+                  open={Boolean(exportMenuEl)}
+                  onClose={() => setExportMenuEl(null)}
+                >
+                  <MenuItem onClick={() => void downloadExport("pdf")} disabled={exportBusy}>
+                    Monatsplan (Stationen)
+                  </MenuItem>
+                  <MenuItem onClick={() => void downloadExport("employees-pdf")} disabled={exportBusy}>
+                    Mitarbeiter-Dienstpläne
+                  </MenuItem>
+                </Menu>
+
+                <Box
+                  component="button"
+                  onClick={openVersionsDrawer}
+                  disabled={!schedule}
+                  sx={{
+                    all: "unset",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: 0.25,
+                    px: 1.5,
+                    py: 0.75,
+                    borderRadius: "8px",
+                    cursor: "pointer",
+                    color: "text.secondary",
+                    transition: "background-color 0.15s",
+                    "&:hover:not(:disabled)": { bgcolor: "action.hover" },
+                    "&:disabled": { opacity: 0.38, cursor: "default" },
+                  }}
+                >
+                  <HistoryIcon sx={{ fontSize: 20 }} />
+                  <Typography sx={{ fontSize: "0.62rem", lineHeight: 1.2, color: "inherit" }}>
+                    Versionen
+                  </Typography>
+                </Box>
+
+                <Box
+                  component="button"
+                  onClick={() => setClearConfirmOpen(true)}
+                  disabled={loading || !schedule || clearBusy || assignments.length === 0}
+                  sx={{
+                    all: "unset",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: 0.25,
+                    px: 1.5,
+                    py: 0.75,
+                    borderRadius: "8px",
+                    cursor: "pointer",
+                    color: "error.light",
+                    transition: "background-color 0.15s",
+                    "&:hover:not(:disabled)": { bgcolor: "action.hover" },
+                    "&:disabled": { opacity: 0.38, cursor: "default" },
+                  }}
+                >
+                  {clearBusy ? <CircularProgress size={20} /> : <DeleteSweepIcon sx={{ fontSize: 20 }} />}
+                  <Typography sx={{ fontSize: "0.62rem", lineHeight: 1.2, color: "inherit" }}>
+                    Leeren
+                  </Typography>
+                </Box>
+
+                {isAdmin && (
                   <>
-                    <Tooltip title="Auto-Generierung">
-                      <span>
-                        <IconButton
-                          size="small"
-                          disabled={loading || !schedule || generateBusy}
-                          onClick={() => {
-                            const saved = schedule?.preGenWishes?.savedEntries;
-                            if (saved && Array.isArray(saved) && saved.length > 0) {
-                              setPreGenEntries(saved as PreGenEntry[]);
-                            } else {
-                              setPreGenEntries([]);
-                            }
-                            setPreGenOpen(true);
-                          }}
-                          sx={{ color: "text.secondary" }}
-                        >
-                          {generateBusy ? <CircularProgress size={18} /> : <AutoAwesomeIcon fontSize="small" />}
-                        </IconButton>
-                      </span>
-                    </Tooltip>
-                    <Tooltip title={assignments.length === 0 ? "Manuell erstellen" : "Bearbeiten"}>
-                      <span>
-                        <IconButton
-                          size="small"
-                          disabled={
-                            loading || !schedule || generateBusy ||
-                            (assignments.length > 0 && (viewState.type !== "month" || monthViewMode !== "table"))
-                          }
-                          onClick={enterEditMode}
-                          sx={{ color: "text.secondary" }}
-                        >
-                          {assignments.length === 0 ? <DrawIcon fontSize="small" /> : <EditIcon fontSize="small" />}
-                        </IconButton>
-                      </span>
-                    </Tooltip>
-                    <Tooltip title="PDF Export">
-                      <span>
-                        <IconButton
-                          size="small"
-                          disabled={loading || !schedule || exportBusy || assignments.length === 0}
-                          onClick={(e) => setExportMenuEl(e.currentTarget)}
-                          sx={{ color: "text.secondary" }}
-                        >
-                          {exportBusy ? <CircularProgress size={18} /> : <DownloadIcon fontSize="small" />}
-                        </IconButton>
-                      </span>
-                    </Tooltip>
-                    <Menu
-                      anchorEl={exportMenuEl}
-                      open={Boolean(exportMenuEl)}
-                      onClose={() => setExportMenuEl(null)}
+                    <Box
+                      component="button"
+                      onClick={(e: React.MouseEvent<HTMLButtonElement>) => setAdminMenuEl(e.currentTarget)}
+                      disabled={loading || !schedule}
+                      sx={{
+                        all: "unset",
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        gap: 0.25,
+                        px: 1.5,
+                        py: 0.75,
+                        borderRadius: "8px",
+                        cursor: "pointer",
+                        color: "text.secondary",
+                        transition: "background-color 0.15s",
+                        "&:hover:not(:disabled)": { bgcolor: "action.hover" },
+                        "&:disabled": { opacity: 0.38, cursor: "default" },
+                      }}
                     >
-                      <MenuItem
-                        onClick={() => void downloadExport("pdf")}
-                        disabled={exportBusy}
-                      >
-                        Monatsplan (Stationen)
+                      <AdminPanelSettingsIcon sx={{ fontSize: 20 }} />
+                      <Typography sx={{ fontSize: "0.62rem", lineHeight: 1.2, color: "inherit" }}>
+                        Admin
+                      </Typography>
+                    </Box>
+                    <Menu
+                      anchorEl={adminMenuEl}
+                      open={Boolean(adminMenuEl)}
+                      onClose={() => setAdminMenuEl(null)}
+                    >
+                      <MenuItem onClick={() => { setAdminMenuEl(null); void onViewLogs(); }}>
+                        <ListItemIcon><DescriptionIcon fontSize="small" /></ListItemIcon>
+                        <ListItemText>Generator-Protokoll</ListItemText>
                       </MenuItem>
-                      <MenuItem
-                        onClick={() => void downloadExport("employees-pdf")}
-                        disabled={exportBusy}
-                      >
-                        Mitarbeiter-Dienstpläne
+                      <MenuItem onClick={() => { setAdminMenuEl(null); void onViewScore(); }}>
+                        <ListItemIcon><DescriptionIcon fontSize="small" /></ListItemIcon>
+                        <ListItemText>Qualitätsbericht</ListItemText>
+                      </MenuItem>
+                      <MenuItem onClick={() => { setAdminMenuEl(null); void downloadExport("debug"); }}>
+                        <ListItemIcon><DownloadIcon fontSize="small" /></ListItemIcon>
+                        <ListItemText>Debug JSON</ListItemText>
+                      </MenuItem>
+                      <Divider />
+                      <MenuItem onClick={() => void onCleanAbsences()} disabled={cleanAbsencesBusy}>
+                        <ListItemIcon><CleaningServicesIcon fontSize="small" /></ListItemIcon>
+                        <ListItemText>Abwesenheiten bereinigen</ListItemText>
                       </MenuItem>
                     </Menu>
-                    <Tooltip title="Version speichern">
-                      <span>
-                        <IconButton
-                          size="small"
-                          disabled={loading || !schedule || assignments.length === 0 || versionBusy}
-                          onClick={() => void saveVersionManual()}
-                          sx={{ color: "text.secondary" }}
-                        >
-                          {versionBusy ? <CircularProgress size={18} /> : <BookmarkIcon fontSize="small" />}
-                        </IconButton>
-                      </span>
-                    </Tooltip>
-                    <Tooltip title="Versionsverlauf">
-                      <span>
-                        <IconButton
-                          size="small"
-                          disabled={!schedule}
-                          onClick={openVersionsDrawer}
-                          sx={{ color: "text.secondary" }}
-                        >
-                          <HistoryIcon fontSize="small" />
-                        </IconButton>
-                      </span>
-                    </Tooltip>
-                    <Tooltip title="Plan leeren">
-                      <span>
-                        <IconButton
-                          size="small"
-                          disabled={loading || !schedule || clearBusy || assignments.length === 0}
-                          onClick={() => setClearConfirmOpen(true)}
-                          sx={{ color: "error.light" }}
-                        >
-                          {clearBusy ? <CircularProgress size={18} /> : <DeleteSweepIcon fontSize="small" />}
-                        </IconButton>
-                      </span>
-                    </Tooltip>
-                    {isAdmin && (
-                      <>
-                        <Tooltip title="Admin">
-                          <span>
-                            <IconButton
-                              size="small"
-                              disabled={loading || !schedule}
-                              onClick={(e) => setAdminMenuEl(e.currentTarget)}
-                              sx={{ color: "text.secondary" }}
-                            >
-                              <AdminPanelSettingsIcon fontSize="small" />
-                            </IconButton>
-                          </span>
-                        </Tooltip>
-                        <Menu
-                          anchorEl={adminMenuEl}
-                          open={Boolean(adminMenuEl)}
-                          onClose={() => setAdminMenuEl(null)}
-                        >
-                          <MenuItem onClick={() => { setAdminMenuEl(null); void onViewLogs(); }}>
-                            <ListItemIcon><DescriptionIcon fontSize="small" /></ListItemIcon>
-                            <ListItemText>Generator-Protokoll</ListItemText>
-                          </MenuItem>
-                          <MenuItem onClick={() => { setAdminMenuEl(null); void onViewScore(); }}>
-                            <ListItemIcon><DescriptionIcon fontSize="small" /></ListItemIcon>
-                            <ListItemText>Qualitätsbericht</ListItemText>
-                          </MenuItem>
-                          <MenuItem onClick={() => { setAdminMenuEl(null); void downloadExport("debug"); }}>
-                            <ListItemIcon><DownloadIcon fontSize="small" /></ListItemIcon>
-                            <ListItemText>Debug JSON</ListItemText>
-                          </MenuItem>
-                          <Divider />
-                          <MenuItem onClick={() => void onCleanAbsences()} disabled={cleanAbsencesBusy}>
-                            <ListItemIcon><CleaningServicesIcon fontSize="small" /></ListItemIcon>
-                            <ListItemText>Abwesenheiten bereinigen</ListItemText>
-                          </MenuItem>
-                        </Menu>
-                      </>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    <Button
-                      size="small"
-                      onClick={cancelEditMode}
-                      disabled={editSaving}
-                      sx={{
-                        textTransform: "none",
-                        fontWeight: 500,
-                        fontSize: "0.8rem",
-                        color: "text.secondary",
-                        "&:hover": { bgcolor: "action.hover" },
-                      }}
-                    >
-                      Abbrechen
-                    </Button>
-                    <Button
-                      size="small"
-                      variant="contained"
-                      color="primary"
-                      startIcon={editSaving ? <CircularProgress size={14} color="inherit" /> : <SaveIcon />}
-                      disabled={editSaving}
-                      onClick={() => void onSaveEdits()}
-                      sx={{
-                        textTransform: "none",
-                        fontWeight: 600,
-                        fontSize: "0.8rem",
-                        borderRadius: "6px",
-                        boxShadow: "none",
-                        "&:hover": { boxShadow: "none" },
-                      }}
-                    >
-                      Speichern
-                    </Button>
                   </>
                 )}
-              </Box>
-            </>
-          )}
 
-          {/* ── Warnings badge ── */}
-          {displayWarnings.length > 0 && (
-            <>
-              <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
-              <Tooltip title="Warnungen anzeigen">
-                <IconButton
+                {displayWarnings.length > 0 && (
+                  <Box
+                    component="button"
+                    onClick={() => setWarningsOpen((p) => !p)}
+                    sx={{
+                      all: "unset",
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      gap: 0.25,
+                      px: 1.5,
+                      py: 0.75,
+                      borderRadius: "8px",
+                      cursor: "pointer",
+                      color: "warning.main",
+                      transition: "background-color 0.15s",
+                      "&:hover": { bgcolor: "action.hover" },
+                    }}
+                  >
+                    <Badge badgeContent={displayWarnings.length} color="warning">
+                      <WarningAmberIcon sx={{ fontSize: 20 }} />
+                    </Badge>
+                    <Typography sx={{ fontSize: "0.62rem", lineHeight: 1.2, color: "inherit" }}>
+                      Warnungen
+                    </Typography>
+                  </Box>
+                )}
+              </>
+            ) : (
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 0.5 }}>
+                <Button
                   size="small"
-                  color="warning"
-                  onClick={() => setWarningsOpen((p) => !p)}
+                  onClick={cancelEditMode}
+                  disabled={editSaving}
+                  sx={{
+                    textTransform: "none",
+                    fontWeight: 500,
+                    fontSize: "0.8rem",
+                    color: "text.secondary",
+                    "&:hover": { bgcolor: "action.hover" },
+                  }}
                 >
-                  <Badge badgeContent={displayWarnings.length} color="warning">
-                    <WarningAmberIcon fontSize="small" />
-                  </Badge>
-                </IconButton>
-              </Tooltip>
-            </>
-          )}
-        </Box>
+                  Abbrechen
+                </Button>
+                <Button
+                  size="small"
+                  variant="contained"
+                  color="primary"
+                  startIcon={editSaving ? <CircularProgress size={14} color="inherit" /> : <SaveIcon />}
+                  disabled={editSaving}
+                  onClick={() => void onSaveEdits()}
+                  sx={{
+                    textTransform: "none",
+                    fontWeight: 600,
+                    fontSize: "0.8rem",
+                    borderRadius: "6px",
+                    boxShadow: "none",
+                    "&:hover": { boxShadow: "none" },
+                  }}
+                >
+                  Speichern
+                </Button>
+              </Box>
+            )}
+          </Box>
+        )}
       </Box>
 
       {actionMsg && (
@@ -2395,9 +2478,21 @@ export default function SchedulePage() {
               Versionsverlauf
             </Typography>
           </Box>
-          <IconButton size="small" onClick={() => setVersionsOpen(false)}>
-            <CloseIcon fontSize="small" />
-          </IconButton>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={versionBusy ? <CircularProgress size={14} /> : <BookmarkIcon />}
+              disabled={loading || !schedule || assignments.length === 0 || versionBusy}
+              onClick={() => void saveVersionManual()}
+              sx={{ textTransform: "none", fontSize: "0.78rem", borderRadius: "6px" }}
+            >
+              Speichern
+            </Button>
+            <IconButton size="small" onClick={() => setVersionsOpen(false)}>
+              <CloseIcon fontSize="small" />
+            </IconButton>
+          </Box>
         </Box>
         <Divider />
         <Box sx={{ p: 2, overflow: "auto", flex: 1 }}>
