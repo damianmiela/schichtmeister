@@ -4,10 +4,14 @@ import { z } from "zod";
 import { parseJsonBody, plannerJsonErrors } from "@/lib/api/validation";
 import { requirePlanner } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
+import { generateColorFromAbbreviation } from "@/lib/qualificationColor";
+
+const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 
 const createSchema = z.object({
   name: z.string().min(1).max(100),
   abbreviation: z.string().min(1).max(10),
+  color: z.string().regex(HEX_COLOR_RE).optional(),
   isActive: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
 });
@@ -17,6 +21,7 @@ function serialize(q: {
   facilityId: string;
   name: string;
   abbreviation: string;
+  color: string | null;
   isActive: boolean;
   sortOrder: number;
   createdAt: Date;
@@ -26,6 +31,7 @@ function serialize(q: {
     facilityId: q.facilityId,
     name: q.name,
     abbreviation: q.abbreviation,
+    color: q.color ?? generateColorFromAbbreviation(q.abbreviation),
     isActive: q.isActive,
     sortOrder: q.sortOrder,
     createdAt: q.createdAt.toISOString(),
@@ -61,6 +67,7 @@ export async function POST(request: NextRequest) {
         facilityId: session!.user.facilityId,
         name: data.name,
         abbreviation: data.abbreviation,
+        color: data.color ?? generateColorFromAbbreviation(data.abbreviation),
         isActive: data.isActive ?? true,
         ...(data.sortOrder !== undefined ? { sortOrder: data.sortOrder } : {}),
       },

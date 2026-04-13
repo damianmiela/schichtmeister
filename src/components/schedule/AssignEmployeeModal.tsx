@@ -58,7 +58,7 @@ type AvailableEmployee = {
   status: string;
   contractType: string;
   qualificationTags: string[];
-  qualifications: { id: string; abbreviation: string; name: string }[];
+  qualifications: { id: string; abbreviation: string; name: string; color?: string | null }[];
   assignedStations: number[];
   targetHoursPercent: number | null;
   allowedShiftProfileIds: string[];

@@ -1,23 +1,20 @@
 "use client";
 
 import { Box, Tooltip } from "@mui/material";
+import {
+  generateColorFromAbbreviation,
+  contrastTextColor,
+} from "@/lib/qualificationColor";
 
 interface QualificationPillsProps {
-  qualifications?: { abbreviation: string; name: string }[];
+  qualifications?: { abbreviation: string; name: string; color?: string | null }[];
   tags?: string[];
   compact?: boolean;
 }
 
-const TAG_COLORS: Record<string, string> = {
-  F: "#1565c0",
-  N: "#2e7d32",
-  P: "#6a1b9a",
-  A: "#c62828",
-  H: "#e65100",
-};
-
-function pillColor(letter: string): string {
-  return TAG_COLORS[letter] ?? "#546e7a";
+function pillColor(abbreviation: string, dbColor?: string | null): string {
+  if (dbColor) return dbColor;
+  return generateColorFromAbbreviation(abbreviation);
 }
 
 export default function QualificationPills({ qualifications, tags, compact }: QualificationPillsProps) {
@@ -32,8 +29,8 @@ export default function QualificationPills({ qualifications, tags, compact }: Qu
     return (
       <Box sx={{ display: "inline-flex", gap: "2px", flexWrap: "wrap", verticalAlign: "middle" }}>
         {qualifications.map((q) => {
-          const abbr = q.abbreviation;
-          const colorKey = q.abbreviation.charAt(0).toUpperCase();
+          const bg = pillColor(q.abbreviation, q.color);
+          const fg = contrastTextColor(bg);
           return (
             <Tooltip key={q.abbreviation} title={q.name} arrow>
               <Box
@@ -42,8 +39,8 @@ export default function QualificationPills({ qualifications, tags, compact }: Qu
                   height,
                   px: "3px",
                   borderRadius: height / 2,
-                  bgcolor: pillColor(colorKey),
-                  color: "#fff",
+                  bgcolor: bg,
+                  color: fg,
                   display: "inline-flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -55,7 +52,7 @@ export default function QualificationPills({ qualifications, tags, compact }: Qu
                   whiteSpace: "nowrap",
                 }}
               >
-                {abbr}
+                {q.abbreviation}
               </Box>
             </Tooltip>
           );
@@ -67,7 +64,8 @@ export default function QualificationPills({ qualifications, tags, compact }: Qu
   return (
     <Box sx={{ display: "inline-flex", gap: "2px", flexWrap: "wrap", verticalAlign: "middle" }}>
       {tags!.map((tag) => {
-        const letter = tag.charAt(0).toUpperCase();
+        const bg = pillColor(tag);
+        const fg = contrastTextColor(bg);
         return (
           <Tooltip key={tag} title={tag} arrow>
             <Box
@@ -76,8 +74,8 @@ export default function QualificationPills({ qualifications, tags, compact }: Qu
                 height,
                 px: "3px",
                 borderRadius: height / 2,
-                bgcolor: pillColor(letter),
-                color: "#fff",
+                bgcolor: bg,
+                color: fg,
                 display: "inline-flex",
                 alignItems: "center",
                 justifyContent: "center",
@@ -89,7 +87,7 @@ export default function QualificationPills({ qualifications, tags, compact }: Qu
                 whiteSpace: "nowrap",
               }}
             >
-              {letter}
+              {tag}
             </Box>
           </Tooltip>
         );

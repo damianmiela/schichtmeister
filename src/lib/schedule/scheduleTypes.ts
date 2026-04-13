@@ -42,7 +42,7 @@ export type EmployeeJson = {
   lastName: string;
   status?: string;
   qualificationTags?: string[];
-  qualifications?: { id: string; abbreviation: string; name: string; sortOrder: number }[];
+  qualifications?: { id: string; abbreviation: string; name: string; sortOrder: number; color?: string | null }[];
   targetHours?: number | null;
   targetHoursPeriod?: string | null;
   targetHoursPercent?: number | null;

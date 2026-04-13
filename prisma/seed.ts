@@ -40,13 +40,13 @@ async function main() {
 
   // ── Qualifications ──
   const qualDefs = [
-    { name: "Pflegedienstleitung", abbreviation: "PDL", sortOrder: 1 },
-    { name: "Wohnbereichsleitung", abbreviation: "WBL", sortOrder: 2 },
-    { name: "Pflegefachkraft", abbreviation: "PFK", sortOrder: 3 },
-    { name: "Altenpflegehelfer", abbreviation: "APH", sortOrder: 4 },
-    { name: "Krankenpflegehelfer", abbreviation: "KPH", sortOrder: 5 },
-    { name: "Pflegehilfskraft", abbreviation: "PH", sortOrder: 6 },
-    { name: "Einarbeitung", abbreviation: "EA", sortOrder: 7 },
+    { name: "Pflegedienstleitung", abbreviation: "PDL", sortOrder: 1, color: "#6a1b9a" },
+    { name: "Wohnbereichsleitung", abbreviation: "WBL", sortOrder: 2, color: "#1565c0" },
+    { name: "Pflegefachkraft", abbreviation: "PFK", sortOrder: 3, color: "#2e7d32" },
+    { name: "Altenpflegehelfer", abbreviation: "APH", sortOrder: 4, color: "#c62828" },
+    { name: "Krankenpflegehelfer", abbreviation: "KPH", sortOrder: 5, color: "#e65100" },
+    { name: "Pflegehilfskraft", abbreviation: "PH", sortOrder: 6, color: "#00838f" },
+    { name: "Einarbeitung", abbreviation: "EA", sortOrder: 7, color: "#546e7a" },
   ];
   const qualMap: Record<string, string> = {};
   for (const q of qualDefs) {

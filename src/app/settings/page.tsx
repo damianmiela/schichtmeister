@@ -42,6 +42,10 @@ import {
 import SchoolIcon from "@mui/icons-material/School";
 import PeopleIcon from "@mui/icons-material/People";
 import TuneIcon from "@mui/icons-material/Tune";
+import {
+  generateColorFromAbbreviation,
+  contrastTextColor,
+} from "@/lib/qualificationColor";
 import SaveIcon from "@mui/icons-material/Save";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -58,6 +62,7 @@ type QualificationCatalog = {
   id: string;
   name: string;
   abbreviation: string;
+  color: string;
   isActive: boolean;
   sortOrder: number;
 };
@@ -177,6 +182,7 @@ export default function SettingsPage() {
   const [qualForm, setQualForm] = useState({
     name: "",
     abbreviation: "",
+    color: "#546e7a",
     sortOrder: "0",
     isActive: true,
   });
@@ -330,6 +336,7 @@ export default function SettingsPage() {
       setQualForm({
         name: qual.name,
         abbreviation: qual.abbreviation,
+        color: qual.color,
         sortOrder: String(qual.sortOrder),
         isActive: qual.isActive,
       });
@@ -342,6 +349,7 @@ export default function SettingsPage() {
       setQualForm({
         name: "",
         abbreviation: "",
+        color: "#546e7a",
         sortOrder: String(maxSort + 1),
         isActive: true,
       });
@@ -361,6 +369,7 @@ export default function SettingsPage() {
       const body = {
         name: qualForm.name.trim(),
         abbreviation: qualForm.abbreviation.trim(),
+        color: qualForm.color,
         sortOrder: Number(qualForm.sortOrder) || 0,
         isActive: qualForm.isActive,
       };
@@ -1108,12 +1117,21 @@ export default function SettingsPage() {
                         <TableRow key={q.id} hover>
                           <TableCell>{q.name}</TableCell>
                           <TableCell>
-                            <Chip
-                              label={q.abbreviation}
-                              size="small"
-                              variant="outlined"
-                              sx={{ fontWeight: 600 }}
-                            />
+                            <Box
+                              sx={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                px: 1,
+                                py: 0.25,
+                                borderRadius: 2,
+                                bgcolor: q.color,
+                                color: contrastTextColor(q.color),
+                                fontSize: 12,
+                                fontWeight: 700,
+                              }}
+                            >
+                              {q.abbreviation}
+                            </Box>
                           </TableCell>
                           <TableCell align="center">
                             <Chip
@@ -1535,12 +1553,74 @@ export default function SettingsPage() {
           <TextField
             label="Abkürzung"
             value={qualForm.abbreviation}
-            onChange={(e) =>
-              setQualForm((f) => ({ ...f, abbreviation: e.target.value }))
-            }
+            onChange={(e) => {
+              const abbr = e.target.value;
+              setQualForm((f) => ({
+                ...f,
+                abbreviation: abbr,
+                // Auto-generate color when creating new (not editing)
+                ...(!qualEditId && abbr.trim()
+                  ? { color: generateColorFromAbbreviation(abbr.trim()) }
+                  : {}),
+              }));
+            }}
             fullWidth
             disabled={qualSaving}
           />
+          <Box>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+              Farbe
+            </Typography>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+              <Box
+                component="input"
+                type="color"
+                value={qualForm.color}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  setQualForm((f) => ({ ...f, color: e.target.value }))
+                }
+                disabled={qualSaving}
+                sx={{
+                  width: 48,
+                  height: 36,
+                  p: 0,
+                  border: "1px solid",
+                  borderColor: "divider",
+                  borderRadius: 1,
+                  cursor: "pointer",
+                  "&::-webkit-color-swatch-wrapper": { p: "2px" },
+                  "&::-webkit-color-swatch": { borderRadius: "3px", border: "none" },
+                }}
+              />
+              <Box
+                sx={{
+                  px: 1.5,
+                  py: 0.5,
+                  borderRadius: 2,
+                  bgcolor: qualForm.color,
+                  color: contrastTextColor(qualForm.color),
+                  fontSize: 11,
+                  fontWeight: 700,
+                }}
+              >
+                {qualForm.abbreviation || "ABC"}
+              </Box>
+              <Button
+                size="small"
+                variant="text"
+                disabled={qualSaving || !qualForm.abbreviation.trim()}
+                onClick={() =>
+                  setQualForm((f) => ({
+                    ...f,
+                    color: generateColorFromAbbreviation(f.abbreviation.trim()),
+                  }))
+                }
+                sx={{ textTransform: "none", fontSize: "0.75rem" }}
+              >
+                Automatisch
+              </Button>
+            </Box>
+          </Box>
           <TextField
             label="Sortierung"
             type="number"

@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
     prisma.employee.findMany({
       where: { facilityId },
       include: {
-        qualifications: { select: { id: true, abbreviation: true, name: true } },
+        qualifications: { select: { id: true, abbreviation: true, name: true, color: true } },
         allowedShiftProfiles: { select: { id: true } },
       },
     }),
@@ -109,6 +109,7 @@ export async function GET(request: NextRequest) {
         id: q.id,
         abbreviation: q.abbreviation,
         name: q.name,
+        color: q.color,
       })),
       mainStation: (emp as unknown as { mainStation?: number | null }).mainStation ?? null,
       assignedStations: emp.assignedStations,
