@@ -549,7 +549,7 @@ function StationCard({ station }: { station: StationData }) {
               sx={{ height: 6, borderRadius: 1, mb: 0.5 }}
             />
             {shift.employees.length > 0 && (
-              <AvatarGroup max={{ xs: 3, sm: 5 }} sx={{ justifyContent: "flex-start", mb: 0.5 }}>
+              <AvatarGroup max={5} sx={{ justifyContent: "flex-start", mb: 0.5 }}>
                 {shift.employees.map((p, i) => (
                   <Tooltip key={`${p.initials}-${i}`} title={p.name} arrow>
                     <Avatar
@@ -603,7 +603,7 @@ function NightCard({ night }: { night: StationShift }) {
           sx={{ height: 6, borderRadius: 1, mb: 0.5 }}
         />
         {night.employees.length > 0 && (
-          <AvatarGroup max={{ xs: 3, sm: 5 }} sx={{ justifyContent: "flex-start" }}>
+          <AvatarGroup max={5} sx={{ justifyContent: "flex-start" }}>
             {night.employees.map((p, i) => (
               <Tooltip key={`${p.initials}-${i}`} title={p.name} arrow>
                 <Avatar
