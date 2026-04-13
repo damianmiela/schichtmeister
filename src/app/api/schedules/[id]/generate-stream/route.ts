@@ -226,8 +226,8 @@ export async function POST(request: Request, context: RouteCtx) {
     scheduleId,
     month: monthStr,
     employeeCount: genCtx.employees.length,
-    profileCount: genCtx.shiftProfiles.length,
-    staffingRuleCount: genCtx.staffingRequirements.length,
+    profileCount: genCtx.profiles.length,
+    staffingRuleCount: genCtx.mergedStaffing.size,
     manualPlacementCount: manualPlacements.length,
     maxSolveTimeSeconds: payload.maxSolveTimeSeconds,
   });
