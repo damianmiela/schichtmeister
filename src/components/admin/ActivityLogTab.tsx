@@ -163,14 +163,30 @@ export default function ActivityLogTab() {
     setLoading(true);
     setError(null);
     try {
-      const [usersRes, statsRes] = await Promise.all([
-        fetch(`/api/admin/logs?action=users&type=${view}`).then((r) => r.json()),
-        fetch(`/api/admin/logs?action=stats&type=${view}`).then((r) => r.json()),
+      const [usersResponse, statsResponse] = await Promise.all([
+        fetch(`/api/admin/logs?action=users&type=${view}`),
+        fetch(`/api/admin/logs?action=stats&type=${view}`),
       ]);
+
+      if (!usersResponse.ok) {
+        const text = await usersResponse.text().catch(() => "");
+        setError(`Benutzer laden fehlgeschlagen: ${usersResponse.status} ${usersResponse.statusText}${text ? ` — ${text.slice(0, 200)}` : ""}`);
+        setLoading(false);
+        return;
+      }
+      if (!statsResponse.ok) {
+        const text = await statsResponse.text().catch(() => "");
+        setError(`Stats laden fehlgeschlagen: ${statsResponse.status} ${statsResponse.statusText}${text ? ` — ${text.slice(0, 200)}` : ""}`);
+        setLoading(false);
+        return;
+      }
+
+      const usersRes = await usersResponse.json();
+      const statsRes = await statsResponse.json();
       setUsers(usersRes.users ?? []);
       setStats(statsRes.stats ?? null);
-    } catch {
-      setError("Logs konnten nicht geladen werden.");
+    } catch (err) {
+      setError(`Logs konnten nicht geladen werden: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setLoading(false);
     }
@@ -187,12 +203,19 @@ export default function ActivityLogTab() {
         offset: String(newOffset),
       });
       if (userId) params.set("userId", userId);
-      const res = await fetch(`/api/admin/logs?${params}`).then((r) => r.json());
+      const response = await fetch(`/api/admin/logs?${params}`);
+      if (!response.ok) {
+        const text = await response.text().catch(() => "");
+        setError(`Einträge laden fehlgeschlagen: ${response.status} ${response.statusText}${text ? ` — ${text.slice(0, 200)}` : ""}`);
+        setLoading(false);
+        return;
+      }
+      const res = await response.json();
       setEntries(res.entries ?? []);
       setTotal(res.total ?? 0);
       setOffset(newOffset);
-    } catch {
-      setError("Einträge konnten nicht geladen werden.");
+    } catch (err) {
+      setError(`Einträge konnten nicht geladen werden: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setLoading(false);
     }
