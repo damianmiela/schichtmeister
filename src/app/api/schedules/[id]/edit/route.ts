@@ -4,6 +4,7 @@ import { plannerJsonErrors } from "@/lib/api/validation";
 import { validateScheduleAssignments } from "@/lib/api/planningScheduleValidation";
 import { requirePlanner } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
+import { snapshotCurrentVersion } from "@/lib/schedule/versionSnapshot";
 import { formatRuleViolations } from "@/lib/schedule/formatRuleViolations";
 import type { AssignmentInput } from "@/lib/planning/types";
 
@@ -117,6 +118,9 @@ export async function POST(request: Request, context: RouteCtx) {
   }
 
   await prisma.$transaction(async (tx) => {
+    // Auto-snapshot current state before editing
+    await snapshotCurrentVersion(scheduleId, "Vor Bearbeitung", tx);
+
     if (toDeleteIds.length > 0) {
       await tx.assignment.deleteMany({
         where: { id: { in: toDeleteIds } },
