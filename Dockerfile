@@ -37,6 +37,9 @@ COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/prisma ./prisma
 
+# Create writable logs directory for activity/system logging
+RUN mkdir -p /app/logs && chown nextjs:nodejs /app/logs
+
 USER nextjs
 
 EXPOSE 3000
