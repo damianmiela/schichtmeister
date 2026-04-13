@@ -1336,29 +1336,40 @@ export default function SchedulePage() {
         </Breadcrumbs>
       </Box>
 
+      {/* ── Row 1: Navigation + View Toggle ── */}
       <Box
         sx={{
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          mb: 3,
-          flexWrap: "wrap",
-          gap: 2,
+          mb: 1.5,
         }}
       >
-        <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-          <IconButton onClick={handlePrevious} disabled={loading || editMode}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+          <IconButton
+            onClick={handlePrevious}
+            disabled={loading || editMode}
+            size="small"
+            sx={{ color: "text.secondary" }}
+          >
             <ChevronLeftIcon />
           </IconButton>
-          <Typography variant="h6" sx={{ minWidth: 280, textAlign: "center" }}>
+          <Typography
+            variant="h6"
+            sx={{ minWidth: 260, textAlign: "center", fontWeight: 600, fontSize: "1.1rem" }}
+          >
             {getViewTitle()}
           </Typography>
-          <IconButton onClick={handleNext} disabled={loading || editMode}>
+          <IconButton
+            onClick={handleNext}
+            disabled={loading || editMode}
+            size="small"
+            sx={{ color: "text.secondary" }}
+          >
             <ChevronRightIcon />
           </IconButton>
-
         </Box>
-        <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           {viewState.type === "employee" && sortedEmployees.length > 0 && (
             <Autocomplete
               size="small"
@@ -1380,43 +1391,168 @@ export default function SchedulePage() {
             />
           )}
           {viewState.type === "month" && (
-            <>
-              <ToggleButtonGroup
-                value={monthViewMode}
-                exclusive
-                onChange={(_, value) => value && setMonthViewMode(value)}
-                size="small"
-                disabled={editMode}
-                sx={{
-                  "& .MuiToggleButton-root": {
-                    px: 1.5,
-                    py: 0.5,
-                    fontSize: "0.75rem",
+            <ToggleButtonGroup
+              value={monthViewMode}
+              exclusive
+              onChange={(_, value) => value && setMonthViewMode(value)}
+              size="small"
+              disabled={editMode}
+              sx={{
+                "& .MuiToggleButton-root": {
+                  px: 1.5,
+                  py: 0.5,
+                  fontSize: "0.75rem",
+                  border: "none",
+                  borderRadius: "6px !important",
+                  color: "text.secondary",
+                  "&.Mui-selected": {
+                    bgcolor: "primary.main",
+                    color: "primary.contrastText",
+                    "&:hover": { bgcolor: "primary.dark" },
                   },
-                }}
-              >
-                <ToggleButton value="table">
-                  <TableChartIcon sx={{ fontSize: 18, mr: 0.5 }} />
-                  Dienstplan
-                </ToggleButton>
-                <ToggleButton value="overview">
-                  <GridViewIcon sx={{ fontSize: 18, mr: 0.5 }} />
-                  Besetzungsübersicht
-                </ToggleButton>
-              </ToggleButtonGroup>
-              <Box sx={{ width: 1, height: 24, bgcolor: "divider", mx: 1 }} />
-            </>
+                  "&:hover": { bgcolor: "action.hover" },
+                },
+                bgcolor: "grey.100",
+                borderRadius: "8px",
+                p: 0.3,
+                gap: 0.3,
+                border: "none",
+                "& .MuiToggleButtonGroup-grouped": { border: "none" },
+              }}
+            >
+              <ToggleButton value="table">
+                <TableChartIcon sx={{ fontSize: 16, mr: 0.5 }} />
+                Dienstplan
+              </ToggleButton>
+              <ToggleButton value="overview">
+                <GridViewIcon sx={{ fontSize: 16, mr: 0.5 }} />
+                Besetzungsübersicht
+              </ToggleButton>
+            </ToggleButtonGroup>
           )}
-          {viewState.type === "month" && (
-            <>
-              <Button
-                variant="outlined"
-                startIcon={<DownloadIcon />}
-                disabled={loading || !schedule || exportBusy || assignments.length === 0 || editMode}
-                onClick={(e) => setExportMenuEl(e.currentTarget)}
+          {displayWarnings.length > 0 && (
+            <Tooltip title="Warnungen anzeigen">
+              <IconButton
+                size="small"
+                color="warning"
+                onClick={() => setWarningsOpen((p) => !p)}
               >
-                {exportBusy ? <CircularProgress size={20} /> : "PDF Export"}
-              </Button>
+                <Badge badgeContent={displayWarnings.length} color="warning">
+                  <WarningAmberIcon fontSize="small" />
+                </Badge>
+              </IconButton>
+            </Tooltip>
+          )}
+        </Box>
+      </Box>
+
+      {/* ── Row 2: Actions (month view only) ── */}
+      {viewState.type === "month" && (
+        <Box
+          sx={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            mb: 2,
+            flexWrap: "wrap",
+            gap: 1,
+          }}
+        >
+          {/* Left: primary actions */}
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+            {!editMode ? (
+              <>
+                <Button
+                  size="small"
+                  startIcon={<AutoAwesomeIcon />}
+                  disabled={loading || !schedule || generateBusy || editMode}
+                  onClick={() => {
+                    const saved = schedule?.preGenWishes?.savedEntries;
+                    if (saved && Array.isArray(saved) && saved.length > 0) {
+                      setPreGenEntries(saved as PreGenEntry[]);
+                    } else {
+                      setPreGenEntries([]);
+                    }
+                    setPreGenOpen(true);
+                  }}
+                  sx={{
+                    textTransform: "none",
+                    fontWeight: 500,
+                    color: "text.primary",
+                    "&:hover": { bgcolor: "action.hover" },
+                  }}
+                >
+                  {generateBusy ? <CircularProgress size={16} /> : "Generieren"}
+                </Button>
+                <Button
+                  size="small"
+                  startIcon={assignments.length === 0 ? <DrawIcon /> : <EditIcon />}
+                  disabled={
+                    loading || !schedule || generateBusy ||
+                    (assignments.length > 0 && (viewState.type !== "month" || monthViewMode !== "table"))
+                  }
+                  onClick={enterEditMode}
+                  sx={{
+                    textTransform: "none",
+                    fontWeight: 500,
+                    color: "text.primary",
+                    "&:hover": { bgcolor: "action.hover" },
+                  }}
+                >
+                  {assignments.length === 0 ? "Manuell erstellen" : "Bearbeiten"}
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  size="small"
+                  onClick={cancelEditMode}
+                  disabled={editSaving}
+                  sx={{
+                    textTransform: "none",
+                    fontWeight: 500,
+                    color: "text.secondary",
+                    "&:hover": { bgcolor: "action.hover" },
+                  }}
+                >
+                  Abbrechen
+                </Button>
+                <Button
+                  size="small"
+                  variant="contained"
+                  color="primary"
+                  startIcon={editSaving ? <CircularProgress size={14} color="inherit" /> : <SaveIcon />}
+                  disabled={editSaving}
+                  onClick={() => void onSaveEdits()}
+                  sx={{
+                    textTransform: "none",
+                    fontWeight: 600,
+                    borderRadius: "6px",
+                    boxShadow: "none",
+                    "&:hover": { boxShadow: "none" },
+                  }}
+                >
+                  Speichern
+                </Button>
+              </>
+            )}
+          </Box>
+
+          {/* Right: secondary actions */}
+          {!editMode && (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.25 }}>
+              <Tooltip title="PDF Export">
+                <span>
+                  <IconButton
+                    size="small"
+                    disabled={loading || !schedule || exportBusy || assignments.length === 0}
+                    onClick={(e) => setExportMenuEl(e.currentTarget)}
+                    sx={{ color: "text.secondary" }}
+                  >
+                    {exportBusy ? <CircularProgress size={18} /> : <DownloadIcon fontSize="small" />}
+                  </IconButton>
+                </span>
+              </Tooltip>
               <Menu
                 anchorEl={exportMenuEl}
                 open={Boolean(exportMenuEl)}
@@ -1436,16 +1572,59 @@ export default function SchedulePage() {
                 </MenuItem>
               </Menu>
 
+              <Tooltip title="Version speichern">
+                <span>
+                  <IconButton
+                    size="small"
+                    disabled={loading || !schedule || assignments.length === 0 || versionBusy}
+                    onClick={() => void saveVersionManual()}
+                    sx={{ color: "text.secondary" }}
+                  >
+                    {versionBusy ? <CircularProgress size={18} /> : <BookmarkIcon fontSize="small" />}
+                  </IconButton>
+                </span>
+              </Tooltip>
+
+              <Tooltip title="Versionsverlauf">
+                <span>
+                  <IconButton
+                    size="small"
+                    disabled={!schedule}
+                    onClick={openVersionsDrawer}
+                    sx={{ color: "text.secondary" }}
+                  >
+                    <HistoryIcon fontSize="small" />
+                  </IconButton>
+                </span>
+              </Tooltip>
+
+              <Tooltip title="Plan leeren">
+                <span>
+                  <IconButton
+                    size="small"
+                    disabled={loading || !schedule || clearBusy || assignments.length === 0}
+                    onClick={() => setClearConfirmOpen(true)}
+                    sx={{ color: "error.light" }}
+                  >
+                    {clearBusy ? <CircularProgress size={18} /> : <DeleteSweepIcon fontSize="small" />}
+                  </IconButton>
+                </span>
+              </Tooltip>
+
               {isAdmin && (
                 <>
-                  <Button
-                    variant="outlined"
-                    startIcon={<AdminPanelSettingsIcon />}
-                    disabled={loading || !schedule || editMode}
-                    onClick={(e) => setAdminMenuEl(e.currentTarget)}
-                  >
-                    Admin
-                  </Button>
+                  <Tooltip title="Admin">
+                    <span>
+                      <IconButton
+                        size="small"
+                        disabled={loading || !schedule}
+                        onClick={(e) => setAdminMenuEl(e.currentTarget)}
+                        sx={{ color: "text.secondary" }}
+                      >
+                        <AdminPanelSettingsIcon fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
                   <Menu
                     anchorEl={adminMenuEl}
                     open={Boolean(adminMenuEl)}
@@ -1480,101 +1659,10 @@ export default function SchedulePage() {
                   </Menu>
                 </>
               )}
-              <Button
-                variant="outlined"
-                startIcon={<AutoAwesomeIcon />}
-                disabled={loading || !schedule || generateBusy || editMode}
-                onClick={() => {
-                  // Auto-load saved entries for this month
-                  const saved = schedule?.preGenWishes?.savedEntries;
-                  if (saved && Array.isArray(saved) && saved.length > 0) {
-                    setPreGenEntries(saved as PreGenEntry[]);
-                  } else {
-                    setPreGenEntries([]);
-                  }
-                  setPreGenOpen(true);
-                }}
-              >
-                {generateBusy ? <CircularProgress size={20} /> : "Generieren"}
-              </Button>
-              <Button
-                variant="outlined"
-                color="error"
-                startIcon={<DeleteSweepIcon />}
-                disabled={loading || !schedule || clearBusy || assignments.length === 0 || editMode}
-                onClick={() => setClearConfirmOpen(true)}
-              >
-                {clearBusy ? <CircularProgress size={20} /> : "Leeren"}
-              </Button>
-              <Button
-                variant="outlined"
-                startIcon={versionBusy ? <CircularProgress size={18} /> : <BookmarkIcon />}
-                disabled={loading || !schedule || assignments.length === 0 || editMode || versionBusy}
-                onClick={() => void saveVersionManual()}
-              >
-                Version speichern
-              </Button>
-              <Tooltip title="Versionsverlauf">
-                <span>
-                  <IconButton
-                    disabled={!schedule || editMode}
-                    onClick={openVersionsDrawer}
-                  >
-                    <HistoryIcon />
-                  </IconButton>
-                </span>
-              </Tooltip>
-              {!editMode ? (
-                <Button
-                  variant="outlined"
-                  startIcon={assignments.length === 0 ? <DrawIcon /> : <EditIcon />}
-                  disabled={
-                    loading || !schedule || generateBusy ||
-                    (assignments.length > 0 && (viewState.type !== "month" || monthViewMode !== "table"))
-                  }
-                  onClick={enterEditMode}
-                >
-                  {assignments.length === 0 ? "Manuell erstellen" : "Bearbeiten"}
-                </Button>
-              ) : (
-                <>
-                  <Button
-                    variant="outlined"
-                    onClick={cancelEditMode}
-                    disabled={editSaving}
-                  >
-                    Abbrechen
-                  </Button>
-                  <Button
-                    variant="contained"
-                    color="primary"
-                    startIcon={editSaving ? <CircularProgress size={18} color="inherit" /> : <SaveIcon />}
-                    disabled={editSaving}
-                    onClick={() => void onSaveEdits()}
-                  >
-                    Speichern
-                  </Button>
-                </>
-              )}
-            </>
-          )}
-          {displayWarnings.length > 0 && (
-            <Tooltip title="Warnungen anzeigen">
-              <IconButton
-                color="warning"
-                onClick={() => setWarningsOpen((p) => !p)}
-              >
-                <Badge
-                  badgeContent={displayWarnings.length}
-                  color="warning"
-                >
-                  <WarningAmberIcon />
-                </Badge>
-              </IconButton>
-            </Tooltip>
+            </Box>
           )}
         </Box>
-      </Box>
+      )}
 
       {actionMsg && (
         <Alert
