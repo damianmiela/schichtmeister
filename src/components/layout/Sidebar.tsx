@@ -14,6 +14,8 @@ import {
   Box,
   Typography,
   Divider,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
@@ -48,26 +50,26 @@ const adminItems = [
   { text: "Admin-Tools", icon: <AdminPanelSettingsIcon />, href: "/admin" },
 ];
 
-export default function Sidebar() {
+interface SidebarProps {
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
+}
+
+export default function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
   const pathname = usePathname();
   const { data: session } = useSession();
   const isAdmin = session?.user?.role === "ADMIN";
+  const theme = useTheme();
+  const isDesktop = useMediaQuery(theme.breakpoints.up("md"));
 
-  return (
-    <Drawer
-      variant="permanent"
-      sx={{
-        width: DRAWER_WIDTH,
-        flexShrink: 0,
-        "& .MuiDrawer-paper": {
-          width: DRAWER_WIDTH,
-          boxSizing: "border-box",
-          borderRight: "1px solid",
-          borderColor: "divider",
-          bgcolor: "background.paper",
-        },
-      }}
-    >
+  const handleNavClick = () => {
+    if (!isDesktop && onMobileClose) {
+      onMobileClose();
+    }
+  };
+
+  const drawerContent = (
+    <>
       <Toolbar sx={{ px: 2, py: 1.5 }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
           <CalendarMonthIcon color="primary" sx={{ fontSize: 34 }} />
@@ -110,6 +112,7 @@ export default function Sidebar() {
                 component={Link}
                 href={item.href}
                 selected={pathname === item.href}
+                onClick={handleNavClick}
                 sx={{
                   borderRadius: 1,
                   mb: 0.5,
@@ -150,6 +153,7 @@ export default function Sidebar() {
                   component={Link}
                   href={item.href}
                   selected={isActive}
+                  onClick={handleNavClick}
                   sx={{
                     borderRadius: 1,
                     mb: 0.5,
@@ -187,6 +191,7 @@ export default function Sidebar() {
                 component={Link}
                 href={item.href}
                 selected={pathname === item.href}
+                onClick={handleNavClick}
                 sx={{
                   borderRadius: 1,
                   mb: 0.5,
@@ -224,6 +229,7 @@ export default function Sidebar() {
                     component={Link}
                     href={item.href}
                     selected={pathname === item.href || pathname?.startsWith(item.href + "/")}
+                    onClick={handleNavClick}
                     sx={{
                       borderRadius: 1,
                       mb: 0.5,
@@ -244,6 +250,47 @@ export default function Sidebar() {
           </>
         )}
       </Box>
+    </>
+  );
+
+  if (isDesktop) {
+    return (
+      <Drawer
+        variant="permanent"
+        sx={{
+          width: DRAWER_WIDTH,
+          flexShrink: 0,
+          "& .MuiDrawer-paper": {
+            width: DRAWER_WIDTH,
+            boxSizing: "border-box",
+            borderRight: "1px solid",
+            borderColor: "divider",
+            bgcolor: "background.paper",
+          },
+        }}
+      >
+        {drawerContent}
+      </Drawer>
+    );
+  }
+
+  return (
+    <Drawer
+      variant="temporary"
+      open={mobileOpen}
+      onClose={onMobileClose}
+      ModalProps={{ keepMounted: true }}
+      sx={{
+        "& .MuiDrawer-paper": {
+          width: DRAWER_WIDTH,
+          boxSizing: "border-box",
+          borderRight: "1px solid",
+          borderColor: "divider",
+          bgcolor: "background.paper",
+        },
+      }}
+    >
+      {drawerContent}
     </Drawer>
   );
 }

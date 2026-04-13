@@ -26,6 +26,7 @@ import {
   Typography,
   alpha,
   useTheme,
+  useMediaQuery,
 } from "@mui/material";
 import WbSunnyIcon from "@mui/icons-material/WbSunny";
 import WbTwilightIcon from "@mui/icons-material/WbTwilight";
@@ -431,7 +432,7 @@ export default function EmployeeView({
             >
               {initials}
             </Box>
-            <Box sx={{ flex: 1, minWidth: 180 }}>
+            <Box sx={{ flex: 1, minWidth: { xs: 140, sm: 160, md: 180 } }}>
               <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
                 <Typography variant="h6" fontWeight={700} sx={{ lineHeight: 1.3 }}>
                   {employee.lastName}, {employee.firstName}

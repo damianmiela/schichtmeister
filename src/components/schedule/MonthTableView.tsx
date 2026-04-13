@@ -710,13 +710,13 @@ export default function MonthTableView({
                   staffingLabel = (
                     <Box sx={{ display: "flex", gap: 0.3, justifyContent: "center", mt: "1px" }}>
                       <Typography variant="caption" sx={{
-                        fontSize: 9, fontWeight: 700, lineHeight: 1,
+                        fontSize: { xs: "0.6rem", sm: "0.7rem", md: 9 }, fontWeight: 700, lineHeight: 1,
                         color: earlyCount >= earlyMin ? "success.main" : "error.main",
                       }}>
                         F{earlyCount}
                       </Typography>
                       <Typography variant="caption" sx={{
-                        fontSize: 9, fontWeight: 700, lineHeight: 1,
+                        fontSize: { xs: "0.6rem", sm: "0.7rem", md: 9 }, fontWeight: 700, lineHeight: 1,
                         color: lateCount >= lateMin ? "success.main" : "error.main",
                       }}>
                         S{lateCount}
@@ -730,7 +730,7 @@ export default function MonthTableView({
                   const nightMin = nightReq?.minTotalCount ?? 0;
                   staffingLabel = (
                     <Typography variant="caption" sx={{
-                      fontSize: 9, fontWeight: 700, lineHeight: 1, mt: "1px",
+                      fontSize: { xs: "0.6rem", sm: "0.7rem", md: 9 }, fontWeight: 700, lineHeight: 1, mt: "1px",
                       color: nightCount >= nightMin ? "success.main" : "error.main",
                     }}>
                       N{nightCount}
@@ -768,7 +768,7 @@ export default function MonthTableView({
                     key={iso}
                     align="center"
                     sx={{
-                      minWidth: 52,
+                      minWidth: { xs: 40, sm: 48, md: 52 },
                       fontWeight: 600,
                       cursor: "pointer",
                       zIndex: 2,
@@ -881,7 +881,7 @@ export default function MonthTableView({
                       borderBottom: "2px solid",
                       borderBottomColor: "grey.400",
                       whiteSpace: "nowrap",
-                      fontSize: 11,
+                      fontSize: { xs: "0.65rem", sm: "0.85rem", md: 11 },
                     }}
                   >
                     <Tooltip

@@ -615,71 +615,295 @@ export default function EmployeesPage() {
               <CircularProgress />
             </Box>
           ) : (
-            <TableContainer>
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell sx={{ whiteSpace: "nowrap" }}>
-                      <TableSortLabel
-                        active={sortKey === "name"}
-                        direction={sortKey === "name" ? sortDir : "asc"}
-                        onClick={toggleNameSort}
-                      >
-                        Mitarbeiter
-                      </TableSortLabel>
-                    </TableCell>
-                    <TableCell>Status</TableCell>
-                    <TableCell sx={{ whiteSpace: "nowrap" }}>
-                      <TableSortLabel
-                        active={sortKey === "contract"}
-                        direction={sortKey === "contract" ? sortDir : "asc"}
-                        onClick={toggleContractSort}
-                      >
-                        Arbeitszeit
-                      </TableSortLabel>
-                    </TableCell>
-                    <TableCell>Station</TableCell>
-                    <TableCell>Qualifikationen</TableCell>
-                    <TableCell>Schichtprofile</TableCell>
-                    <TableCell>Arbeitstage</TableCell>
-                    <TableCell sx={{ whiteSpace: "nowrap" }}>Max Tage</TableCell>
-                    <TableCell align="right">Aktionen</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {sortedRows.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={9}>
-                        <Typography color="text.secondary" sx={{ py: 2 }}>
-                          Keine Mitarbeiter.
-                        </Typography>
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    sortedRows.map((employee) => {
-                      const ct = employee.contractType as ContractType;
-                      const st = (employee.status || "ACTIVE") as StatusType;
-                      const hoursLine = contractHoursDetail(employee);
-                      return (
-                        <TableRow key={employee.id} hover>
-                          <TableCell>
-                            <Box
+            <>
+              {/* Desktop: Table View */}
+              <Box sx={{ display: { xs: "none", md: "block" } }}>
+                <TableContainer>
+                  <Table>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell sx={{ whiteSpace: "nowrap" }}>
+                          <TableSortLabel
+                            active={sortKey === "name"}
+                            direction={sortKey === "name" ? sortDir : "asc"}
+                            onClick={toggleNameSort}
+                          >
+                            Mitarbeiter
+                          </TableSortLabel>
+                        </TableCell>
+                        <TableCell>Status</TableCell>
+                        <TableCell sx={{ whiteSpace: "nowrap" }}>
+                          <TableSortLabel
+                            active={sortKey === "contract"}
+                            direction={sortKey === "contract" ? sortDir : "asc"}
+                            onClick={toggleContractSort}
+                          >
+                            Arbeitszeit
+                          </TableSortLabel>
+                        </TableCell>
+                        <TableCell>Station</TableCell>
+                        <TableCell>Qualifikationen</TableCell>
+                        <TableCell>Schichtprofile</TableCell>
+                        <TableCell>Arbeitstage</TableCell>
+                        <TableCell sx={{ whiteSpace: "nowrap" }}>Max Tage</TableCell>
+                        <TableCell align="right">Aktionen</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {sortedRows.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={9}>
+                            <Typography color="text.secondary" sx={{ py: 2 }}>
+                              Keine Mitarbeiter.
+                            </Typography>
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        sortedRows.map((employee) => {
+                          const ct = employee.contractType as ContractType;
+                          const st = (employee.status || "ACTIVE") as StatusType;
+                          const hoursLine = contractHoursDetail(employee);
+                          return (
+                            <TableRow key={employee.id} hover>
+                              <TableCell>
+                                <Box
+                                  sx={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 2,
+                                  }}
+                                >
+                                  <Avatar sx={{ bgcolor: "primary.main" }}>
+                                    {(employee.firstName[0] ?? "") +
+                                      (employee.lastName[0] ?? "")}
+                                  </Avatar>
+                                  <Typography variant="body2" fontWeight={500}>
+                                    {employee.firstName} {employee.lastName}
+                                  </Typography>
+                                </Box>
+                              </TableCell>
+                              <TableCell>
+                                <Chip
+                                  label={STATUS_LABELS[st] ?? st}
+                                  color={STATUS_CHIP_COLOR[st] ?? "default"}
+                                  size="small"
+                                  variant="filled"
+                                  sx={{ fontWeight: 600 }}
+                                />
+                              </TableCell>
+                              <TableCell sx={{ maxWidth: 280 }}>
+                                <Chip
+                                  label={CONTRACT_LABELS[ct] ?? ct}
+                                  color={CONTRACT_CHIP_COLOR[ct] ?? "default"}
+                                  size="small"
+                                  variant="filled"
+                                  sx={{
+                                    fontWeight: 600,
+                                    mb: hoursLine ? 0.5 : 0,
+                                  }}
+                                />
+                                {hoursLine && (
+                                  <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                    display="block"
+                                  >
+                                    {hoursLine}
+                                  </Typography>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                {employee.mainStation ? (
+                                  <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", alignItems: "center" }}>
+                                    <Chip
+                                      label={`St. ${employee.mainStation}`}
+                                      size="small"
+                                      color="primary"
+                                      sx={{ fontWeight: 700, fontSize: 11 }}
+                                    />
+                                    {employee.assignedStations
+                                      .filter((st) => st !== employee.mainStation)
+                                      .map((st) => (
+                                        <Chip
+                                          key={st}
+                                          label={`St. ${st}`}
+                                          size="small"
+                                          variant="outlined"
+                                          sx={{ fontWeight: 500, fontSize: 11 }}
+                                        />
+                                      ))}
+                                  </Box>
+                                ) : (
+                                  <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                  >
+                                    Keine
+                                  </Typography>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                <Box
+                                  sx={{
+                                    display: "flex",
+                                    gap: 0.5,
+                                    flexWrap: "wrap",
+                                  }}
+                                >
+                                  {employee.qualifications.length === 0 ? (
+                                    <Typography
+                                      variant="caption"
+                                      color="text.secondary"
+                                    >
+                                      —
+                                    </Typography>
+                                  ) : (
+                                    employee.qualifications.map((q) => (
+                                      <Chip
+                                        key={q.id}
+                                        label={q.abbreviation}
+                                        size="small"
+                                        sx={{ fontSize: 11 }}
+                                      />
+                                    ))
+                                  )}
+                                </Box>
+                              </TableCell>
+                              {/* Schichtprofile */}
+                              <TableCell>
+                                <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
+                                  {employee.allowedShiftProfiles.length === 0 ? (
+                                    <Typography variant="caption" color="text.secondary">—</Typography>
+                                  ) : (
+                                    employee.allowedShiftProfiles.map((p) => (
+                                      <Chip
+                                        key={p.id}
+                                        label={p.name}
+                                        size="small"
+                                        variant="outlined"
+                                        sx={{ fontSize: 10, height: 20 }}
+                                      />
+                                    ))
+                                  )}
+                                  {employee.isFullTimeBl && (
+                                    <Chip label="VZ-BL" size="small" color="secondary" sx={{ fontSize: 10, height: 20 }} />
+                                  )}
+                                </Box>
+                                {employee.shiftDistribution && Object.keys(employee.shiftDistribution).length > 0 && (
+                                  <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.25, fontSize: 10 }}>
+                                    {employee.allowedShiftProfiles
+                                      .filter((p) => employee.shiftDistribution?.[p.id] != null)
+                                      .map((p) => `${p.name}: ${employee.shiftDistribution![p.id]}%`)
+                                      .join(", ")}
+                                  </Typography>
+                                )}
+                              </TableCell>
+                              {/* Arbeitstage */}
+                              <TableCell>
+                                {employee.fixedWorkingDays && employee.fixedWorkingDays.length > 0 ? (
+                                  <Typography variant="caption" sx={{ fontSize: 11 }}>
+                                    {employee.fixedWorkingDays.map((d) => WEEKDAY_LABELS[d] ?? d).join(", ")}
+                                  </Typography>
+                                ) : (
+                                  <Typography variant="caption" color="text.secondary">Alle</Typography>
+                                )}
+                              </TableCell>
+                              {/* Max aufeinanderfolgende Tage */}
+                              <TableCell>
+                                {employee.maxConsecutiveDays != null ? (
+                                  <Typography variant="caption" sx={{ fontSize: 11 }}>{employee.maxConsecutiveDays}</Typography>
+                                ) : (
+                                  <Typography variant="caption" color="text.secondary">—</Typography>
+                                )}
+                              </TableCell>
+                              <TableCell align="right">
+                                <IconButton
+                                  size="small"
+                                  aria-label="Bearbeiten"
+                                  onClick={() => openEditDialog(employee)}
+                                >
+                                  <EditIcon fontSize="small" />
+                                </IconButton>
+                                <IconButton
+                                  size="small"
+                                  aria-label="Löschen"
+                                  color="error"
+                                  onClick={() => setDeleteTarget(employee)}
+                                >
+                                  <DeleteIcon fontSize="small" />
+                                </IconButton>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })
+                      )}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Box>
+
+              {/* Mobile: Card View */}
+              <Box sx={{ display: { xs: "grid", md: "none" }, gridTemplateColumns: "1fr", gap: 2 }}>
+                {sortedRows.length === 0 ? (
+                  <Typography color="text.secondary" sx={{ py: 2 }}>
+                    Keine Mitarbeiter.
+                  </Typography>
+                ) : (
+                  sortedRows.map((employee) => {
+                    const ct = employee.contractType as ContractType;
+                    const st = (employee.status || "ACTIVE") as StatusType;
+                    const hoursLine = contractHoursDetail(employee);
+                    return (
+                      <Card key={employee.id} sx={{ border: "1px solid", borderColor: "divider" }}>
+                        <CardContent sx={{ pb: 1.5 }}>
+                          {/* Header: Avatar and Name */}
+                          <Box
+                            sx={{
+                              display: "flex",
+                              flexDirection: "column",
+                              alignItems: "flex-start",
+                              gap: 1,
+                              mb: 2,
+                            }}
+                          >
+                            <Avatar sx={{ bgcolor: "primary.main", width: 40, height: 40 }}>
+                              {(employee.firstName[0] ?? "") + (employee.lastName[0] ?? "")}
+                            </Avatar>
+                            <Typography
+                              fontWeight={600}
                               sx={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 2,
+                                fontSize: { xs: "1rem", sm: "1.25rem" },
                               }}
                             >
-                              <Avatar sx={{ bgcolor: "primary.main" }}>
-                                {(employee.firstName[0] ?? "") +
-                                  (employee.lastName[0] ?? "")}
-                              </Avatar>
-                              <Typography variant="body2" fontWeight={500}>
-                                {employee.firstName} {employee.lastName}
-                              </Typography>
+                              {employee.firstName} {employee.lastName}
+                            </Typography>
+                          </Box>
+
+                          {/* Qualifications Pills */}
+                          <Box sx={{ mb: 2 }}>
+                            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.75 }}>
+                              Qualifikationen
+                            </Typography>
+                            <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
+                              {employee.qualifications.length === 0 ? (
+                                <Typography variant="caption" color="text.secondary">
+                                  —
+                                </Typography>
+                              ) : (
+                                employee.qualifications.map((q) => (
+                                  <Chip
+                                    key={q.id}
+                                    label={q.abbreviation}
+                                    size="small"
+                                    sx={{ fontSize: { xs: "0.75rem", sm: "0.875rem" } }}
+                                  />
+                                ))
+                              )}
                             </Box>
-                          </TableCell>
-                          <TableCell>
+                          </Box>
+
+                          {/* Stats: Wrapping on mobile */}
+                          <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
                             <Chip
                               label={STATUS_LABELS[st] ?? st}
                               color={STATUS_CHIP_COLOR[st] ?? "default"}
@@ -687,36 +911,37 @@ export default function EmployeesPage() {
                               variant="filled"
                               sx={{ fontWeight: 600 }}
                             />
-                          </TableCell>
-                          <TableCell sx={{ maxWidth: 280 }}>
                             <Chip
                               label={CONTRACT_LABELS[ct] ?? ct}
                               color={CONTRACT_CHIP_COLOR[ct] ?? "default"}
                               size="small"
                               variant="filled"
-                              sx={{
-                                fontWeight: 600,
-                                mb: hoursLine ? 0.5 : 0,
-                              }}
+                              sx={{ fontWeight: 600 }}
                             />
-                            {hoursLine && (
-                              <Typography
-                                variant="caption"
-                                color="text.secondary"
-                                display="block"
-                              >
-                                {hoursLine}
+                          </Box>
+
+                          {hoursLine && (
+                            <Typography
+                              variant="caption"
+                              color="text.secondary"
+                              sx={{ display: "block", mt: 1 }}
+                            >
+                              {hoursLine}
+                            </Typography>
+                          )}
+
+                          {/* Station */}
+                          {employee.mainStation && (
+                            <Box sx={{ mt: 2 }}>
+                              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                                Station
                               </Typography>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            {employee.mainStation ? (
-                              <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", alignItems: "center" }}>
+                              <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
                                 <Chip
                                   label={`St. ${employee.mainStation}`}
                                   size="small"
                                   color="primary"
-                                  sx={{ fontWeight: 700, fontSize: 11 }}
+                                  sx={{ fontWeight: 700, fontSize: { xs: "0.75rem", sm: "0.875rem" } }}
                                 />
                                 {employee.assignedStations
                                   .filter((st) => st !== employee.mainStation)
@@ -726,98 +951,75 @@ export default function EmployeesPage() {
                                       label={`St. ${st}`}
                                       size="small"
                                       variant="outlined"
-                                      sx={{ fontWeight: 500, fontSize: 11 }}
+                                      sx={{ fontWeight: 500, fontSize: { xs: "0.75rem", sm: "0.875rem" } }}
                                     />
                                   ))}
                               </Box>
-                            ) : (
-                              <Typography
-                                variant="caption"
-                                color="text.secondary"
-                              >
-                                Keine
-                              </Typography>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            <Box
-                              sx={{
-                                display: "flex",
-                                gap: 0.5,
-                                flexWrap: "wrap",
-                              }}
-                            >
-                              {employee.qualifications.length === 0 ? (
-                                <Typography
-                                  variant="caption"
-                                  color="text.secondary"
-                                >
-                                  —
-                                </Typography>
-                              ) : (
-                                employee.qualifications.map((q) => (
-                                  <Chip
-                                    key={q.id}
-                                    label={q.abbreviation}
-                                    size="small"
-                                    sx={{ fontSize: 11 }}
-                                  />
-                                ))
-                              )}
                             </Box>
-                          </TableCell>
+                          )}
+
                           {/* Schichtprofile */}
-                          <TableCell>
-                            <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
-                              {employee.allowedShiftProfiles.length === 0 ? (
-                                <Typography variant="caption" color="text.secondary">—</Typography>
-                              ) : (
-                                employee.allowedShiftProfiles.map((p) => (
+                          {employee.allowedShiftProfiles.length > 0 && (
+                            <Box sx={{ mt: 2 }}>
+                              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                                Schichtprofile
+                              </Typography>
+                              <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
+                                {employee.allowedShiftProfiles.map((p) => (
                                   <Chip
                                     key={p.id}
                                     label={p.name}
                                     size="small"
                                     variant="outlined"
-                                    sx={{ fontSize: 10, height: 20 }}
+                                    sx={{ fontSize: { xs: "0.75rem", sm: "0.875rem" } }}
                                   />
-                                ))
-                              )}
-                              {employee.isFullTimeBl && (
-                                <Chip label="VZ-BL" size="small" color="secondary" sx={{ fontSize: 10, height: 20 }} />
+                                ))}
+                                {employee.isFullTimeBl && (
+                                  <Chip label="VZ-BL" size="small" color="secondary" sx={{ fontSize: { xs: "0.75rem", sm: "0.875rem" } }} />
+                                )}
+                              </Box>
+                              {employee.shiftDistribution && Object.keys(employee.shiftDistribution).length > 0 && (
+                                <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5, fontSize: "0.7rem" }}>
+                                  {employee.allowedShiftProfiles
+                                    .filter((p) => employee.shiftDistribution?.[p.id] != null)
+                                    .map((p) => `${p.name}: ${employee.shiftDistribution![p.id]}%`)
+                                    .join(", ")}
+                                </Typography>
                               )}
                             </Box>
-                            {employee.shiftDistribution && Object.keys(employee.shiftDistribution).length > 0 && (
-                              <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.25, fontSize: 10 }}>
-                                {employee.allowedShiftProfiles
-                                  .filter((p) => employee.shiftDistribution?.[p.id] != null)
-                                  .map((p) => `${p.name}: ${employee.shiftDistribution![p.id]}%`)
-                                  .join(", ")}
-                              </Typography>
-                            )}
-                          </TableCell>
+                          )}
+
                           {/* Arbeitstage */}
-                          <TableCell>
-                            {employee.fixedWorkingDays && employee.fixedWorkingDays.length > 0 ? (
-                              <Typography variant="caption" sx={{ fontSize: 11 }}>
+                          {employee.fixedWorkingDays && employee.fixedWorkingDays.length > 0 && (
+                            <Box sx={{ mt: 2 }}>
+                              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                                Arbeitstage
+                              </Typography>
+                              <Typography variant="caption" sx={{ fontSize: { xs: "0.75rem", sm: "0.875rem" } }}>
                                 {employee.fixedWorkingDays.map((d) => WEEKDAY_LABELS[d] ?? d).join(", ")}
                               </Typography>
-                            ) : (
-                              <Typography variant="caption" color="text.secondary">Alle</Typography>
-                            )}
-                          </TableCell>
+                            </Box>
+                          )}
+
                           {/* Max aufeinanderfolgende Tage */}
-                          <TableCell>
-                            {employee.maxConsecutiveDays != null ? (
-                              <Typography variant="caption" sx={{ fontSize: 11 }}>{employee.maxConsecutiveDays}</Typography>
-                            ) : (
-                              <Typography variant="caption" color="text.secondary">—</Typography>
-                            )}
-                          </TableCell>
-                          <TableCell align="right">
+                          {employee.maxConsecutiveDays != null && (
+                            <Box sx={{ mt: 2 }}>
+                              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                                Max aufeinanderfolgende Tage
+                              </Typography>
+                              <Typography variant="caption" sx={{ fontSize: { xs: "0.75rem", sm: "0.875rem" } }}>
+                                {employee.maxConsecutiveDays}
+                              </Typography>
+                            </Box>
+                          )}
+
+                          {/* Actions */}
+                          <Box sx={{ display: "flex", gap: 1, mt: 2, pt: 1.5, borderTop: "1px solid", borderColor: "divider" }}>
                             <IconButton
                               size="small"
                               aria-label="Bearbeiten"
                               onClick={() => openEditDialog(employee)}
+                              sx={{ flex: 1 }}
                             >
                               <EditIcon fontSize="small" />
                             </IconButton>
@@ -826,17 +1028,18 @@ export default function EmployeesPage() {
                               aria-label="Löschen"
                               color="error"
                               onClick={() => setDeleteTarget(employee)}
+                              sx={{ flex: 1 }}
                             >
                               <DeleteIcon fontSize="small" />
                             </IconButton>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })
-                  )}
-                </TableBody>
-              </Table>
-            </TableContainer>
+                          </Box>
+                        </CardContent>
+                      </Card>
+                    );
+                  })
+                )}
+              </Box>
+            </>
           )}
 
           <Typography

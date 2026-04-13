@@ -17,14 +17,18 @@ import {
   Button,
   Alert,
   CircularProgress,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
-import { useCallback, useEffect, useState } from "react";
+import MenuIcon from "@mui/icons-material/Menu";
+import { useCallback, useState } from "react";
 import { signOut, useSession } from "next-auth/react";
 import { DRAWER_WIDTH } from "./Sidebar";
 import { fetchJson } from "@/lib/api/fetchJson";
 
 interface HeaderProps {
   title: string;
+  onMenuToggle?: () => void;
 }
 
 function getGreeting(): string {
@@ -34,9 +38,11 @@ function getGreeting(): string {
   return "Guten Abend";
 }
 
-export default function Header({ title }: HeaderProps) {
+export default function Header({ title, onMenuToggle }: HeaderProps) {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const { data: session, update: updateSession } = useSession();
+  const theme = useTheme();
+  const isDesktop = useMediaQuery(theme.breakpoints.up("md"));
 
   // Profile dialog
   const [profileOpen, setProfileOpen] = useState(false);
@@ -105,22 +111,44 @@ export default function Header({ title }: HeaderProps) {
         position="fixed"
         color="inherit"
         sx={{
-          width: `calc(100% - ${DRAWER_WIDTH}px)`,
-          ml: `${DRAWER_WIDTH}px`,
+          width: { xs: "100%", md: `calc(100% - ${DRAWER_WIDTH}px)` },
+          ml: { xs: 0, md: `${DRAWER_WIDTH}px` },
         }}
       >
-        <Toolbar>
-          <Box sx={{ flexGrow: 1 }}>
-            <Typography variant="h5" component="h1">
+        <Toolbar sx={{ px: { xs: 1, sm: 2, md: 3 } }}>
+          {!isDesktop && (
+            <IconButton
+              edge="start"
+              color="inherit"
+              aria-label="Menü öffnen"
+              onClick={onMenuToggle}
+              sx={{ mr: 1 }}
+            >
+              <MenuIcon />
+            </IconButton>
+          )}
+          <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+            <Typography
+              variant="h5"
+              component="h1"
+              sx={{
+                fontSize: { xs: "1.1rem", sm: "1.3rem", md: "1.5rem" },
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
               {title}
             </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: -0.5 }}>
-              {getGreeting()}, {displayName}
-            </Typography>
+            {isDesktop && (
+              <Typography variant="body2" color="text.secondary" sx={{ mt: -0.5 }}>
+                {getGreeting()}, {displayName}
+              </Typography>
+            )}
           </Box>
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             <IconButton onClick={handleMenu}>
-              <Avatar sx={{ bgcolor: "primary.main", width: 36, height: 36 }}>
+              <Avatar sx={{ bgcolor: "primary.main", width: 36, height: 36, fontSize: 14 }}>
                 {initials}
               </Avatar>
             </IconButton>

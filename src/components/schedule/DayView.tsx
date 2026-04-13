@@ -8,6 +8,7 @@ import {
   Tooltip,
   alpha,
   useTheme,
+  useMediaQuery,
   ToggleButtonGroup,
   ToggleButton,
   IconButton,
@@ -814,7 +815,8 @@ function ColumnView({
 const TIMELINE_START = 5;
 const TIMELINE_END = 31;
 const TOTAL_HOURS = TIMELINE_END - TIMELINE_START;
-const NAME_COL = 180;
+const NAME_COL_MOBILE = 100;
+const NAME_COL_DESKTOP = 180;
 const ROW_H = 36;
 const BAR_H = 28;
 
@@ -917,9 +919,11 @@ function ShiftBar({
 function TimelineEmployeeRow({
   row,
   onEmployeeClick,
+  nameCol,
 }: {
   row: EmpRow;
   onEmployeeClick?: (id: string) => void;
+  nameCol: number;
 }) {
   const { employee, profile, assignment, isShiftWish } = row;
   const color = SHIFT_COLORS[profile.shiftType] ?? "#78909c";
@@ -958,14 +962,14 @@ function TimelineEmployeeRow({
 
   return (
     <Box sx={{ display: "flex", height: ROW_H, alignItems: "center" }}>
-      <Box sx={{ width: NAME_COL, minWidth: NAME_COL, flexShrink: 0, px: 1, overflow: "hidden" }}>
+      <Box sx={{ width: nameCol, minWidth: nameCol, flexShrink: 0, px: 1, overflow: "hidden" }}>
         <Typography
           variant="body2"
           noWrap
           onClick={handleClick}
           sx={{
             fontWeight: 500,
-            fontSize: 13,
+            fontSize: { xs: "0.8rem", sm: "0.9rem", md: 13 },
             cursor: onEmployeeClick ? "pointer" : "default",
             "&:hover": onEmployeeClick ? { textDecoration: "underline", color: "primary.main" } : undefined,
           }}
@@ -985,8 +989,9 @@ function TimelineEmployeeRow({
   );
 }
 
-function SectionTimeline({ section, onEmployeeClick }: { section: Section; onEmployeeClick?: (id: string) => void }) {
+function SectionTimeline({ section, onEmployeeClick, nameCol }: { section: Section; onEmployeeClick?: (id: string) => void; nameCol: number }) {
   const theme = useTheme();
+  const minTimelineWidth = nameCol + 200;
   return (
     <Box sx={{ border: "1px solid", borderColor: "divider", borderRadius: 2, overflow: "hidden" }}>
       <Box sx={{ px: 2, py: 1, bgcolor: alpha(theme.palette.primary.main, 0.07), borderBottom: "1px solid", borderColor: "divider", display: "flex", alignItems: "center", gap: 1 }}>
@@ -997,12 +1002,12 @@ function SectionTimeline({ section, onEmployeeClick }: { section: Section; onEmp
         <Typography variant="body2" color="text.secondary" sx={{ p: 2, textAlign: "center", fontStyle: "italic" }}>Keine Schichten</Typography>
       ) : (
         <Box sx={{ overflowX: "auto" }}>
-          <Box sx={{ minWidth: 800 }}>
+          <Box sx={{ minWidth: minTimelineWidth }}>
             <Box sx={{ display: "flex", height: 24, borderBottom: "1px solid", borderColor: "divider" }}>
-              <Box sx={{ width: NAME_COL, minWidth: NAME_COL, flexShrink: 0 }} />
+              <Box sx={{ width: nameCol, minWidth: nameCol, flexShrink: 0 }} />
               <Box sx={{ flex: 1, position: "relative" }}>
                 {GRID_HOURS.map((h) => (
-                  <Typography key={h} variant="caption" sx={{ position: "absolute", left: `${((h - TIMELINE_START) / TOTAL_HOURS) * 100}%`, bottom: 2, transform: "translateX(-50%)", fontSize: 11, color: "text.secondary", userSelect: "none" }}>
+                  <Typography key={h} variant="caption" sx={{ position: "absolute", left: `${((h - TIMELINE_START) / TOTAL_HOURS) * 100}%`, bottom: 2, transform: "translateX(-50%)", fontSize: { xs: "0.6rem", sm: "0.75rem", md: 11 }, color: "text.secondary", userSelect: "none" }}>
                     {hourLabel(h)}
                   </Typography>
                 ))}
@@ -1010,9 +1015,9 @@ function SectionTimeline({ section, onEmployeeClick }: { section: Section; onEmp
             </Box>
             <Box sx={{ position: "relative" }}>
               {section.rows.map((row) => (
-                <TimelineEmployeeRow key={row.assignment.id} row={row} onEmployeeClick={onEmployeeClick} />
+                <TimelineEmployeeRow key={row.assignment.id} row={row} onEmployeeClick={onEmployeeClick} nameCol={nameCol} />
               ))}
-              <Box sx={{ position: "absolute", top: 0, left: `${NAME_COL}px`, right: 0, bottom: 0, pointerEvents: "none", zIndex: 1 }}>
+              <Box sx={{ position: "absolute", top: 0, left: `${nameCol}px`, right: 0, bottom: 0, pointerEvents: "none", zIndex: 1 }}>
                 {GRID_HOURS.map((h) => (
                   <Box key={h} sx={{ position: "absolute", left: `${((h - TIMELINE_START) / TOTAL_HOURS) * 100}%`, top: 0, bottom: 0, borderLeft: "1px dashed", borderColor: "divider" }} />
                 ))}
@@ -1032,6 +1037,7 @@ function TimelineView({
   iso,
   onEmployeeClick,
   shiftWishSet,
+  nameCol,
 }: {
   dayAssignments: AssignmentJson[];
   employeesById: Record<string, EmployeeJson>;
@@ -1039,6 +1045,7 @@ function TimelineView({
   iso: string;
   onEmployeeClick?: (employeeId: string) => void;
   shiftWishSet?: Set<string>;
+  nameCol: number;
 }) {
   const sections = useMemo(() => {
     const stationRows: Record<number, EmpRow[]> = { 1: [], 2: [], 3: [] };
@@ -1078,7 +1085,7 @@ function TimelineView({
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
       {sections.map((section) => (
-        <SectionTimeline key={section.title} section={section} onEmployeeClick={onEmployeeClick} />
+        <SectionTimeline key={section.title} section={section} onEmployeeClick={onEmployeeClick} nameCol={nameCol} />
       ))}
     </Box>
   );
@@ -1099,6 +1106,10 @@ export default function DayView({
   scheduleId,
   onAssignmentChange,
 }: DayViewProps) {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const NAME_COL = isMobile ? NAME_COL_MOBILE : NAME_COL_DESKTOP;
+
   const [viewMode, setViewMode] = useState<DayViewMode>("columns");
   const iso = localIsoDate(date);
 
@@ -1124,14 +1135,35 @@ export default function DayView({
           exclusive
           onChange={(_, v) => v && setViewMode(v)}
           size="small"
-          sx={{ "& .MuiToggleButton-root": { px: 1.5, py: 0.5, fontSize: "0.75rem" } }}
+          sx={{
+            "& .MuiToggleButton-root": {
+              px: 1.5,
+              py: 0.4,
+              fontSize: "0.72rem",
+              border: "none",
+              borderRadius: "6px !important",
+              color: "text.secondary",
+              "&.Mui-selected": {
+                bgcolor: "primary.main",
+                color: "primary.contrastText",
+                "&:hover": { bgcolor: "primary.dark" },
+              },
+              "&:hover": { bgcolor: "action.hover" },
+            },
+            bgcolor: "grey.100",
+            borderRadius: "7px",
+            p: 0.3,
+            gap: 0.3,
+            border: "none",
+            "& .MuiToggleButtonGroup-grouped": { border: "none" },
+          }}
         >
           <ToggleButton value="columns">
-            <ViewColumnIcon sx={{ fontSize: 18, mr: 0.5 }} />
+            <ViewColumnIcon sx={{ fontSize: 15, mr: 0.5 }} />
             Stationen
           </ToggleButton>
           <ToggleButton value="timeline">
-            <TimelineIcon sx={{ fontSize: 18, mr: 0.5 }} />
+            <TimelineIcon sx={{ fontSize: 15, mr: 0.5 }} />
             Zeitstrahl
           </ToggleButton>
         </ToggleButtonGroup>
@@ -1157,6 +1189,7 @@ export default function DayView({
           iso={iso}
           onEmployeeClick={onEmployeeClick}
           shiftWishSet={shiftWishSet}
+          nameCol={NAME_COL}
         />
       )}
     </Box>
