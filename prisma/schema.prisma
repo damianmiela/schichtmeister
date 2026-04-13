@@ -275,6 +275,7 @@ model ScheduleVersion {
   label           String   // e.g. "Vor Neugenerierung", "Manuell gesichert"
   assignmentsJson String   @db.Text // Full assignment array as JSON
   assignmentCount Int
+  contentHash     String   // SHA-256 of sorted assignments for dedup
   scoreReport     String?
   generationLog   String?
   createdAt       DateTime @default(now())
@@ -282,6 +283,7 @@ model ScheduleVersion {
   schedule Schedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
 
   @@index([scheduleId, createdAt])
+  @@index([scheduleId, contentHash])
 }
 
 model Assignment {
