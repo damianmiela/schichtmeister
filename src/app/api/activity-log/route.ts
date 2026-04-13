@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth/authOptions";
+import { authOptions } from "@/lib/auth/options";
 import { writeBatch } from "@/lib/logging/serverLogger";
 import type { ActivityEvent } from "@/lib/logging/logTypes";
 
