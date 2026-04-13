@@ -43,6 +43,7 @@ function serializeSchedule(s: {
   periodEnd: Date;
   warningsJson: string | null;
   preGenWishesJson?: string | null;
+  currentVersionId?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }) {
@@ -52,6 +53,7 @@ function serializeSchedule(s: {
     periodEnd: toIsoDateOnly(s.periodEnd),
     warnings: parseWarnings(s.warningsJson),
     preGenWishes: parsePreGenWishes(s.preGenWishesJson ?? null),
+    currentVersionId: s.currentVersionId ?? null,
     createdAt: s.createdAt.toISOString(),
     updatedAt: s.updatedAt.toISOString(),
   };

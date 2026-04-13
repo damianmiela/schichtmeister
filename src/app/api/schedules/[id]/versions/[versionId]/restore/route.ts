@@ -72,12 +72,13 @@ export async function POST(_request: Request, context: RouteCtx) {
         await tx.assignment.createMany({ data: inputs });
       }
 
-      // 4. Restore score report and generation log from version
+      // 4. Restore score report, generation log, and mark this version as current
       await tx.schedule.update({
         where: { id: scheduleId },
         data: {
           scoreReport: version.scoreReport,
           generationLog: version.generationLog,
+          currentVersionId: versionId,
         },
       });
 

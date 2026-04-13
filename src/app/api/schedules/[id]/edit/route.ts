@@ -220,6 +220,9 @@ export async function POST(request: Request, context: RouteCtx) {
     data: { warningsJson: warningStrings.length > 0 ? JSON.stringify(warningStrings) : null },
   });
 
+  // Snapshot the saved state and mark as current
+  await snapshotCurrentVersion(scheduleId, "Manuell bearbeitet", undefined, true);
+
   return NextResponse.json({
     savedAssignments: allRows.length,
     warnings: warningStrings,

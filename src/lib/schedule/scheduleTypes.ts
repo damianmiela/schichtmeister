@@ -21,6 +21,7 @@ export type ScheduleJson = {
   periodEnd: string;
   warnings?: string[];
   preGenWishes?: PreGenWishesJson | null;
+  currentVersionId?: string | null;
 };
 
 export type AssignmentJson = {

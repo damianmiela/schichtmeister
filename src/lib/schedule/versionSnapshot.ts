@@ -24,15 +24,17 @@ function hashAssignments(
  * Skips creation if an identical version (same content hash) already exists.
  * Can be called inside or outside a transaction.
  *
- * @param scheduleId  The schedule to snapshot
- * @param label       Human-readable label, e.g. "Vor Neugenerierung"
- * @param tx          Optional transaction client (if called inside $transaction)
- * @returns           The existing or created ScheduleVersion id, or null if 0 assignments
+ * @param scheduleId     The schedule to snapshot
+ * @param label          Human-readable label, e.g. "Vor Neugenerierung"
+ * @param tx             Optional transaction client (if called inside $transaction)
+ * @param markAsCurrent  If true, sets schedule.currentVersionId to this version
+ * @returns              The existing or created ScheduleVersion id, or null if 0 assignments
  */
 export async function snapshotCurrentVersion(
   scheduleId: string,
   label: string,
   tx?: TxClient,
+  markAsCurrent?: boolean,
 ): Promise<string | null> {
   const db = tx ?? prisma;
 
@@ -67,7 +69,15 @@ export async function snapshotCurrentVersion(
     select: { id: true },
   });
 
-  if (existing) return existing.id;
+  if (existing) {
+    if (markAsCurrent) {
+      await db.schedule.update({
+        where: { id: scheduleId },
+        data: { currentVersionId: existing.id },
+      });
+    }
+    return existing.id;
+  }
 
   // Load schedule metadata
   const schedule = await db.schedule.findUniqueOrThrow({
@@ -86,6 +96,13 @@ export async function snapshotCurrentVersion(
       generationLog: schedule.generationLog,
     },
   });
+
+  if (markAsCurrent) {
+    await db.schedule.update({
+      where: { id: scheduleId },
+      data: { currentVersionId: version.id },
+    });
+  }
 
   return version.id;
 }

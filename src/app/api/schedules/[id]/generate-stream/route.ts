@@ -596,6 +596,9 @@ export async function POST(request: Request, context: RouteCtx) {
           throw e;
         }
 
+        // Snapshot the newly generated state and mark it as current
+        await snapshotCurrentVersion(scheduleId, "Automatisch generiert", undefined, true);
+
         send({
           type: "complete",
           result: {

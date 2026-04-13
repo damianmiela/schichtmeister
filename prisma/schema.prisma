@@ -262,6 +262,8 @@ model Schedule {
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
 
+  currentVersionId String?
+
   facility    Facility          @relation(fields: [facilityId], references: [id], onDelete: Cascade)
   assignments Assignment[]
   versions    ScheduleVersion[]

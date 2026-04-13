@@ -34,7 +34,7 @@ export async function GET(_request: Request, context: RouteCtx) {
     orderBy: { createdAt: "desc" },
   });
 
-  return NextResponse.json({ versions });
+  return NextResponse.json({ versions, currentVersionId: schedule.currentVersionId ?? null });
 }
 
 /** POST — manually create a snapshot ("Version speichern") */
@@ -61,7 +61,7 @@ export async function POST(_request: Request, context: RouteCtx) {
     }
   } catch { /* no body or invalid JSON — use default label */ }
 
-  const versionId = await snapshotCurrentVersion(scheduleId, label);
+  const versionId = await snapshotCurrentVersion(scheduleId, label, undefined, true);
 
   if (!versionId) {
     return NextResponse.json(

@@ -273,6 +273,7 @@ export default function SchedulePage() {
   const [versions, setVersions] = useState<ScheduleVersionSummary[]>([]);
   const [versionsLoading, setVersionsLoading] = useState(false);
   const [versionBusy, setVersionBusy] = useState(false);
+  const [currentVersionId, setCurrentVersionId] = useState<string | null>(null);
 
   const daysInMonth = useMemo(() => {
     const { year, month } = viewState;
@@ -974,10 +975,11 @@ export default function SchedulePage() {
     if (!schedule) return;
     setVersionsLoading(true);
     try {
-      const data = await fetchJson<{ versions: ScheduleVersionSummary[] }>(
+      const data = await fetchJson<{ versions: ScheduleVersionSummary[]; currentVersionId: string | null }>(
         `/api/schedules/${schedule.id}/versions`,
       );
       setVersions(data.versions);
+      setCurrentVersionId(data.currentVersionId);
     } catch {
       setVersions([]);
     } finally {
@@ -2315,22 +2317,34 @@ export default function SchedulePage() {
                   }
                 } catch { /* ignore */ }
               }
+              const isCurrent = v.id === currentVersionId;
               return (
                 <Box
                   key={v.id}
                   sx={{
                     mb: 1.5,
                     p: 1.5,
-                    border: "1px solid",
-                    borderColor: "divider",
+                    border: isCurrent ? "2px solid" : "1px solid",
+                    borderColor: isCurrent ? "primary.main" : "divider",
                     borderRadius: 1,
-                    "&:hover": { bgcolor: "action.hover" },
+                    bgcolor: isCurrent ? "primary.50" : undefined,
+                    "&:hover": { bgcolor: isCurrent ? "primary.100" : "action.hover" },
                   }}
                 >
                   <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 0.5 }}>
-                    <Typography variant="subtitle2" sx={{ fontWeight: 600, fontSize: "0.85rem" }}>
-                      {v.label}
-                    </Typography>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 600, fontSize: "0.85rem" }}>
+                        {v.label}
+                      </Typography>
+                      {isCurrent && (
+                        <Chip
+                          size="small"
+                          label="Aktuell"
+                          color="primary"
+                          sx={{ fontSize: "0.7rem", height: 20, fontWeight: 600 }}
+                        />
+                      )}
+                    </Box>
                     <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap", ml: 1 }}>
                       {dateStr}
                     </Typography>
@@ -2357,7 +2371,7 @@ export default function SchedulePage() {
                       size="small"
                       variant="outlined"
                       startIcon={<RestoreIcon />}
-                      disabled={versionBusy}
+                      disabled={versionBusy || isCurrent}
                       onClick={() => void restoreVersion(v.id)}
                       sx={{ fontSize: "0.75rem", textTransform: "none" }}
                     >
