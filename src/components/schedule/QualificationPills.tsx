@@ -26,13 +26,13 @@ export default function QualificationPills({ qualifications, tags, compact }: Qu
   if (!hasQualifications && !hasTags) return null;
 
   const height = compact ? 16 : 18;
-  const fontSize = compact ? 9 : 10;
+  const fontSize = compact ? 8 : 9;
 
   if (hasQualifications) {
     return (
       <Box sx={{ display: "inline-flex", gap: "2px", flexWrap: "wrap", verticalAlign: "middle" }}>
         {qualifications.map((q) => {
-          const abbr = q.abbreviation.slice(0, 3);
+          const abbr = q.abbreviation;
           const colorKey = q.abbreviation.charAt(0).toUpperCase();
           return (
             <Tooltip key={q.abbreviation} title={q.name} arrow>

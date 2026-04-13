@@ -571,8 +571,6 @@ export default function MonthTableView({
       const [eid, date] = key.split("|");
       onCellChange(eid!, date!, edit);
     }
-    setSelectedCells(new Set());
-    setLastClickedCell(null);
   }, [selectedCells, onCellChange]);
 
   /* ──── menu helpers ──── */
@@ -919,6 +917,17 @@ export default function MonthTableView({
                           if (prof?.shiftType !== "NIGHT") {
                             display = { row1: "X", row2: "", row3: "", isStatus: true, statusCode: "X" };
                           }
+                        } else if (filter === "ausbildung") {
+                          // Ausbildung: always show station badge (default Station 1)
+                          const effectiveStation = (edit?.stationNumber !== undefined ? edit.stationNumber : null)
+                            ?? asgn?.stationNumber
+                            ?? emp.mainStation
+                            ?? 1;
+                          const stColor = STATION_COLORS[effectiveStation] ?? { main: "#78909c", light: "#eceff1" };
+                          display = {
+                            ...display,
+                            crossStationBadge: { label: String(effectiveStation), ...stColor },
+                          };
                         } else if (typeof filter === "object" && "station" in filter) {
                           if (prof?.shiftType === "NIGHT") {
                             // Night shift — show "N" circle (full cell, no division)
