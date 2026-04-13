@@ -243,7 +243,7 @@ export default function DashboardPage() {
               component={Link}
               href="/schedule"
               endIcon={<ArrowForwardIcon />}
-              size={{ xs: "small", sm: "small" }}
+              size="small"
               variant="outlined"
             >
               Tagesansicht
@@ -306,7 +306,7 @@ export default function DashboardPage() {
               component={Link}
               href="/schedule"
               endIcon={<ArrowForwardIcon />}
-              size={{ xs: "small", sm: "small" }}
+              size="small"
               variant="outlined"
             >
               Monatsplan
