@@ -38,7 +38,9 @@ import StorageIcon from "@mui/icons-material/Storage";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import RefreshIcon from "@mui/icons-material/Refresh";
+import TimelineIcon from "@mui/icons-material/Timeline";
 import { fetchJson } from "@/lib/api/fetchJson";
+import ActivityLogTab from "@/components/admin/ActivityLogTab";
 
 /* ═══════════════════════════════════════════════
    SHARED TYPES & HELPERS
@@ -111,11 +113,13 @@ export default function AdminPage() {
         >
           <Tab icon={<PersonIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="Benutzer" />
           <Tab icon={<StorageIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="Datenbank" />
+          <Tab icon={<TimelineIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="Aktivitätslog" />
         </Tabs>
       </Box>
 
       {tabIndex === 0 && <UsersTab session={session} />}
       {tabIndex === 1 && <DatabaseTab />}
+      {tabIndex === 2 && <ActivityLogTab />}
     </MainLayout>
   );
 }

@@ -65,3 +65,6 @@ _LOCAL_DOCS/
 
 # Solver debug data (exported JSONs, scoring scripts, analysis)
 debug/
+
+# Activity & system log data (keep folder via .gitkeep, ignore runtime files)
+/logs/*.jsonl

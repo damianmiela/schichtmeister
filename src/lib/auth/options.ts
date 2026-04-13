@@ -2,6 +2,8 @@ import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db/prisma";
+import { writeLog } from "@/lib/logging/serverLogger";
+import type { AuthEvent } from "@/lib/logging/logTypes";
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -19,10 +21,35 @@ export const authOptions: NextAuthOptions = {
         const user = await prisma.user.findUnique({
           where: { email },
         });
-        if (!user) return null;
+
+        if (!user) {
+          writeLog("system", {
+            ts: new Date().toISOString(),
+            type: "login_failed",
+            data: { email: email ?? "", reason: "Benutzer nicht gefunden" },
+          } as AuthEvent);
+          return null;
+        }
 
         const ok = await bcrypt.compare(password, user.passwordHash);
-        if (!ok) return null;
+        if (!ok) {
+          writeLog("system", {
+            ts: new Date().toISOString(),
+            type: "login_failed",
+            userId: user.id,
+            userName: (user as Record<string, unknown>).name as string ?? "",
+            data: { email, reason: "Falsches Passwort" },
+          } as AuthEvent);
+          return null;
+        }
+
+        writeLog("system", {
+          ts: new Date().toISOString(),
+          type: "login",
+          userId: user.id,
+          userName: (user as Record<string, unknown>).name as string ?? "",
+          data: { email },
+        } as AuthEvent);
 
         return {
           id: user.id,

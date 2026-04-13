@@ -16,6 +16,11 @@ import {
   callScorer,
   type SolverPayload,
 } from "@/lib/schedule/solverClient";
+import {
+  logGenerationStart,
+  logGenerationComplete,
+  logGenerationError,
+} from "@/lib/logging/generationLogger";
 
 type RouteCtx = { params: Promise<{ id: string }> };
 
@@ -213,6 +218,20 @@ export async function POST(request: Request, context: RouteCtx) {
     payload.maxSolveTimeSeconds = clientMaxSolveTime;
   }
 
+  // ── System log: generation start ──
+  const genStartTime = Date.now();
+  const monthStr = schedule.periodStart.toISOString().slice(0, 7);
+  logGenerationStart({
+    userId,
+    scheduleId,
+    month: monthStr,
+    employeeCount: genCtx.employees.length,
+    profileCount: genCtx.shiftProfiles.length,
+    staffingRuleCount: genCtx.staffingRequirements.length,
+    manualPlacementCount: manualPlacements.length,
+    maxSolveTimeSeconds: payload.maxSolveTimeSeconds,
+  });
+
   // NOTE: Absences are NOT persisted to EmployeeAbsence table.
   // They are passed as blockedDates to the solver and stored as K/U
   // assignment records. "Leeren" clears assignments, giving a clean slate.
@@ -352,6 +371,15 @@ export async function POST(request: Request, context: RouteCtx) {
             }
             throw e;
           }
+
+          // ── System log: generation failed (infeasible) ──
+          logGenerationError({
+            userId,
+            scheduleId,
+            error: `Solver ${solverStatus}: ${(solverResult.reason as string) ?? "keine Begründung"}`,
+            status: solverStatus,
+            conflictingConstraints: (solverResult.conflictingConstraints as string[]) ?? [],
+          });
 
           send({
             type: "complete",
@@ -599,6 +627,19 @@ export async function POST(request: Request, context: RouteCtx) {
         // Snapshot the newly generated state and mark it as current
         await snapshotCurrentVersion(scheduleId, "Automatisch generiert", undefined, true);
 
+        // ── System log: generation complete ──
+        logGenerationComplete({
+          userId,
+          scheduleId,
+          status: solverStatus,
+          solveTimeMs: Date.now() - genStartTime,
+          assignmentCount: solverAssignments.length,
+          warningCount: allWarnings.length,
+          unmetStaffingCount: 0,
+          unfulfilledWishCount: ((solverResult.unfulfilledWishes as string[]) ?? []).length,
+          objectiveValue: typeof solverResult.objectiveValue === "number" ? solverResult.objectiveValue : undefined,
+        });
+
         send({
           type: "complete",
           result: {
@@ -612,6 +653,11 @@ export async function POST(request: Request, context: RouteCtx) {
         });
       } catch (e) {
         console.error("generate-stream error", e);
+        logGenerationError({
+          userId,
+          scheduleId,
+          error: e instanceof Error ? e.message : "Unbekannter Fehler",
+        });
         send({
           type: "error",
           error:
