@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { plannerJsonErrors } from "@/lib/api/validation";
 import { requirePlanner } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
+import { snapshotCurrentVersion } from "@/lib/schedule/versionSnapshot";
 
 type RouteCtx = { params: Promise<{ id: string }> };
 
@@ -32,6 +33,8 @@ export async function POST(_request: Request, context: RouteCtx) {
   }
 
   const deleted = await prisma.$transaction(async (tx) => {
+    // Auto-snapshot current state before clearing
+    await snapshotCurrentVersion(scheduleId, "Vor Leeren", tx);
     const result = await tx.assignment.deleteMany({ where: { scheduleId } });
 
     await tx.schedule.update({

@@ -60,6 +60,10 @@ import SickIcon from "@mui/icons-material/Sick";
 import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
 import CleaningServicesIcon from "@mui/icons-material/CleaningServices";
 import DrawIcon from "@mui/icons-material/Draw";
+import HistoryIcon from "@mui/icons-material/History";
+import BookmarkIcon from "@mui/icons-material/Bookmark";
+import RestoreIcon from "@mui/icons-material/Restore";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import { ApiError, fetchJson } from "@/lib/api/fetchJson";
 import {
   monthRangeIso,
@@ -75,6 +79,14 @@ import type {
 } from "@/lib/schedule/scheduleTypes";
 import { getWeekNumber, shiftTypeLabel } from "@/lib/schedule/viewUtils";
 import { holidayDateMap } from "@/lib/holidays";
+
+type ScheduleVersionSummary = {
+  id: string;
+  label: string;
+  assignmentCount: number;
+  scoreReport: string | null;
+  createdAt: string;
+};
 
 type GenerateScheduleResponse = {
   createdAssignments: number;
@@ -257,6 +269,10 @@ export default function SchedulePage() {
   const [scoreLoading, setScoreLoading] = useState(false);
   const [employeeWarnings, setEmployeeWarnings] = useState<string[]>([]);
   const [warningsByDay, setWarningsByDay] = useState<Record<string, string[]>>({});
+  const [versionsOpen, setVersionsOpen] = useState(false);
+  const [versions, setVersions] = useState<ScheduleVersionSummary[]>([]);
+  const [versionsLoading, setVersionsLoading] = useState(false);
+  const [versionBusy, setVersionBusy] = useState(false);
 
   const daysInMonth = useMemo(() => {
     const { year, month } = viewState;
@@ -952,6 +968,79 @@ export default function SchedulePage() {
     }
   };
 
+  /* ── Version management ── */
+
+  const loadVersions = async () => {
+    if (!schedule) return;
+    setVersionsLoading(true);
+    try {
+      const data = await fetchJson<{ versions: ScheduleVersionSummary[] }>(
+        `/api/schedules/${schedule.id}/versions`,
+      );
+      setVersions(data.versions);
+    } catch {
+      setVersions([]);
+    } finally {
+      setVersionsLoading(false);
+    }
+  };
+
+  const openVersionsDrawer = () => {
+    setVersionsOpen(true);
+    void loadVersions();
+  };
+
+  const saveVersionManual = async () => {
+    if (!schedule) return;
+    setVersionBusy(true);
+    try {
+      await fetchJson(`/api/schedules/${schedule.id}/versions`, {
+        method: "POST",
+      });
+      setActionAlertSeverity("success");
+      setActionMsg("Version gespeichert.");
+      void loadVersions();
+    } catch {
+      setActionAlertSeverity("error");
+      setActionMsg("Version speichern fehlgeschlagen.");
+    } finally {
+      setVersionBusy(false);
+    }
+  };
+
+  const restoreVersion = async (versionId: string) => {
+    if (!schedule) return;
+    setVersionBusy(true);
+    try {
+      const data = await fetchJson<{ restoredAssignments: number }>(
+        `/api/schedules/${schedule.id}/versions/${versionId}/restore`,
+        { method: "POST" },
+      );
+      setActionAlertSeverity("success");
+      setActionMsg(`Version wiederhergestellt (${data.restoredAssignments} Zuweisungen).`);
+      await loadBundle();
+      void loadVersions();
+    } catch {
+      setActionAlertSeverity("error");
+      setActionMsg("Wiederherstellung fehlgeschlagen.");
+    } finally {
+      setVersionBusy(false);
+    }
+  };
+
+  const deleteVersion = async (versionId: string) => {
+    if (!schedule) return;
+    try {
+      await fetchJson(`/api/schedules/${schedule.id}/versions/${versionId}`, {
+        method: "DELETE",
+      });
+      void loadVersions();
+    } catch {
+      setActionAlertSeverity("error");
+      setActionMsg("Version löschen fehlgeschlagen.");
+    }
+  };
+
   const enterEditMode = () => {
     setEditedCells(new Map());
     setEditedShiftWishSet(new Set(shiftWishSet));
@@ -1406,6 +1495,24 @@ export default function SchedulePage() {
               >
                 {clearBusy ? <CircularProgress size={20} /> : "Leeren"}
               </Button>
+              <Button
+                variant="outlined"
+                startIcon={versionBusy ? <CircularProgress size={18} /> : <BookmarkIcon />}
+                disabled={loading || !schedule || assignments.length === 0 || editMode || versionBusy}
+                onClick={() => void saveVersionManual()}
+              >
+                Version speichern
+              </Button>
+              <Tooltip title="Versionsverlauf">
+                <span>
+                  <IconButton
+                    disabled={!schedule || editMode}
+                    onClick={openVersionsDrawer}
+                  >
+                    <HistoryIcon />
+                  </IconButton>
+                </span>
+              </Tooltip>
               {!editMode ? (
                 <>
                 <Button
@@ -2142,6 +2249,132 @@ export default function SchedulePage() {
                 {w}
               </Alert>
             ))
+          )}
+        </Box>
+      </Drawer>
+
+      {/* Versions sidebar */}
+      <Drawer
+        anchor="right"
+        open={versionsOpen}
+        onClose={() => setVersionsOpen(false)}
+        variant="temporary"
+        PaperProps={{
+          sx: { width: { xs: "100%", sm: 400 }, p: 0, display: "flex", flexDirection: "column" },
+        }}
+      >
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            px: 2,
+            py: 1.5,
+            borderBottom: "1px solid",
+            borderColor: "divider",
+          }}
+        >
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <HistoryIcon color="primary" />
+            <Typography variant="h6" sx={{ fontSize: "1rem" }}>
+              Versionsverlauf
+            </Typography>
+          </Box>
+          <IconButton size="small" onClick={() => setVersionsOpen(false)}>
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        </Box>
+        <Divider />
+        <Box sx={{ p: 2, overflow: "auto", flex: 1 }}>
+          {versionsLoading ? (
+            <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
+              <CircularProgress size={28} />
+            </Box>
+          ) : versions.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">
+              Keine Versionen vorhanden. Versionen werden automatisch vor
+              Neugenerierung und Leeren erstellt.
+            </Typography>
+          ) : (
+            versions.map((v) => {
+              const date = new Date(v.createdAt);
+              const dateStr = date.toLocaleDateString("de-DE", {
+                day: "2-digit",
+                month: "2-digit",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              });
+              // Extract score summary if available
+              let scoreSummary = "";
+              if (v.scoreReport) {
+                try {
+                  const scoreData = JSON.parse(v.scoreReport);
+                  if (scoreData?.overall_score != null) {
+                    scoreSummary = `Score: ${scoreData.overall_score}%`;
+                  }
+                } catch { /* ignore */ }
+              }
+              return (
+                <Box
+                  key={v.id}
+                  sx={{
+                    mb: 1.5,
+                    p: 1.5,
+                    border: "1px solid",
+                    borderColor: "divider",
+                    borderRadius: 1,
+                    "&:hover": { bgcolor: "action.hover" },
+                  }}
+                >
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 0.5 }}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 600, fontSize: "0.85rem" }}>
+                      {v.label}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap", ml: 1 }}>
+                      {dateStr}
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: "flex", gap: 1, alignItems: "center", mb: 1 }}>
+                    <Chip
+                      size="small"
+                      label={`${v.assignmentCount} Zuweisungen`}
+                      variant="outlined"
+                      sx={{ fontSize: "0.75rem", height: 22 }}
+                    />
+                    {scoreSummary && (
+                      <Chip
+                        size="small"
+                        label={scoreSummary}
+                        color="primary"
+                        variant="outlined"
+                        sx={{ fontSize: "0.75rem", height: 22 }}
+                      />
+                    )}
+                  </Box>
+                  <Box sx={{ display: "flex", gap: 0.5, justifyContent: "flex-end" }}>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      startIcon={<RestoreIcon />}
+                      disabled={versionBusy}
+                      onClick={() => void restoreVersion(v.id)}
+                      sx={{ fontSize: "0.75rem", textTransform: "none" }}
+                    >
+                      Wiederherstellen
+                    </Button>
+                    <IconButton
+                      size="small"
+                      color="error"
+                      disabled={versionBusy}
+                      onClick={() => void deleteVersion(v.id)}
+                    >
+                      <DeleteOutlineIcon fontSize="small" />
+                    </IconButton>
+                  </Box>
+                </Box>
+              );
+            })
           )}
         </Box>
       </Drawer>

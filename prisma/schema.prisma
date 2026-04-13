@@ -262,10 +262,26 @@ model Schedule {
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
 
-  facility    Facility     @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  facility    Facility          @relation(fields: [facilityId], references: [id], onDelete: Cascade)
   assignments Assignment[]
+  versions    ScheduleVersion[]
 
   @@index([facilityId, periodStart, periodEnd])
+}
+
+model ScheduleVersion {
+  id              String   @id @default(cuid())
+  scheduleId      String
+  label           String   // e.g. "Vor Neugenerierung", "Manuell gesichert"
+  assignmentsJson String   @db.Text // Full assignment array as JSON
+  assignmentCount Int
+  scoreReport     String?
+  generationLog   String?
+  createdAt       DateTime @default(now())
+
+  schedule Schedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  @@index([scheduleId, createdAt])
 }
 
 model Assignment {

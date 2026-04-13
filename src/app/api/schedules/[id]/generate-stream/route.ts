@@ -6,6 +6,7 @@ import { validateScheduleAssignments } from "@/lib/api/planningScheduleValidatio
 import { requirePlanner } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 import { formatRuleViolations } from "@/lib/schedule/formatRuleViolations";
+import { snapshotCurrentVersion } from "@/lib/schedule/versionSnapshot";
 import type { AssignmentInput } from "@/lib/planning/types";
 import type { ManualPlacementInput } from "@/lib/schedule/generateDraftSchedule";
 import { loadGenerateContext } from "@/lib/schedule/generateDraftSchedule";
@@ -410,6 +411,8 @@ export async function POST(request: Request, context: RouteCtx) {
 
         await prisma.$transaction(
           async (tx) => {
+            // Auto-snapshot current state before replacing assignments
+            await snapshotCurrentVersion(scheduleId, "Vor Neugenerierung", tx);
             await tx.assignment.deleteMany({ where: { scheduleId } });
             if (allInputs.length > 0) {
               await tx.assignment.createMany({ data: allInputs });
