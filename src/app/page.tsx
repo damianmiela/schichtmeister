@@ -235,7 +235,7 @@ export default function DashboardPage() {
         <CardContent sx={{ pb: "16px !important", px: { xs: 1.5, sm: 2, md: 3 } }}>
           <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 1, flexWrap: "wrap", mb: 2 }}>
             <Box>
-              <Typography variant={{ xs: "subtitle1", sm: "h6" }} sx={{ fontWeight: 600 }}>
+              <Typography variant="h6" sx={{ fontWeight: 600 }}>
                 Heute · {todayTitle}
               </Typography>
             </Box>
@@ -271,7 +271,7 @@ export default function DashboardPage() {
       {data.absentEmployees.length > 0 && (
         <Card sx={{ mb: 3 }}>
           <CardContent sx={{ pb: "16px !important", px: { xs: 1.5, sm: 2, md: 3 } }}>
-            <Typography variant={{ xs: "subtitle1", sm: "h6" }} sx={{ fontWeight: 600, mb: 1.5 }}>
+            <Typography variant="h6" sx={{ fontWeight: 600, mb: 1.5 }}>
               Abwesende Mitarbeiter
             </Typography>
             <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
@@ -299,7 +299,7 @@ export default function DashboardPage() {
       <Card>
         <CardContent sx={{ pb: "16px !important", px: { xs: 1.5, sm: 2, md: 3 } }}>
           <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 1, flexWrap: "wrap", mb: 2 }}>
-            <Typography variant={{ xs: "subtitle1", sm: "h6" }} sx={{ fontWeight: 600 }}>
+            <Typography variant="h6" sx={{ fontWeight: 600 }}>
               Nächste 7 Tage
             </Typography>
             <Button
@@ -498,10 +498,10 @@ function MetricCard({
             {icon}
           </Box>
           <Box sx={{ minWidth: 0 }}>
-            <Typography variant={{ xs: "caption", sm: "caption" }} color="text.secondary" noWrap>
+            <Typography variant="caption" color="text.secondary" noWrap>
               {label}
             </Typography>
-            <Typography variant={{ xs: "h6", sm: "h5" }} sx={{ fontWeight: 700, lineHeight: 1.2 }}>
+            <Typography variant="h5" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
               {value}
             </Typography>
             {subtitle && (
@@ -529,16 +529,16 @@ function StationCard({ station }: { station: StationData }) {
       }}
     >
       <CardContent sx={{ py: 1.5, px: { xs: 1.5, sm: 2 }, "&:last-child": { pb: 1.5 } }}>
-        <Typography variant={{ xs: "caption", sm: "subtitle2" }} sx={{ fontWeight: 700, mb: 1, color: stColor?.main, display: "block" }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1, color: stColor?.main, display: "block" }}>
           {station.label}
         </Typography>
         {station.shifts.map((shift) => (
           <Box key={shift.shiftType} sx={{ mb: 0.5 }}>
             <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.25, gap: 1 }}>
-              <Typography variant={{ xs: "caption", sm: "caption" }} sx={{ fontWeight: 600 }}>
+              <Typography variant="caption" sx={{ fontWeight: 600 }}>
                 {shift.shiftTypeLabel}
               </Typography>
-              <Typography variant={{ xs: "caption", sm: "caption" }} sx={{ fontWeight: 600 }}>
+              <Typography variant="caption" sx={{ fontWeight: 600 }}>
                 {shift.assigned}/{shift.required}
               </Typography>
             </Box>
@@ -585,14 +585,14 @@ function NightCard({ night }: { night: StationShift }) {
       }}
     >
       <CardContent sx={{ py: 1.5, px: { xs: 1.5, sm: 2 }, "&:last-child": { pb: 1.5 } }}>
-        <Typography variant={{ xs: "caption", sm: "subtitle2" }} sx={{ fontWeight: 700, mb: 1, color: NIGHT_COLOR.main, display: "block" }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1, color: NIGHT_COLOR.main, display: "block" }}>
           Nacht (gesamtes Gebäude)
         </Typography>
         <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.25, gap: 1 }}>
-          <Typography variant={{ xs: "caption", sm: "caption" }} sx={{ fontWeight: 600 }}>
+          <Typography variant="caption" sx={{ fontWeight: 600 }}>
             {night.shiftTypeLabel}
           </Typography>
-          <Typography variant={{ xs: "caption", sm: "caption" }} sx={{ fontWeight: 600 }}>
+          <Typography variant="caption" sx={{ fontWeight: 600 }}>
             {night.assigned}/{night.required}
           </Typography>
         </Box>

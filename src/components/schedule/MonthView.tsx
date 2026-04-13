@@ -163,7 +163,7 @@ export default function MonthView({
             component="span"
             sx={{
               fontWeight: 700,
-              fontSize: 11,
+              fontSize: { xs: 8, sm: 10, md: 11 },
               color: STATION_COLORS[st] ?? "text.primary",
               minWidth: 22,
               lineHeight: 1,
@@ -174,7 +174,7 @@ export default function MonthView({
           <Box
             component="span"
             sx={{
-              fontSize: 11,
+              fontSize: { xs: 8, sm: 10, md: 11 },
               fontWeight: 600,
               color: earlyOk ? "success.main" : "error.main",
               minWidth: 28,
@@ -185,7 +185,7 @@ export default function MonthView({
           <Box
             component="span"
             sx={{
-              fontSize: 11,
+              fontSize: { xs: 8, sm: 10, md: 11 },
               fontWeight: 600,
               color: lateOk ? "success.main" : "error.main",
               minWidth: 28,
@@ -221,7 +221,7 @@ export default function MonthView({
             component="span"
             sx={{
               fontWeight: 700,
-              fontSize: 11,
+              fontSize: { xs: 8, sm: 10, md: 11 },
               color: "#7e57c2",
               minWidth: 22,
               lineHeight: 1,
@@ -232,7 +232,7 @@ export default function MonthView({
           <Box
             component="span"
             sx={{
-              fontSize: 11,
+              fontSize: { xs: 8, sm: 10, md: 11 },
               fontWeight: 600,
               color: nightOk ? "success.main" : "error.main",
             }}
@@ -263,7 +263,7 @@ export default function MonthView({
             component="span"
             sx={{
               fontWeight: 700,
-              fontSize: 11,
+              fontSize: { xs: 8, sm: 10, md: 11 },
               color: "#66bb6a",
               minWidth: 22,
               lineHeight: 1,
@@ -274,7 +274,7 @@ export default function MonthView({
           <Box
             component="span"
             sx={{
-              fontSize: 11,
+              fontSize: { xs: 8, sm: 10, md: 11 },
               fontWeight: 600,
               color: blOk ? "success.main" : "error.main",
             }}
@@ -323,7 +323,7 @@ export default function MonthView({
                 <Paper
                   key={`pad-${ri}-${ci}`}
                   variant="outlined"
-                  sx={{ minHeight: 110, bgcolor: "action.hover", opacity: 0.4 }}
+                  sx={{ minHeight: { xs: 70, sm: 90, md: 110 }, bgcolor: "action.hover", opacity: 0.4 }}
                 />
               );
             }
@@ -338,7 +338,7 @@ export default function MonthView({
                 key={iso}
                 variant="outlined"
                 sx={{
-                  minHeight: 110,
+                  minHeight: { xs: 70, sm: 90, md: 110 },
                   p: 1,
                   cursor: "pointer",
                   transition: "background-color 0.15s",

@@ -460,7 +460,7 @@ function DatabaseTab() {
 
   return (
     <>
-      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3, flexDirection: { xs: "column", sm: "row" }, gap: { xs: 2, sm: 0 }, alignItems: { xs: "flex-start", sm: "center" } }}>
+      <Box sx={{ display: "flex", justifyContent: "space-between", mb: 3, flexDirection: { xs: "column", sm: "row" }, gap: { xs: 2, sm: 0 }, alignItems: { xs: "flex-start", sm: "center" } }}>
         <Box>
           <Typography variant="h5" fontWeight={700} sx={{ mb: 1, fontSize: { xs: 20, sm: 24 } }}>
             Datenbank-Browser
