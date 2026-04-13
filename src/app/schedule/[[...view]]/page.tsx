@@ -1336,333 +1336,337 @@ export default function SchedulePage() {
         </Breadcrumbs>
       </Box>
 
-      {/* ── Row 1: Navigation + View Toggle ── */}
+      {/* ── Unified Toolbar ── */}
       <Box
         sx={{
           display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          mb: 1.5,
+          justifyContent: "center",
+          mb: 2.5,
         }}
       >
-        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-          <IconButton
-            onClick={handlePrevious}
-            disabled={loading || editMode}
-            size="small"
-            sx={{ color: "text.secondary" }}
-          >
-            <ChevronLeftIcon />
-          </IconButton>
-          <Typography
-            variant="h6"
-            sx={{ minWidth: 260, textAlign: "center", fontWeight: 600, fontSize: "1.1rem" }}
-          >
-            {getViewTitle()}
-          </Typography>
-          <IconButton
-            onClick={handleNext}
-            disabled={loading || editMode}
-            size="small"
-            sx={{ color: "text.secondary" }}
-          >
-            <ChevronRightIcon />
-          </IconButton>
-        </Box>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-          {viewState.type === "employee" && sortedEmployees.length > 0 && (
-            <Autocomplete
-              size="small"
-              options={sortedEmployees}
-              getOptionLabel={(e) => `${e.lastName} ${e.firstName}`}
-              value={
-                viewState.employeeId
-                  ? sortedEmployees.find((e) => e.id === viewState.employeeId) ?? undefined
-                  : undefined
-              }
-              onChange={(_, emp) => {
-                if (emp) setViewState({ ...viewState, employeeId: emp.id });
-              }}
-              disableClearable
-              sx={{ minWidth: 250 }}
-              renderInput={(inputProps) => (
-                <TextField {...inputProps} label="Mitarbeiter" />
-              )}
-            />
-          )}
-          {viewState.type === "month" && (
-            <ToggleButtonGroup
-              value={monthViewMode}
-              exclusive
-              onChange={(_, value) => value && setMonthViewMode(value)}
-              size="small"
-              disabled={editMode}
-              sx={{
-                "& .MuiToggleButton-root": {
-                  px: 1.5,
-                  py: 0.5,
-                  fontSize: "0.75rem",
-                  border: "none",
-                  borderRadius: "6px !important",
-                  color: "text.secondary",
-                  "&.Mui-selected": {
-                    bgcolor: "primary.main",
-                    color: "primary.contrastText",
-                    "&:hover": { bgcolor: "primary.dark" },
-                  },
-                  "&:hover": { bgcolor: "action.hover" },
-                },
-                bgcolor: "grey.100",
-                borderRadius: "8px",
-                p: 0.3,
-                gap: 0.3,
-                border: "none",
-                "& .MuiToggleButtonGroup-grouped": { border: "none" },
-              }}
-            >
-              <ToggleButton value="table">
-                <TableChartIcon sx={{ fontSize: 16, mr: 0.5 }} />
-                Dienstplan
-              </ToggleButton>
-              <ToggleButton value="overview">
-                <GridViewIcon sx={{ fontSize: 16, mr: 0.5 }} />
-                Besetzungsübersicht
-              </ToggleButton>
-            </ToggleButtonGroup>
-          )}
-          {displayWarnings.length > 0 && (
-            <Tooltip title="Warnungen anzeigen">
-              <IconButton
-                size="small"
-                color="warning"
-                onClick={() => setWarningsOpen((p) => !p)}
-              >
-                <Badge badgeContent={displayWarnings.length} color="warning">
-                  <WarningAmberIcon fontSize="small" />
-                </Badge>
-              </IconButton>
-            </Tooltip>
-          )}
-        </Box>
-      </Box>
-
-      {/* ── Row 2: Actions (month view only) ── */}
-      {viewState.type === "month" && (
         <Box
           sx={{
             display: "flex",
-            justifyContent: "space-between",
             alignItems: "center",
-            mb: 2,
-            flexWrap: "wrap",
             gap: 1,
+            px: 1.5,
+            py: 0.75,
+            bgcolor: "grey.50",
+            border: 1,
+            borderColor: "grey.200",
+            borderRadius: "10px",
+            flexWrap: "wrap",
+            justifyContent: "center",
           }}
         >
-          {/* Left: primary actions */}
-          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-            {!editMode ? (
-              <>
-                <Button
-                  size="small"
-                  startIcon={<AutoAwesomeIcon />}
-                  disabled={loading || !schedule || generateBusy || editMode}
-                  onClick={() => {
-                    const saved = schedule?.preGenWishes?.savedEntries;
-                    if (saved && Array.isArray(saved) && saved.length > 0) {
-                      setPreGenEntries(saved as PreGenEntry[]);
-                    } else {
-                      setPreGenEntries([]);
-                    }
-                    setPreGenOpen(true);
-                  }}
-                  sx={{
-                    textTransform: "none",
-                    fontWeight: 500,
-                    color: "text.primary",
-                    "&:hover": { bgcolor: "action.hover" },
-                  }}
-                >
-                  {generateBusy ? <CircularProgress size={16} /> : "Generieren"}
-                </Button>
-                <Button
-                  size="small"
-                  startIcon={assignments.length === 0 ? <DrawIcon /> : <EditIcon />}
-                  disabled={
-                    loading || !schedule || generateBusy ||
-                    (assignments.length > 0 && (viewState.type !== "month" || monthViewMode !== "table"))
-                  }
-                  onClick={enterEditMode}
-                  sx={{
-                    textTransform: "none",
-                    fontWeight: 500,
-                    color: "text.primary",
-                    "&:hover": { bgcolor: "action.hover" },
-                  }}
-                >
-                  {assignments.length === 0 ? "Manuell erstellen" : "Bearbeiten"}
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button
-                  size="small"
-                  onClick={cancelEditMode}
-                  disabled={editSaving}
-                  sx={{
-                    textTransform: "none",
-                    fontWeight: 500,
-                    color: "text.secondary",
-                    "&:hover": { bgcolor: "action.hover" },
-                  }}
-                >
-                  Abbrechen
-                </Button>
-                <Button
-                  size="small"
-                  variant="contained"
-                  color="primary"
-                  startIcon={editSaving ? <CircularProgress size={14} color="inherit" /> : <SaveIcon />}
-                  disabled={editSaving}
-                  onClick={() => void onSaveEdits()}
-                  sx={{
-                    textTransform: "none",
-                    fontWeight: 600,
-                    borderRadius: "6px",
-                    boxShadow: "none",
-                    "&:hover": { boxShadow: "none" },
-                  }}
-                >
-                  Speichern
-                </Button>
-              </>
-            )}
+          {/* ── Navigation ── */}
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0 }}>
+            <IconButton
+              onClick={handlePrevious}
+              disabled={loading || editMode}
+              size="small"
+              sx={{ color: "text.secondary" }}
+            >
+              <ChevronLeftIcon fontSize="small" />
+            </IconButton>
+            <Typography
+              sx={{
+                minWidth: 200,
+                textAlign: "center",
+                fontWeight: 600,
+                fontSize: "0.9rem",
+                userSelect: "none",
+              }}
+            >
+              {getViewTitle()}
+            </Typography>
+            <IconButton
+              onClick={handleNext}
+              disabled={loading || editMode}
+              size="small"
+              sx={{ color: "text.secondary" }}
+            >
+              <ChevronRightIcon fontSize="small" />
+            </IconButton>
           </Box>
 
-          {/* Right: secondary actions */}
-          {!editMode && (
-            <Box sx={{ display: "flex", alignItems: "center", gap: 0.25 }}>
-              <Tooltip title="PDF Export">
-                <span>
-                  <IconButton
-                    size="small"
-                    disabled={loading || !schedule || exportBusy || assignments.length === 0}
-                    onClick={(e) => setExportMenuEl(e.currentTarget)}
-                    sx={{ color: "text.secondary" }}
-                  >
-                    {exportBusy ? <CircularProgress size={18} /> : <DownloadIcon fontSize="small" />}
-                  </IconButton>
-                </span>
-              </Tooltip>
-              <Menu
-                anchorEl={exportMenuEl}
-                open={Boolean(exportMenuEl)}
-                onClose={() => setExportMenuEl(null)}
+          {/* ── Employee picker (employee view only) ── */}
+          {viewState.type === "employee" && sortedEmployees.length > 0 && (
+            <>
+              <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+              <Autocomplete
+                size="small"
+                options={sortedEmployees}
+                getOptionLabel={(e) => `${e.lastName} ${e.firstName}`}
+                value={
+                  viewState.employeeId
+                    ? sortedEmployees.find((e) => e.id === viewState.employeeId) ?? undefined
+                    : undefined
+                }
+                onChange={(_, emp) => {
+                  if (emp) setViewState({ ...viewState, employeeId: emp.id });
+                }}
+                disableClearable
+                sx={{ minWidth: 220 }}
+                renderInput={(inputProps) => (
+                  <TextField {...inputProps} label="Mitarbeiter" />
+                )}
+              />
+            </>
+          )}
+
+          {/* ── View toggle (month view only) ── */}
+          {viewState.type === "month" && (
+            <>
+              <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+              <ToggleButtonGroup
+                value={monthViewMode}
+                exclusive
+                onChange={(_, value) => value && setMonthViewMode(value)}
+                size="small"
+                disabled={editMode}
+                sx={{
+                  "& .MuiToggleButton-root": {
+                    px: 1.5,
+                    py: 0.4,
+                    fontSize: "0.72rem",
+                    border: "none",
+                    borderRadius: "6px !important",
+                    color: "text.secondary",
+                    "&.Mui-selected": {
+                      bgcolor: "primary.main",
+                      color: "primary.contrastText",
+                      "&:hover": { bgcolor: "primary.dark" },
+                    },
+                    "&:hover": { bgcolor: "action.hover" },
+                  },
+                  bgcolor: "background.paper",
+                  borderRadius: "7px",
+                  p: 0.3,
+                  gap: 0.3,
+                  border: "none",
+                  "& .MuiToggleButtonGroup-grouped": { border: "none" },
+                }}
               >
-                <MenuItem
-                  onClick={() => void downloadExport("pdf")}
-                  disabled={exportBusy}
-                >
-                  Monatsplan (Stationen)
-                </MenuItem>
-                <MenuItem
-                  onClick={() => void downloadExport("employees-pdf")}
-                  disabled={exportBusy}
-                >
-                  Mitarbeiter-Dienstpläne
-                </MenuItem>
-              </Menu>
+                <ToggleButton value="table">
+                  <TableChartIcon sx={{ fontSize: 15, mr: 0.5 }} />
+                  Dienstplan
+                </ToggleButton>
+                <ToggleButton value="overview">
+                  <GridViewIcon sx={{ fontSize: 15, mr: 0.5 }} />
+                  Übersicht
+                </ToggleButton>
+              </ToggleButtonGroup>
+            </>
+          )}
 
-              <Tooltip title="Version speichern">
-                <span>
-                  <IconButton
-                    size="small"
-                    disabled={loading || !schedule || assignments.length === 0 || versionBusy}
-                    onClick={() => void saveVersionManual()}
-                    sx={{ color: "text.secondary" }}
-                  >
-                    {versionBusy ? <CircularProgress size={18} /> : <BookmarkIcon fontSize="small" />}
-                  </IconButton>
-                </span>
-              </Tooltip>
-
-              <Tooltip title="Versionsverlauf">
-                <span>
-                  <IconButton
-                    size="small"
-                    disabled={!schedule}
-                    onClick={openVersionsDrawer}
-                    sx={{ color: "text.secondary" }}
-                  >
-                    <HistoryIcon fontSize="small" />
-                  </IconButton>
-                </span>
-              </Tooltip>
-
-              <Tooltip title="Plan leeren">
-                <span>
-                  <IconButton
-                    size="small"
-                    disabled={loading || !schedule || clearBusy || assignments.length === 0}
-                    onClick={() => setClearConfirmOpen(true)}
-                    sx={{ color: "error.light" }}
-                  >
-                    {clearBusy ? <CircularProgress size={18} /> : <DeleteSweepIcon fontSize="small" />}
-                  </IconButton>
-                </span>
-              </Tooltip>
-
-              {isAdmin && (
-                <>
-                  <Tooltip title="Admin">
-                    <span>
-                      <IconButton
-                        size="small"
-                        disabled={loading || !schedule}
-                        onClick={(e) => setAdminMenuEl(e.currentTarget)}
-                        sx={{ color: "text.secondary" }}
+          {/* ── Actions (month view only) ── */}
+          {viewState.type === "month" && (
+            <>
+              <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+              <Box sx={{ display: "flex", alignItems: "center", gap: 0.25 }}>
+                {!editMode ? (
+                  <>
+                    <Tooltip title="Auto-Generierung">
+                      <span>
+                        <IconButton
+                          size="small"
+                          disabled={loading || !schedule || generateBusy}
+                          onClick={() => {
+                            const saved = schedule?.preGenWishes?.savedEntries;
+                            if (saved && Array.isArray(saved) && saved.length > 0) {
+                              setPreGenEntries(saved as PreGenEntry[]);
+                            } else {
+                              setPreGenEntries([]);
+                            }
+                            setPreGenOpen(true);
+                          }}
+                          sx={{ color: "text.secondary" }}
+                        >
+                          {generateBusy ? <CircularProgress size={18} /> : <AutoAwesomeIcon fontSize="small" />}
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                    <Tooltip title={assignments.length === 0 ? "Manuell erstellen" : "Bearbeiten"}>
+                      <span>
+                        <IconButton
+                          size="small"
+                          disabled={
+                            loading || !schedule || generateBusy ||
+                            (assignments.length > 0 && (viewState.type !== "month" || monthViewMode !== "table"))
+                          }
+                          onClick={enterEditMode}
+                          sx={{ color: "text.secondary" }}
+                        >
+                          {assignments.length === 0 ? <DrawIcon fontSize="small" /> : <EditIcon fontSize="small" />}
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                    <Tooltip title="PDF Export">
+                      <span>
+                        <IconButton
+                          size="small"
+                          disabled={loading || !schedule || exportBusy || assignments.length === 0}
+                          onClick={(e) => setExportMenuEl(e.currentTarget)}
+                          sx={{ color: "text.secondary" }}
+                        >
+                          {exportBusy ? <CircularProgress size={18} /> : <DownloadIcon fontSize="small" />}
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                    <Menu
+                      anchorEl={exportMenuEl}
+                      open={Boolean(exportMenuEl)}
+                      onClose={() => setExportMenuEl(null)}
+                    >
+                      <MenuItem
+                        onClick={() => void downloadExport("pdf")}
+                        disabled={exportBusy}
                       >
-                        <AdminPanelSettingsIcon fontSize="small" />
-                      </IconButton>
-                    </span>
-                  </Tooltip>
-                  <Menu
-                    anchorEl={adminMenuEl}
-                    open={Boolean(adminMenuEl)}
-                    onClose={() => setAdminMenuEl(null)}
-                  >
-                    <MenuItem
-                      onClick={() => { setAdminMenuEl(null); void onViewLogs(); }}
+                        Monatsplan (Stationen)
+                      </MenuItem>
+                      <MenuItem
+                        onClick={() => void downloadExport("employees-pdf")}
+                        disabled={exportBusy}
+                      >
+                        Mitarbeiter-Dienstpläne
+                      </MenuItem>
+                    </Menu>
+                    <Tooltip title="Version speichern">
+                      <span>
+                        <IconButton
+                          size="small"
+                          disabled={loading || !schedule || assignments.length === 0 || versionBusy}
+                          onClick={() => void saveVersionManual()}
+                          sx={{ color: "text.secondary" }}
+                        >
+                          {versionBusy ? <CircularProgress size={18} /> : <BookmarkIcon fontSize="small" />}
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                    <Tooltip title="Versionsverlauf">
+                      <span>
+                        <IconButton
+                          size="small"
+                          disabled={!schedule}
+                          onClick={openVersionsDrawer}
+                          sx={{ color: "text.secondary" }}
+                        >
+                          <HistoryIcon fontSize="small" />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                    <Tooltip title="Plan leeren">
+                      <span>
+                        <IconButton
+                          size="small"
+                          disabled={loading || !schedule || clearBusy || assignments.length === 0}
+                          onClick={() => setClearConfirmOpen(true)}
+                          sx={{ color: "error.light" }}
+                        >
+                          {clearBusy ? <CircularProgress size={18} /> : <DeleteSweepIcon fontSize="small" />}
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                    {isAdmin && (
+                      <>
+                        <Tooltip title="Admin">
+                          <span>
+                            <IconButton
+                              size="small"
+                              disabled={loading || !schedule}
+                              onClick={(e) => setAdminMenuEl(e.currentTarget)}
+                              sx={{ color: "text.secondary" }}
+                            >
+                              <AdminPanelSettingsIcon fontSize="small" />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                        <Menu
+                          anchorEl={adminMenuEl}
+                          open={Boolean(adminMenuEl)}
+                          onClose={() => setAdminMenuEl(null)}
+                        >
+                          <MenuItem onClick={() => { setAdminMenuEl(null); void onViewLogs(); }}>
+                            <ListItemIcon><DescriptionIcon fontSize="small" /></ListItemIcon>
+                            <ListItemText>Generator-Protokoll</ListItemText>
+                          </MenuItem>
+                          <MenuItem onClick={() => { setAdminMenuEl(null); void onViewScore(); }}>
+                            <ListItemIcon><DescriptionIcon fontSize="small" /></ListItemIcon>
+                            <ListItemText>Qualitätsbericht</ListItemText>
+                          </MenuItem>
+                          <MenuItem onClick={() => { setAdminMenuEl(null); void downloadExport("debug"); }}>
+                            <ListItemIcon><DownloadIcon fontSize="small" /></ListItemIcon>
+                            <ListItemText>Debug JSON</ListItemText>
+                          </MenuItem>
+                          <Divider />
+                          <MenuItem onClick={() => void onCleanAbsences()} disabled={cleanAbsencesBusy}>
+                            <ListItemIcon><CleaningServicesIcon fontSize="small" /></ListItemIcon>
+                            <ListItemText>Abwesenheiten bereinigen</ListItemText>
+                          </MenuItem>
+                        </Menu>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <Button
+                      size="small"
+                      onClick={cancelEditMode}
+                      disabled={editSaving}
+                      sx={{
+                        textTransform: "none",
+                        fontWeight: 500,
+                        fontSize: "0.8rem",
+                        color: "text.secondary",
+                        "&:hover": { bgcolor: "action.hover" },
+                      }}
                     >
-                      <ListItemIcon><DescriptionIcon fontSize="small" /></ListItemIcon>
-                      <ListItemText>Generator-Protokoll</ListItemText>
-                    </MenuItem>
-                    <MenuItem
-                      onClick={() => { setAdminMenuEl(null); void onViewScore(); }}
+                      Abbrechen
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="contained"
+                      color="primary"
+                      startIcon={editSaving ? <CircularProgress size={14} color="inherit" /> : <SaveIcon />}
+                      disabled={editSaving}
+                      onClick={() => void onSaveEdits()}
+                      sx={{
+                        textTransform: "none",
+                        fontWeight: 600,
+                        fontSize: "0.8rem",
+                        borderRadius: "6px",
+                        boxShadow: "none",
+                        "&:hover": { boxShadow: "none" },
+                      }}
                     >
-                      <ListItemIcon><DescriptionIcon fontSize="small" /></ListItemIcon>
-                      <ListItemText>Qualitätsbericht</ListItemText>
-                    </MenuItem>
-                    <MenuItem
-                      onClick={() => { setAdminMenuEl(null); void downloadExport("debug"); }}
-                    >
-                      <ListItemIcon><DownloadIcon fontSize="small" /></ListItemIcon>
-                      <ListItemText>Debug JSON</ListItemText>
-                    </MenuItem>
-                    <Divider />
-                    <MenuItem
-                      onClick={() => void onCleanAbsences()}
-                      disabled={cleanAbsencesBusy}
-                    >
-                      <ListItemIcon><CleaningServicesIcon fontSize="small" /></ListItemIcon>
-                      <ListItemText>Abwesenheiten bereinigen</ListItemText>
-                    </MenuItem>
-                  </Menu>
-                </>
-              )}
-            </Box>
+                      Speichern
+                    </Button>
+                  </>
+                )}
+              </Box>
+            </>
+          )}
+
+          {/* ── Warnings badge ── */}
+          {displayWarnings.length > 0 && (
+            <>
+              <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+              <Tooltip title="Warnungen anzeigen">
+                <IconButton
+                  size="small"
+                  color="warning"
+                  onClick={() => setWarningsOpen((p) => !p)}
+                >
+                  <Badge badgeContent={displayWarnings.length} color="warning">
+                    <WarningAmberIcon fontSize="small" />
+                  </Badge>
+                </IconButton>
+              </Tooltip>
+            </>
           )}
         </Box>
-      )}
+      </Box>
 
       {actionMsg && (
         <Alert
