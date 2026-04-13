@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
       });
       if (existing) return existing;
       const name =
-        process.env.DEFAULT_FACILITY_NAME?.trim() || "Demo-Einrichtung";
+        process.env.DEFAULT_FACILITY_NAME?.trim() || "SchichtMeister";
       return tx.facility.create({
         data: { name },
       });

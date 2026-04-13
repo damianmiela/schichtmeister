@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
 
     await sendMail({
       to: email,
-      subject: "Passwort zurücksetzen — Demo-Einrichtung Dienst Planner",
+      subject: "Passwort zurücksetzen — SchichtMeister",
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto;">
           <h2 style="color: #1565c0;">Passwort zurücksetzen</h2>
@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
             Falls Sie diese Anfrage nicht gestellt haben, können Sie diese E-Mail ignorieren.
           </p>
           <hr style="border: none; border-top: 1px solid #eee; margin: 24px 0;" />
-          <p style="color: #999; font-size: 12px;">Demo-Einrichtung Dienst Planner</p>
+          <p style="color: #999; font-size: 12px;">SchichtMeister</p>
         </div>
       `,
     });

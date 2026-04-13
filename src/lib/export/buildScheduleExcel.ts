@@ -21,7 +21,7 @@ export async function buildScheduleExcelBuffer(
   assignments: AssignmentWithRelations[],
 ): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
-  wb.creator = "Demo-Einrichtung Dienstplaner";
+  wb.creator = "SchichtMeister";
   wb.created = new Date();
 
   const meta = wb.addWorksheet("Meta", { views: [{ state: "frozen", ySplit: 1 }] });

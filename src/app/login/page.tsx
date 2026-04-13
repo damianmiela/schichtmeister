@@ -74,7 +74,7 @@ function LoginForm() {
           <LockOutlinedIcon />
         </Box>
         <Typography variant="h5" component="h1">
-          Demo-Einrichtung Dienst Planner
+          SchichtMeister
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
           Mit E-Mail und Passwort anmelden

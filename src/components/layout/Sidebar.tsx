@@ -86,19 +86,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }: SidebarPr
                 letterSpacing: "0.02em",
               }}
             >
-              Demo-Einrichtung
-            </Typography>
-            <Typography
-              variant="caption"
-              sx={{
-                color: "text.secondary",
-                letterSpacing: "0.15em",
-                textTransform: "uppercase",
-                fontSize: 10,
-                fontWeight: 600,
-              }}
-            >
-              Dienst Planner
+              SchichtMeister
             </Typography>
           </Box>
         </Box>
