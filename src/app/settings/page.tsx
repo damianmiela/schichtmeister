@@ -1005,7 +1005,6 @@ export default function SettingsPage() {
               <Box
                 sx={{
                   display: "flex",
-                  alignItems: "center",
                   justifyContent: "space-between",
                   mb: 1,
                   flexDirection: { xs: "column", sm: "row" },
@@ -1138,7 +1137,6 @@ export default function SettingsPage() {
               <Box
                 sx={{
                   display: "flex",
-                  alignItems: "center",
                   justifyContent: "space-between",
                   mb: 1,
                   flexDirection: { xs: "column", sm: "row" },
