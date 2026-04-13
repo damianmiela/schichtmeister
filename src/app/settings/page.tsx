@@ -25,18 +25,23 @@ import {
   IconButton,
   MenuItem,
   Switch,
+  Tab,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
+  Tabs,
   TextField,
   Tooltip,
   Typography,
   useMediaQuery,
   useTheme,
 } from "@mui/material";
+import SchoolIcon from "@mui/icons-material/School";
+import PeopleIcon from "@mui/icons-material/People";
+import TuneIcon from "@mui/icons-material/Tune";
 import SaveIcon from "@mui/icons-material/Save";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -113,6 +118,8 @@ const HIDDEN_RULES = new Set([
   "wishFulfillment",
   "fairnessCounters",
   "targetHoursBalance",
+  "alternatingWeekends",
+  "blWeekendHoliday",
 ]);
 
 const RULE_LABELS: Record<string, string> = {
@@ -120,7 +127,6 @@ const RULE_LABELS: Record<string, string> = {
   maxConsecutiveNights: "Max. aufeinanderfolgende Nachtschichten",
   maxConsecutiveDays: "Max. aufeinanderfolgende Arbeitstage",
   restAfter6Days: "Ruhetage nach 6+ Arbeitstagen",
-  alternatingWeekends: "Jedes zweite Wochenende frei",
   wblWeekendLimit: "WBL max. Wochenendtage pro Monat",
   sollDelta: "Soll-Stunden Abweichungsbereich",
 };
@@ -156,6 +162,9 @@ function extractApiError(e: unknown, fallback: string): string {
 export default function SettingsPage() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+
+  // ── Tab state ──
+  const [activeTab, setActiveTab] = useState(0);
 
   // ── Qualification catalog state ──
   const [qualifications, setQualifications] = useState<QualificationCatalog[]>(
@@ -997,42 +1006,62 @@ export default function SettingsPage() {
 
   return (
     <MainLayout title="Einstellungen">
-      <Grid container spacing={3}>
-        {/* ──── Section 1: Qualifikationen ──── */}
-        <Grid size={{ xs: 12 }}>
-          <Card>
-            <CardContent>
-              <Box
-                sx={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  mb: 1,
-                  flexDirection: { xs: "column", sm: "row" },
-                  gap: { xs: 1, sm: 0 },
-                  alignItems: { xs: "flex-start", sm: "center" },
-                }}
+      {/* ──── Tab Navigation ──── */}
+      <Box sx={{ borderBottom: 1, borderColor: "divider", mb: 3 }}>
+        <Tabs
+          value={activeTab}
+          onChange={(_, v) => setActiveTab(v)}
+          variant={isMobile ? "fullWidth" : "standard"}
+          sx={{
+            "& .MuiTab-root": {
+              textTransform: "none",
+              fontWeight: 600,
+              fontSize: { xs: "0.8rem", sm: "0.9rem" },
+              minHeight: 48,
+            },
+          }}
+        >
+          <Tab icon={<SchoolIcon />} iconPosition="start" label="Qualifikationen" />
+          <Tab icon={<PeopleIcon />} iconPosition="start" label="Mindestbesetzung" />
+          <Tab icon={<TuneIcon />} iconPosition="start" label="Planungsregeln" />
+        </Tabs>
+      </Box>
+
+      {/* ──── Tab 0: Qualifikationen ──── */}
+      {activeTab === 0 && (
+        <Card>
+          <CardContent>
+            <Box
+              sx={{
+                display: "flex",
+                justifyContent: "space-between",
+                mb: 1,
+                flexDirection: { xs: "column", sm: "row" },
+                gap: { xs: 1, sm: 0 },
+                alignItems: { xs: "flex-start", sm: "center" },
+              }}
+            >
+              <Typography variant="h6">Qualifikationen</Typography>
+              <Button
+                size="small"
+                variant="contained"
+                startIcon={<AddIcon />}
+                onClick={() => openQualDialog()}
+                sx={{ width: { xs: "100%", sm: "auto" } }}
               >
-                <Typography variant="h6">Qualifikationen</Typography>
-                <Button
-                  size="small"
-                  variant="contained"
-                  startIcon={<AddIcon />}
-                  onClick={() => openQualDialog()}
-                  sx={{ width: { xs: "100%", sm: "auto" } }}
-                >
-                  Neue Qualifikation
-                </Button>
-              </Box>
-              <Typography
-                variant="body2"
-                color="text.secondary"
-                sx={{ mb: 2 }}
-              >
-                Verwalten Sie die im System verfügbaren Qualifikationen.
-                Diese werden für Mitarbeiterprofile und
-                Personalbedarfsanforderungen verwendet.
-              </Typography>
-              <Divider sx={{ mb: 2 }} />
+                Neue Qualifikation
+              </Button>
+            </Box>
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              sx={{ mb: 2 }}
+            >
+              Verwalten Sie die im System verfügbaren Qualifikationen.
+              Diese werden für Mitarbeiterprofile und
+              Personalbedarfsanforderungen verwendet.
+            </Typography>
+            <Divider sx={{ mb: 2 }} />
 
               {qualError && (
                 <Alert
@@ -1126,14 +1155,14 @@ export default function SettingsPage() {
                   </Table>
                 </TableContainer>
               )}
-            </CardContent>
-          </Card>
-        </Grid>
+          </CardContent>
+        </Card>
+      )}
 
-        {/* ──── Section 2: Mindestbesetzung (Personalbedarf) ──── */}
-        <Grid size={{ xs: 12 }}>
-          <Card>
-            <CardContent>
+      {/* ──── Tab 1: Mindestbesetzung ──── */}
+      {activeTab === 1 && (
+        <Card>
+          <CardContent>
               <Box
                 sx={{
                   display: "flex",
@@ -1281,17 +1310,17 @@ export default function SettingsPage() {
                   </Card>
                 </>
               )}
-            </CardContent>
-          </Card>
-        </Grid>
+          </CardContent>
+        </Card>
+      )}
 
-        {/* ──── Section 3: Planungsregeln ──── */}
-        <Grid size={{ xs: 12 }}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Planungsregeln
-              </Typography>
+      {/* ──── Tab 2: Planungsregeln ──── */}
+      {activeTab === 2 && (
+        <Card>
+          <CardContent>
+            <Typography variant="h6" gutterBottom>
+              Planungsregeln
+            </Typography>
               <Typography
                 variant="body2"
                 color="text.secondary"
@@ -1473,10 +1502,9 @@ export default function SettingsPage() {
                   Regeln konnten nicht geladen werden.
                 </Alert>
               )}
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+          </CardContent>
+        </Card>
+      )}
 
       {/* ──── Qualification add/edit dialog ──── */}
       <Dialog
