@@ -1406,7 +1406,7 @@ export default function SchedulePage() {
                   if (emp) setViewState({ ...viewState, employeeId: emp.id });
                 }}
                 disableClearable
-                sx={{ minWidth: 220 }}
+                sx={{ minWidth: { xs: 160, sm: 220 } }}
                 renderInput={(inputProps) => (
                   <TextField {...inputProps} label="Mitarbeiter" />
                 )}
@@ -1472,6 +1472,7 @@ export default function SchedulePage() {
               border: 1,
               borderColor: "grey.200",
               borderRadius: "10px",
+              width: { xs: "100%", md: "auto" },
             }}
           >
             {!editMode ? (
@@ -1495,7 +1496,7 @@ export default function SchedulePage() {
                     flexDirection: "column",
                     alignItems: "center",
                     gap: 0.25,
-                    px: 1.5,
+                    px: { xs: 0.75, md: 1.5 },
                     py: 0.75,
                     borderRadius: "8px",
                     cursor: "pointer",
@@ -1524,7 +1525,7 @@ export default function SchedulePage() {
                     flexDirection: "column",
                     alignItems: "center",
                     gap: 0.25,
-                    px: 1.5,
+                    px: { xs: 0.75, md: 1.5 },
                     py: 0.75,
                     borderRadius: "8px",
                     cursor: "pointer",
