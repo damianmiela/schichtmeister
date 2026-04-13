@@ -27,7 +27,16 @@ import AccessTimeIcon from "@mui/icons-material/AccessTime";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
+import Divider from "@mui/material/Divider";
 import { shiftTypeLabel } from "@/lib/schedule/viewUtils";
+
+type ShiftMarkingItem = {
+  id: string;
+  code: string;
+  label: string;
+  color: string;
+  sortOrder: number;
+};
 
 type ShiftType = "EARLY" | "LATE" | "NIGHT" | "BL";
 
@@ -80,6 +89,16 @@ export default function ShiftProfilesPage() {
   const [isActive, setIsActive] = useState(true);
   const [deleteTarget, setDeleteTarget] = useState<ShiftProfile | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+
+  // Shift markings state
+  const [markings, setMarkings] = useState<ShiftMarkingItem[]>([]);
+  const [markingsLoading, setMarkingsLoading] = useState(true);
+  const [markingCode, setMarkingCode] = useState("");
+  const [markingLabel, setMarkingLabel] = useState("");
+  const [markingColor, setMarkingColor] = useState("#757575");
+  const [markingSaving, setMarkingSaving] = useState(false);
+  const [markingError, setMarkingError] = useState<string | null>(null);
+  const [markingEditId, setMarkingEditId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -239,6 +258,83 @@ export default function ShiftProfilesPage() {
     }
   };
 
+  // ── Shift markings CRUD ──
+
+  const loadMarkings = useCallback(async () => {
+    setMarkingsLoading(true);
+    try {
+      const res = await fetchJson<{ markings: ShiftMarkingItem[] }>("/api/shift-markings");
+      setMarkings(res.markings);
+    } catch {
+      setMarkings([]);
+    } finally {
+      setMarkingsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadMarkings();
+  }, [loadMarkings]);
+
+  const resetMarkingForm = () => {
+    setMarkingEditId(null);
+    setMarkingCode("");
+    setMarkingLabel("");
+    setMarkingColor("#757575");
+    setMarkingError(null);
+  };
+
+  const saveMarking = async () => {
+    setMarkingError(null);
+    const code = markingCode.trim().toUpperCase();
+    const label = markingLabel.trim();
+    if (!code) { setMarkingError("Code ist Pflichtfeld"); return; }
+    if (!label) { setMarkingError("Bezeichnung ist Pflichtfeld"); return; }
+
+    setMarkingSaving(true);
+    try {
+      if (markingEditId) {
+        await fetchJson(`/api/shift-markings/${markingEditId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ code, label, color: markingColor }),
+        });
+      } else {
+        await fetchJson("/api/shift-markings", {
+          method: "POST",
+          body: JSON.stringify({ code, label, color: markingColor }),
+        });
+      }
+      resetMarkingForm();
+      await loadMarkings();
+    } catch (e) {
+      if (e instanceof ApiError) {
+        const msg = e.body && typeof e.body === "object" && e.body !== null && "error" in e.body
+          ? String((e.body as { error: string }).error)
+          : "Speichern fehlgeschlagen.";
+        setMarkingError(msg);
+      } else setMarkingError("Netzwerkfehler");
+    } finally {
+      setMarkingSaving(false);
+    }
+  };
+
+  const deleteMarking = async (id: string) => {
+    try {
+      await fetchJson(`/api/shift-markings/${id}`, { method: "DELETE" });
+      await loadMarkings();
+    } catch {
+      setError("Markierung löschen fehlgeschlagen.");
+    }
+  };
+
+  const startEditMarking = (m: ShiftMarkingItem) => {
+    setMarkingEditId(m.id);
+    setMarkingCode(m.code);
+    setMarkingLabel(m.label);
+    setMarkingColor(m.color);
+    setMarkingError(null);
+  };
+
   const grouped = SHIFT_TYPE_ORDER.map((st) => ({
     shiftType: st,
     label: SHIFT_TYPE_GROUP_LABELS[st],
@@ -379,6 +475,110 @@ export default function ShiftProfilesPage() {
             )}
           </Box>
         ))
+      )}
+
+      {/* ── Shift Markings Section ── */}
+      <Divider sx={{ my: 4 }} />
+      <Typography variant="h5" sx={{ mb: 1 }}>
+        Zusätzliche Schichtmarkierungen
+      </Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+        Kürzel die als Zusatzinfo in Zeile 2/3 einer Zelle angezeigt werden (z.B. FO, E, BD).
+      </Typography>
+
+      {markingError && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setMarkingError(null)}>
+          {markingError}
+        </Alert>
+      )}
+
+      {/* Add/Edit form row */}
+      <Box sx={{ display: "flex", gap: 1.5, alignItems: "flex-end", mb: 3, flexWrap: "wrap" }}>
+        <TextField
+          label="Code"
+          size="small"
+          value={markingCode}
+          onChange={(e) => setMarkingCode(e.target.value)}
+          disabled={markingSaving}
+          placeholder="FO"
+          sx={{ width: 100 }}
+          inputProps={{ maxLength: 10 }}
+        />
+        <TextField
+          label="Bezeichnung"
+          size="small"
+          value={markingLabel}
+          onChange={(e) => setMarkingLabel(e.target.value)}
+          disabled={markingSaving}
+          placeholder="Fortbildung"
+          sx={{ width: 200 }}
+        />
+        <TextField
+          label="Farbe"
+          size="small"
+          type="color"
+          value={markingColor}
+          onChange={(e) => setMarkingColor(e.target.value)}
+          disabled={markingSaving}
+          sx={{ width: 80 }}
+          InputLabelProps={{ shrink: true }}
+        />
+        <Button
+          variant="contained"
+          size="small"
+          onClick={() => void saveMarking()}
+          disabled={markingSaving}
+          sx={{ minWidth: 100 }}
+        >
+          {markingSaving ? <CircularProgress size={20} /> : markingEditId ? "Aktualisieren" : "Hinzufügen"}
+        </Button>
+        {markingEditId && (
+          <Button size="small" onClick={resetMarkingForm} disabled={markingSaving}>
+            Abbrechen
+          </Button>
+        )}
+      </Box>
+
+      {/* Markings list */}
+      {markingsLoading ? (
+        <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
+          <CircularProgress size={24} />
+        </Box>
+      ) : markings.length === 0 ? (
+        <Typography variant="body2" color="text.secondary">
+          Noch keine Markierungen angelegt.
+        </Typography>
+      ) : (
+        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
+          {markings.map((m) => (
+            <Card
+              key={m.id}
+              variant="outlined"
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                gap: 1,
+                px: 2,
+                py: 1,
+                borderLeft: 4,
+                borderColor: m.color,
+              }}
+            >
+              <Chip
+                label={m.code}
+                size="small"
+                sx={{ bgcolor: m.color, color: "#fff", fontWeight: 700, minWidth: 40 }}
+              />
+              <Typography variant="body2">{m.label}</Typography>
+              <IconButton size="small" onClick={() => startEditMarking(m)}>
+                <EditIcon fontSize="small" />
+              </IconButton>
+              <IconButton size="small" color="error" onClick={() => void deleteMarking(m.id)}>
+                <DeleteIcon fontSize="small" />
+              </IconButton>
+            </Card>
+          ))}
+        </Box>
       )}
 
       <Dialog

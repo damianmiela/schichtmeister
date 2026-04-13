@@ -233,6 +233,7 @@ export default function SchedulePage() {
   const [assignments, setAssignments] = useState<AssignmentJson[]>([]);
   const [employees, setEmployees] = useState<EmployeeJson[]>([]);
   const [profilesById, setProfilesById] = useState<Record<string, ShiftProfileJson>>({});
+  const [shiftMarkings, setShiftMarkings] = useState<{ id: string; code: string; label: string; color: string }[]>([]);
   const [staffing, setStaffing] = useState<StaffingJson[]>([]);
 
   const [generateBusy, setGenerateBusy] = useState(false);
@@ -348,12 +349,13 @@ export default function SchedulePage() {
     const failLabels: string[] = [];
 
     try {
-    const [s0, s1, s2, s3, s4] = await Promise.allSettled([
+    const [s0, s1, s2, s3, s4, s5] = await Promise.allSettled([
       fetchJson<{ schedules: ScheduleSummary[] }>("/api/schedules"),
       fetchJson<{ employees: EmployeeJson[] }>("/api/employees"),
       fetchJson<{ shiftProfiles: ShiftProfileJson[] }>("/api/shift-profiles"),
       fetchJson<{ staffingRequirements: StaffingJson[] }>("/api/staffing-requirements"),
       fetchJson<{ maxSolveTimeSeconds?: number }>("/api/facility/rules"),
+      fetchJson<{ markings: { id: string; code: string; label: string; color: string }[] }>("/api/shift-markings"),
     ]);
 
     if (s4.status === "fulfilled" && s4.value.maxSolveTimeSeconds != null) {
@@ -383,6 +385,12 @@ export default function SchedulePage() {
     } else {
       failLabels.push("Personalbedarf");
       setStaffing([]);
+    }
+
+    if (s5.status === "fulfilled") {
+      setShiftMarkings(s5.value.markings);
+    } else {
+      setShiftMarkings([]);
     }
 
     if (s0.status === "fulfilled") {
@@ -1339,13 +1347,13 @@ export default function SchedulePage() {
         }}
       >
         <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-          <IconButton onClick={handlePrevious} disabled={loading}>
+          <IconButton onClick={handlePrevious} disabled={loading || editMode}>
             <ChevronLeftIcon />
           </IconButton>
           <Typography variant="h6" sx={{ minWidth: 280, textAlign: "center" }}>
             {getViewTitle()}
           </Typography>
-          <IconButton onClick={handleNext} disabled={loading}>
+          <IconButton onClick={handleNext} disabled={loading || editMode}>
             <ChevronRightIcon />
           </IconButton>
 
@@ -1378,6 +1386,7 @@ export default function SchedulePage() {
                 exclusive
                 onChange={(_, value) => value && setMonthViewMode(value)}
                 size="small"
+                disabled={editMode}
                 sx={{
                   "& .MuiToggleButton-root": {
                     px: 1.5,
@@ -1516,29 +1525,17 @@ export default function SchedulePage() {
                 </span>
               </Tooltip>
               {!editMode ? (
-                <>
                 <Button
                   variant="outlined"
-                  startIcon={<DrawIcon />}
+                  startIcon={assignments.length === 0 ? <DrawIcon /> : <EditIcon />}
                   disabled={
-                    loading || !schedule || assignments.length > 0 || generateBusy || editMode
+                    loading || !schedule || generateBusy ||
+                    (assignments.length > 0 && (viewState.type !== "month" || monthViewMode !== "table"))
                   }
                   onClick={enterEditMode}
                 >
-                  Manuell erstellen
+                  {assignments.length === 0 ? "Manuell erstellen" : "Bearbeiten"}
                 </Button>
-                <Button
-                  variant="outlined"
-                  startIcon={<EditIcon />}
-                  disabled={
-                    loading || !schedule || assignments.length === 0 ||
-                    viewState.type !== "month" || monthViewMode !== "table"
-                  }
-                  onClick={enterEditMode}
-                >
-                  Bearbeiten
-                </Button>
-                </>
               ) : (
                 <>
                   <Button
@@ -1628,6 +1625,29 @@ export default function SchedulePage() {
         </Alert>
       )}
 
+      {editMode && (
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 1,
+            py: 1,
+            px: 2,
+            mb: 2,
+            bgcolor: "primary.main",
+            color: "primary.contrastText",
+            borderRadius: 1,
+            fontWeight: 600,
+            fontSize: "0.875rem",
+            letterSpacing: 0.5,
+          }}
+        >
+          <EditIcon sx={{ fontSize: 18 }} />
+          Bearbeitungsmodus — Änderungen werden erst beim Speichern übernommen
+        </Box>
+      )}
+
       {loading ? (
         <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}>
           <CircularProgress />
@@ -1653,6 +1673,7 @@ export default function SchedulePage() {
               holidayMap={holidays}
               warningsByDay={warningsByDay}
               staffingRequirements={staffing}
+              shiftMarkings={shiftMarkings}
             />
           )}
 

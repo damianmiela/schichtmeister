@@ -58,6 +58,7 @@ interface MonthTableViewProps {
   holidayMap?: Map<string, string>;
   warningsByDay?: Record<string, string[]>;
   staffingRequirements?: StaffingJson[];
+  shiftMarkings?: { id: string; code: string; label: string; color: string }[];
 }
 
 /* ──────────────────────── helpers ──────────────────────── */
@@ -130,8 +131,6 @@ const SELECTED_BORDER = "2px solid #1976d2";
 const SELECTED_BG = "rgba(25, 118, 210, 0.08)";
 const ROW_HEIGHT = 56;
 const NAME_COL_WIDTH = 300;
-
-const MARKING_CODES = ["FO", "PA", "E", "BD"] as const;
 
 const STATUS_CODES = [
   { code: "U", label: "Urlaub" },
@@ -330,6 +329,7 @@ export default function MonthTableView({
   holidayMap,
   warningsByDay,
   staffingRequirements,
+  shiftMarkings = [],
 }: MonthTableViewProps) {
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [menuCell, setMenuCell] = useState<{ empId: string; iso: string } | null>(null);
@@ -573,6 +573,26 @@ export default function MonthTableView({
     }
   }, [selectedCells, onCellChange]);
 
+  /** Apply a marking code to selected cells: fills row2 first, then row3, overwrites row3 if both set */
+  const applyMarkingToSelected = useCallback((code: string) => {
+    if (!onCellChange) return;
+    for (const key of selectedCells) {
+      const [eid, date] = key.split("|");
+      const cellKey = `${eid}|${date}`;
+      const edit = editedCells?.get(cellKey);
+      const asgn = byEmpDay.get(cellKey);
+      const currentRow2 = edit?.markingRow2 !== undefined ? edit.markingRow2 : (asgn?.markingRow2 ?? null);
+      const currentRow3 = edit?.markingRow3 !== undefined ? edit.markingRow3 : (asgn?.markingRow3 ?? null);
+      if (!currentRow2) {
+        onCellChange(eid!, date!, { markingRow2: code });
+      } else if (!currentRow3) {
+        onCellChange(eid!, date!, { markingRow3: code });
+      } else {
+        onCellChange(eid!, date!, { markingRow3: code });
+      }
+    }
+  }, [selectedCells, onCellChange, editedCells, byEmpDay]);
+
   /* ──── menu helpers ──── */
 
   const closeMenu = () => {
@@ -796,7 +816,7 @@ export default function MonthTableView({
               }
 
               return (
-                <TableRow key={emp.id} hover>
+                <TableRow key={emp.id} hover={!editMode}>
                   {/* ── employee name ── */}
                   <TableCell
                     sx={{
@@ -1181,9 +1201,7 @@ export default function MonthTableView({
                                 flex: 1,
                                 borderBottom: "1px solid",
                                 borderColor: "grey.200",
-                                "&:hover": editMode
-                                  ? { bgcolor: "action.hover" }
-                                  : undefined,
+                                "&:hover": undefined,
                               }}
                             >
                               {displayRow1}
@@ -1204,9 +1222,7 @@ export default function MonthTableView({
                                 flex: 1,
                                 borderBottom: "1px solid",
                                 borderColor: "grey.200",
-                                "&:hover": editMode
-                                  ? { bgcolor: "action.hover" }
-                                  : undefined,
+                                "&:hover": undefined,
                               }}
                             >
                               {display.row2 || "\u00A0"}
@@ -1225,9 +1241,7 @@ export default function MonthTableView({
                                 alignItems: "center",
                                 justifyContent: "center",
                                 flex: 1,
-                                "&:hover": editMode
-                                  ? { bgcolor: "action.hover" }
-                                  : undefined,
+                                "&:hover": undefined,
                               }}
                             >
                               {display.row3 || "\u00A0"}
@@ -1327,7 +1341,7 @@ export default function MonthTableView({
               }
               const target = monthlyTargetForMonth(emp, year, monthIndex);
               return (
-                <TableRow key={emp.id} hover>
+                <TableRow key={emp.id} hover={!editMode}>
                   <TableCell>
                     <Box
                       component="span"
@@ -1370,10 +1384,11 @@ export default function MonthTableView({
       sx={{
         maxHeight: "70vh",
         overflow: "auto",
-        border: 1,
-        borderColor: "divider",
+        border: editMode ? 2 : 1,
+        borderColor: editMode ? "primary.main" : "divider",
         borderRadius: 1,
         position: "relative",
+        bgcolor: editMode ? "rgba(25, 118, 210, 0.02)" : undefined,
       }}
     >
       {assignments.length === 0 && !editMode ? (
@@ -1546,19 +1561,20 @@ export default function MonthTableView({
               </MenuItem>,
             ]
           : [
-              ...MARKING_CODES.map((code) => (
+              ...shiftMarkings.map((m) => (
                 <MenuItem
-                  key={code}
+                  key={m.code}
                   dense
                   onClick={() => {
                     if (menuCell && onCellChange)
                       onCellChange(menuCell.empId, menuCell.iso, {
-                        [menuRow === 2 ? "markingRow2" : "markingRow3"]: code,
+                        [menuRow === 2 ? "markingRow2" : "markingRow3"]: m.code,
                       });
                     closeMenu();
                   }}
                 >
-                  {code}
+                  <Box component="span" sx={{ color: m.color, fontWeight: 700, mr: 1 }}>{m.code}</Box>
+                  {m.label}
                 </MenuItem>
               )),
 
@@ -1617,8 +1633,17 @@ export default function MonthTableView({
         </MenuItem>
       </Menu>
 
-      {/* ── Floating toolbar (visible when cells are selected) ── */}
-      {editMode && selectedCells.size > 0 && (
+      {/* ── Floating toolbar (always visible in edit mode) ── */}
+      {editMode && (() => {
+        const hasSelection = selectedCells.size > 0;
+        const chipSx = {
+          fontSize: 11,
+          height: 26,
+          cursor: hasSelection ? "pointer" : "default",
+          opacity: hasSelection ? 1 : 0.4,
+          pointerEvents: hasSelection ? "auto" as const : "none" as const,
+        };
+        return (
         <Paper
           elevation={6}
           sx={{
@@ -1640,8 +1665,8 @@ export default function MonthTableView({
         >
           <Chip
             size="small"
-            label={`${selectedCells.size} Zellen`}
-            color="primary"
+            label={hasSelection ? `${selectedCells.size} Zellen` : "Keine Auswahl"}
+            color={hasSelection ? "primary" : "default"}
             variant="outlined"
             sx={{ fontWeight: 700, mr: 1 }}
           />
@@ -1661,12 +1686,7 @@ export default function MonthTableView({
                     size="small"
                     label={p.name}
                     onClick={() => applyToSelected({ shiftProfileId: p.id, dayStatus: null })}
-                    sx={{
-                      cursor: "pointer",
-                      fontSize: 11,
-                      height: 26,
-                      "&:hover": { bgcolor: "action.hover" },
-                    }}
+                    sx={{ ...chipSx, "&:hover": hasSelection ? { bgcolor: "action.hover" } : undefined }}
                   />
                 ))}
               </Box>
@@ -1684,13 +1704,10 @@ export default function MonthTableView({
               title={label}
               onClick={() => applyToSelected({ dayStatus: code })}
               sx={{
-                cursor: "pointer",
-                fontSize: 11,
-                height: 26,
-                bgcolor: STATUS_COLORS[code]?.bg,
-                color: STATUS_COLORS[code]?.color,
+                ...chipSx,
+                bgcolor: hasSelection ? STATUS_COLORS[code]?.bg : undefined,
+                color: hasSelection ? STATUS_COLORS[code]?.color : undefined,
                 fontWeight: 700,
-                "&:hover": { opacity: 0.8 },
               }}
             />
           ))}
@@ -1706,17 +1723,39 @@ export default function MonthTableView({
               title={`Station ${sNum}`}
               onClick={() => applyToSelected({ stationNumber: sNum })}
               sx={{
-                cursor: "pointer",
-                fontSize: 11,
-                height: 26,
-                bgcolor: STATION_COLORS[sNum]?.light,
-                color: STATION_COLORS[sNum]?.main,
+                ...chipSx,
+                bgcolor: hasSelection ? STATION_COLORS[sNum]?.light : undefined,
+                color: hasSelection ? STATION_COLORS[sNum]?.main : undefined,
                 fontWeight: 700,
-                border: `1px solid ${STATION_COLORS[sNum]?.main}`,
-                "&:hover": { opacity: 0.8 },
+                border: hasSelection ? `1px solid ${STATION_COLORS[sNum]?.main}` : undefined,
               }}
             />
           ))}
+
+          {/* Shift markings section */}
+          {shiftMarkings.length > 0 && (
+            <>
+              <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+              <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 600, fontSize: 10 }}>
+                Zusatz
+              </Typography>
+              {shiftMarkings.map((m) => (
+                <Chip
+                  key={m.id}
+                  size="small"
+                  label={m.code}
+                  title={m.label}
+                  onClick={() => applyMarkingToSelected(m.code)}
+                  sx={{
+                    ...chipSx,
+                    bgcolor: hasSelection ? m.color : undefined,
+                    color: hasSelection ? "#fff" : undefined,
+                    fontWeight: 700,
+                  }}
+                />
+              ))}
+            </>
+          )}
 
           <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
 
@@ -1725,10 +1764,10 @@ export default function MonthTableView({
             size="small"
             label="Entfernen"
             icon={<RemoveCircleOutlineIcon sx={{ fontSize: 16 }} />}
-            onClick={() => applyToSelected({ shiftProfileId: null, dayStatus: null })}
+            onClick={() => applyToSelected({ shiftProfileId: null, dayStatus: null, markingRow2: null, markingRow3: null })}
             color="error"
             variant="outlined"
-            sx={{ cursor: "pointer", fontSize: 11, height: 26 }}
+            sx={chipSx}
           />
 
           {/* Deselect button */}
@@ -1737,10 +1776,12 @@ export default function MonthTableView({
             label="Abwählen"
             onClick={() => { setSelectedCells(new Set()); setLastClickedCell(null); }}
             variant="outlined"
-            sx={{ cursor: "pointer", fontSize: 11, height: 26, ml: "auto" }}
+            disabled={!hasSelection}
+            sx={{ fontSize: 11, height: 26, cursor: "pointer", ml: "auto" }}
           />
         </Paper>
-      )}
+        );
+      })()}
     </Box>
   );
 }

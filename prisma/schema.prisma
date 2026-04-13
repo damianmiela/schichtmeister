@@ -97,6 +97,7 @@ model Facility {
   staffingRequirements   StaffingRequirement[]
   schedules              Schedule[]
   qualifications         Qualification[]
+  shiftMarkings          ShiftMarking[]
 }
 
 model User {
@@ -215,6 +216,22 @@ model ShiftProfile {
   allowedByEmployees Employee[]   @relation("EmployeeAllowedShiftProfiles")
 
   @@unique([facilityId, name])
+}
+
+model ShiftMarking {
+  id         String   @id @default(cuid())
+  facilityId String
+  code       String   // Short code displayed in cell (e.g. "FO", "E", "BD")
+  label      String   // Human-readable label (e.g. "Fortbildung")
+  color      String   @default("#757575") // Display color hex
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  facility Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+
+  @@unique([facilityId, code])
+  @@index([facilityId, sortOrder])
 }
 
 model StaffingRequirement {
