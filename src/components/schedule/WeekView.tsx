@@ -13,6 +13,7 @@ import {
   Typography,
   alpha,
   useTheme,
+  useMediaQuery,
 } from "@mui/material";
 import type { AssignmentJson, EmployeeJson, ShiftProfileJson } from "@/lib/schedule/scheduleTypes";
 import { weekLocalIsoDays } from "@/lib/schedule/monthSchedule";
@@ -88,6 +89,8 @@ export default function WeekView({
   freiWishSet,
 }: WeekViewProps) {
   const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const NAME_COL_W = isMobile ? 120 : NAME_COL_WIDTH;
   const dayIsos = weekLocalIsoDays(weekStartDate);
 
   const byEmpDay = useMemo(() => {
@@ -143,7 +146,8 @@ export default function WeekView({
             border: 1,
             borderColor: "divider",
             borderRadius: 1,
-            overflow: "hidden",
+            overflow: "auto",
+            WebkitOverflowScrolling: "touch",
           }}
         >
           <Table size="small" stickyHeader>
@@ -152,12 +156,12 @@ export default function WeekView({
                 <TableCell
                   sx={{
                     fontWeight: 700,
-                    width: NAME_COL_WIDTH,
-                    minWidth: NAME_COL_WIDTH,
-                    maxWidth: NAME_COL_WIDTH,
+                    width: NAME_COL_W,
+                    minWidth: NAME_COL_W,
+                    maxWidth: NAME_COL_W,
                     bgcolor: alpha(accentColor, 0.08),
                     borderBottom: `2px solid ${accentColor}`,
-                    fontSize: "0.875rem",
+                    fontSize: { xs: "0.75rem", sm: "0.875rem" },
                   }}
                 >
                   {title}
@@ -206,12 +210,13 @@ export default function WeekView({
                   <TableRow key={e.id} hover>
                     <TableCell
                       sx={{
-                        width: NAME_COL_WIDTH,
-                        minWidth: NAME_COL_WIDTH,
-                        maxWidth: NAME_COL_WIDTH,
+                        width: NAME_COL_W,
+                        minWidth: NAME_COL_W,
+                        maxWidth: NAME_COL_W,
                         whiteSpace: "nowrap",
                         overflow: "hidden",
                         textOverflow: "ellipsis",
+                        fontSize: { xs: "0.72rem", sm: "0.8rem" },
                       }}
                     >
                       <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
@@ -276,9 +281,9 @@ export default function WeekView({
                           onClick={() => onDayClick(dayDate)}
                           sx={{
                             cursor: "pointer",
-                            fontSize: 12,
+                            fontSize: { xs: 10, sm: 12 },
                             fontWeight: cellText && cellText !== "" ? 600 : 400,
-                            maxWidth: 140,
+                            maxWidth: { xs: 80, sm: 140 },
                             bgcolor: isWeekend && !cellStyle?.bg ? "grey.50" : undefined,
                             "&:hover": { bgcolor: "action.hover" },
                             ...(isShiftWish && !statusCode && {
@@ -300,7 +305,7 @@ export default function WeekView({
                         </Tooltip>
                       );
                     })}
-                    <TableCell align="center" sx={{ fontSize: 12, fontWeight: 600 }}>
+                    <TableCell align="center" sx={{ fontSize: { xs: 10, sm: 12 }, fontWeight: 600 }}>
                       {formatHours(dayIsos.reduce((sum, iso) => {
                         const a = byEmpDay.get(`${e.id}|${iso}`);
                         const p = a ? profilesById[a.shiftProfileId] : undefined;

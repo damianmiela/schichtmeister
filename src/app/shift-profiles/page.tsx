@@ -493,7 +493,7 @@ export default function ShiftProfilesPage() {
       )}
 
       {/* Add/Edit form row */}
-      <Box sx={{ display: "flex", gap: 1.5, alignItems: "flex-end", mb: 3, flexWrap: "wrap" }}>
+      <Box sx={{ display: "flex", gap: 1.5, alignItems: "flex-end", mb: 3, flexWrap: "wrap", flexDirection: { xs: "column", sm: "row" } }}>
         <TextField
           label="Code"
           size="small"
@@ -501,7 +501,7 @@ export default function ShiftProfilesPage() {
           onChange={(e) => setMarkingCode(e.target.value)}
           disabled={markingSaving}
           placeholder="FO"
-          sx={{ width: 100 }}
+          sx={{ width: { xs: "100%", sm: 100 } }}
           inputProps={{ maxLength: 10 }}
         />
         <TextField
@@ -511,7 +511,7 @@ export default function ShiftProfilesPage() {
           onChange={(e) => setMarkingLabel(e.target.value)}
           disabled={markingSaving}
           placeholder="Fortbildung"
-          sx={{ width: 200 }}
+          sx={{ width: { xs: "100%", sm: 200 } }}
         />
         <TextField
           label="Farbe"
@@ -520,7 +520,7 @@ export default function ShiftProfilesPage() {
           value={markingColor}
           onChange={(e) => setMarkingColor(e.target.value)}
           disabled={markingSaving}
-          sx={{ width: 80 }}
+          sx={{ width: { xs: "100%", sm: 80 } }}
           InputLabelProps={{ shrink: true }}
         />
         <Button
@@ -528,12 +528,12 @@ export default function ShiftProfilesPage() {
           size="small"
           onClick={() => void saveMarking()}
           disabled={markingSaving}
-          sx={{ minWidth: 100 }}
+          sx={{ minWidth: 100, width: { xs: "100%", sm: "auto" } }}
         >
           {markingSaving ? <CircularProgress size={20} /> : markingEditId ? "Aktualisieren" : "Hinzufügen"}
         </Button>
         {markingEditId && (
-          <Button size="small" onClick={resetMarkingForm} disabled={markingSaving}>
+          <Button size="small" onClick={resetMarkingForm} disabled={markingSaving} sx={{ width: { xs: "100%", sm: "auto" } }}>
             Abbrechen
           </Button>
         )}
@@ -593,7 +593,7 @@ export default function ShiftProfilesPage() {
         <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 2, pt: 1 }}>
           {formError && <Alert severity="error">{formError}</Alert>}
 
-          <Box sx={{ display: "flex", gap: 2 }}>
+          <Box sx={{ display: "flex", gap: 2, flexDirection: { xs: "column", sm: "row" } }}>
             <TextField
               label="Name"
               value={name}
@@ -617,7 +617,7 @@ export default function ShiftProfilesPage() {
             </TextField>
           </Box>
 
-          <Box sx={{ display: "flex", gap: 2 }}>
+          <Box sx={{ display: "flex", gap: 2, flexDirection: { xs: "column", sm: "row" } }}>
             <TextField
               label="Beginn"
               type="time"
@@ -648,7 +648,7 @@ export default function ShiftProfilesPage() {
           <Typography variant="subtitle2" sx={{ mt: 1, mb: -1 }}>
             Teildienst (optional, z.B. für F6)
           </Typography>
-          <Box sx={{ display: "flex", gap: 2 }}>
+          <Box sx={{ display: "flex", gap: 2, flexDirection: { xs: "column", sm: "row" } }}>
             <TextField
               label="Beginn 2"
               type="time"

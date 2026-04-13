@@ -34,6 +34,7 @@ import {
   TextField,
   Tooltip,
   Typography,
+  useMediaQuery,
   useTheme,
 } from "@mui/material";
 import SaveIcon from "@mui/icons-material/Save";
@@ -154,6 +155,7 @@ function extractApiError(e: unknown, fallback: string): string {
 
 export default function SettingsPage() {
   const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
   // ── Qualification catalog state ──
   const [qualifications, setQualifications] = useState<QualificationCatalog[]>(
@@ -728,70 +730,76 @@ export default function SettingsPage() {
         "&:last-child": { borderBottom: "none" },
       }}
     >
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-        {SHIFT_ICON[row.shiftType]}
-        <Typography variant="body2" fontWeight={600} sx={{ minWidth: 56 }}>
-          {shiftTypeLabel(row.shiftType)}
-        </Typography>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flexDirection: { xs: "column", sm: "row" } }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, width: { xs: "100%", sm: "auto" } }}>
+          {SHIFT_ICON[row.shiftType]}
+          <Typography variant="body2" fontWeight={600} sx={{ minWidth: 56 }}>
+            {shiftTypeLabel(row.shiftType)}
+          </Typography>
+        </Box>
 
-        <Typography
-          variant="caption"
-          color="text.secondary"
-          sx={{ ml: 0.5 }}
-        >
-          Min:
-        </Typography>
-        <TextField
-          size="small"
-          type="number"
-          value={draftMin[row.id] ?? ""}
-          onChange={(ev) =>
-            setDraftMin((prev) => ({ ...prev, [row.id]: ev.target.value }))
-          }
-          inputProps={{ min: 0, style: { textAlign: "center" } }}
-          sx={{ width: 64 }}
-        />
-
-        <Typography variant="caption" color="text.secondary">
-          Max:
-        </Typography>
-        <Tooltip title="Leer lassen für unbegrenzt" arrow>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1, width: { xs: "100%", sm: "auto" } }}>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ ml: 0.5 }}
+          >
+            Min:
+          </Typography>
           <TextField
             size="small"
             type="number"
-            value={draftMax[row.id] ?? ""}
+            value={draftMin[row.id] ?? ""}
             onChange={(ev) =>
-              setDraftMax((prev) => ({ ...prev, [row.id]: ev.target.value }))
+              setDraftMin((prev) => ({ ...prev, [row.id]: ev.target.value }))
             }
             inputProps={{ min: 0, style: { textAlign: "center" } }}
-            placeholder="–"
             sx={{ width: 64 }}
           />
-        </Tooltip>
 
-        <Box sx={{ flex: 1 }} />
+          <Typography variant="caption" color="text.secondary">
+            Max:
+          </Typography>
+          <Tooltip title="Leer lassen für unbegrenzt" arrow>
+            <TextField
+              size="small"
+              type="number"
+              value={draftMax[row.id] ?? ""}
+              onChange={(ev) =>
+                setDraftMax((prev) => ({ ...prev, [row.id]: ev.target.value }))
+              }
+              inputProps={{ min: 0, style: { textAlign: "center" } }}
+              placeholder="–"
+              sx={{ width: 64 }}
+            />
+          </Tooltip>
+        </Box>
 
-        <Button
-          size="small"
-          variant="text"
-          disabled={savingId === row.id}
-          onClick={() => void saveRow(row.id)}
-          sx={{ minWidth: 0, px: 1 }}
-        >
-          {savingId === row.id ? (
-            <CircularProgress size={16} />
-          ) : (
-            <SaveIcon fontSize="small" />
-          )}
-        </Button>
+        <Box sx={{ flex: 1, display: { xs: "none", sm: "block" } }} />
 
-        <IconButton
-          size="small"
-          color="error"
-          onClick={() => setDeleteId(row.id)}
-        >
-          <DeleteIcon fontSize="small" />
-        </IconButton>
+        <Box sx={{ display: "flex", gap: 0.5, width: { xs: "100%", sm: "auto" } }}>
+          <Button
+            size="small"
+            variant="text"
+            disabled={savingId === row.id}
+            onClick={() => void saveRow(row.id)}
+            sx={{ minWidth: 0, px: 1, flex: { xs: 1, sm: 0 } }}
+          >
+            {savingId === row.id ? (
+              <CircularProgress size={16} />
+            ) : (
+              <SaveIcon fontSize="small" />
+            )}
+          </Button>
+
+          <IconButton
+            size="small"
+            color="error"
+            onClick={() => setDeleteId(row.id)}
+          >
+            <DeleteIcon fontSize="small" />
+          </IconButton>
+        </Box>
       </Box>
 
       <Box
@@ -947,7 +955,7 @@ export default function SettingsPage() {
     const totalMin = allRows.reduce((s, r) => s + r.minTotalCount, 0);
 
     return (
-      <Grid key={station} size={{ xs: 12, md: 4 }}>
+      <Grid key={station} size={{ xs: 12, sm: 6, md: 4 }}>
         <Card
           variant="outlined"
           sx={{ borderColor: alpha(theme.palette.primary.main, 0.3) }}
@@ -1000,6 +1008,9 @@ export default function SettingsPage() {
                   alignItems: "center",
                   justifyContent: "space-between",
                   mb: 1,
+                  flexDirection: { xs: "column", sm: "row" },
+                  gap: { xs: 1, sm: 0 },
+                  alignItems: { xs: "flex-start", sm: "center" },
                 }}
               >
                 <Typography variant="h6">Qualifikationen</Typography>
@@ -1008,6 +1019,7 @@ export default function SettingsPage() {
                   variant="contained"
                   startIcon={<AddIcon />}
                   onClick={() => openQualDialog()}
+                  sx={{ width: { xs: "100%", sm: "auto" } }}
                 >
                   Neue Qualifikation
                 </Button>
@@ -1044,8 +1056,8 @@ export default function SettingsPage() {
                   Noch keine Qualifikationen angelegt.
                 </Alert>
               ) : (
-                <TableContainer>
-                  <Table size="small">
+                <TableContainer sx={{ overflowX: "auto" }}>
+                  <Table size="small" sx={{ minWidth: 360 }}>
                     <TableHead>
                       <TableRow>
                         <TableCell sx={{ fontWeight: 700 }}>Name</TableCell>
@@ -1129,18 +1141,22 @@ export default function SettingsPage() {
                   alignItems: "center",
                   justifyContent: "space-between",
                   mb: 1,
+                  flexDirection: { xs: "column", sm: "row" },
+                  gap: { xs: 1, sm: 0 },
+                  alignItems: { xs: "flex-start", sm: "center" },
                 }}
               >
-                <Typography variant="h6">
+                <Typography variant="h6" sx={{ width: { xs: "100%", sm: "auto" } }}>
                   Mindestbesetzung (Personalbedarf)
                 </Typography>
-                <Box sx={{ display: "flex", gap: 1 }}>
+                <Box sx={{ display: "flex", gap: 1, width: { xs: "100%", sm: "auto" }, flexDirection: { xs: "column", sm: "row" } }}>
                   <Button
                     size="small"
                     variant="outlined"
                     startIcon={<AddIcon />}
                     disabled={loading}
                     onClick={openAddDialog}
+                    sx={{ width: { xs: "100%", sm: "auto" } }}
                   >
                     Einzeln hinzufügen
                   </Button>
@@ -1157,6 +1173,7 @@ export default function SettingsPage() {
                       }
                       disabled={templateBusy || loading}
                       onClick={() => void applyAllShiftsTemplate()}
+                      sx={{ width: { xs: "100%", sm: "auto" } }}
                     >
                       Fehlende anlegen
                     </Button>
@@ -1341,7 +1358,7 @@ export default function SettingsPage() {
                       value={minRestHoursDraft}
                       onChange={(e) => setMinRestHoursDraft(e.target.value)}
                       inputProps={{ min: 0, step: 1 }}
-                      sx={{ width: 200 }}
+                      sx={{ width: { xs: "100%", sm: 200 } }}
                     />
                   </Box>
 
@@ -1404,6 +1421,7 @@ export default function SettingsPage() {
                                 display: "flex",
                                 gap: 2,
                                 flexWrap: "wrap",
+                                flexDirection: { xs: "column", sm: "row" },
                               }}
                             >
                               {paramKeys.map((k) => (
@@ -1427,7 +1445,7 @@ export default function SettingsPage() {
                                     }))
                                   }
                                   inputProps={{ step: "any" }}
-                                  sx={{ width: 200 }}
+                                  sx={{ width: { xs: "100%", sm: 200 } }}
                                 />
                               ))}
                             </Box>
@@ -1615,7 +1633,7 @@ export default function SettingsPage() {
             label="Gebäudeweit (z.B. Nachtschicht)"
           />
 
-          <Box sx={{ display: "flex", gap: 2 }}>
+          <Box sx={{ display: "flex", gap: 2, flexDirection: { xs: "column", sm: "row" } }}>
             <TextField
               select
               label="Schichttyp"
@@ -1648,7 +1666,7 @@ export default function SettingsPage() {
             )}
           </Box>
 
-          <Box sx={{ display: "flex", gap: 2 }}>
+          <Box sx={{ display: "flex", gap: 2, flexDirection: { xs: "column", sm: "row" } }}>
             <TextField
               label="Mindestanzahl"
               type="number"

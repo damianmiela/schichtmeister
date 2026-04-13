@@ -198,6 +198,7 @@ export default function EmployeeView({
   onWarningsClick,
 }: EmployeeViewProps) {
   const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
   const empWarnings = employeeWarnings ?? [];
 
@@ -415,11 +416,11 @@ export default function EmployeeView({
       {/* Employee header card */}
       <Card variant="outlined" sx={{ mb: 2, borderRadius: 2, overflow: "hidden" }}>
         <CardContent sx={{ py: 2 }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
+          <Box sx={{ display: "flex", alignItems: { xs: "flex-start", sm: "center" }, flexDirection: { xs: "column", sm: "row" }, gap: { xs: 1.5, sm: 2 }, flexWrap: "wrap" }}>
             <Box
               sx={{
-                width: 48,
-                height: 48,
+                width: { xs: 40, sm: 48 },
+                height: { xs: 40, sm: 48 },
                 borderRadius: "50%",
                 bgcolor: alpha(theme.palette.primary.main, 0.12),
                 color: theme.palette.primary.main,
@@ -434,7 +435,7 @@ export default function EmployeeView({
             </Box>
             <Box sx={{ flex: 1, minWidth: { xs: 140, sm: 160, md: 180 } }}>
               <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-                <Typography variant="h6" fontWeight={700} sx={{ lineHeight: 1.3 }}>
+                <Typography variant="h6" fontWeight={700} sx={{ lineHeight: 1.3, fontSize: { xs: "1rem", sm: "1.25rem" } }}>
                   {employee.lastName}, {employee.firstName}
                 </Typography>
                 <QualificationPills qualifications={employee.qualifications} tags={tags} />
@@ -560,30 +561,32 @@ export default function EmployeeView({
           borderColor: "divider",
           borderRadius: 2,
           maxHeight: "65vh",
+          overflow: "auto",
+          WebkitOverflowScrolling: "touch",
         }}
       >
         <Table size="small" stickyHeader>
           <TableHead>
             <TableRow>
-              <TableCell sx={{ fontWeight: 700, width: 42, bgcolor: "background.paper" }}>
+              <TableCell sx={{ fontWeight: 700, width: { xs: 32, sm: 42 }, bgcolor: "background.paper", fontSize: { xs: "0.7rem", sm: "0.8rem" }, px: { xs: 0.5, sm: 1 } }}>
                 Tag
               </TableCell>
-              <TableCell sx={{ fontWeight: 700, width: 36, bgcolor: "background.paper" }}>
+              <TableCell sx={{ fontWeight: 700, width: { xs: 28, sm: 36 }, bgcolor: "background.paper", fontSize: { xs: "0.7rem", sm: "0.8rem" }, px: { xs: 0.5, sm: 1 }, display: { xs: "none", sm: "table-cell" } }}>
                 WT
               </TableCell>
-              <TableCell sx={{ fontWeight: 700, bgcolor: "background.paper" }}>
+              <TableCell sx={{ fontWeight: 700, bgcolor: "background.paper", fontSize: { xs: "0.7rem", sm: "0.8rem" }, px: { xs: 0.5, sm: 1 } }}>
                 Schicht
               </TableCell>
-              <TableCell sx={{ fontWeight: 700, width: 56, bgcolor: "background.paper" }} align="center">
-                Station
+              <TableCell sx={{ fontWeight: 700, width: { xs: 36, sm: 56 }, bgcolor: "background.paper", fontSize: { xs: "0.7rem", sm: "0.8rem" }, px: { xs: 0.5, sm: 1 } }} align="center">
+                St.
               </TableCell>
-              <TableCell sx={{ fontWeight: 700, width: 100, bgcolor: "background.paper" }} align="center">
+              <TableCell sx={{ fontWeight: 700, width: { xs: 60, sm: 100 }, bgcolor: "background.paper", fontSize: { xs: "0.7rem", sm: "0.8rem" }, px: { xs: 0.5, sm: 1 }, display: { xs: "none", sm: "table-cell" } }} align="center">
                 Uhrzeit
               </TableCell>
-              <TableCell sx={{ fontWeight: 700, width: 65, bgcolor: "background.paper" }} align="right">
-                Stunden
+              <TableCell sx={{ fontWeight: 700, width: { xs: 40, sm: 65 }, bgcolor: "background.paper", fontSize: { xs: "0.7rem", sm: "0.8rem" }, px: { xs: 0.5, sm: 1 } }} align="right">
+                Std
               </TableCell>
-              <TableCell sx={{ fontWeight: 700, width: 65, bgcolor: "background.paper" }} align="right">
+              <TableCell sx={{ fontWeight: 700, width: { xs: 40, sm: 65 }, bgcolor: "background.paper", fontSize: { xs: "0.7rem", sm: "0.8rem" }, px: { xs: 0.5, sm: 1 } }} align="right">
                 Kum.
               </TableCell>
             </TableRow>

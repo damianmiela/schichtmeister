@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
+import { useTheme, useMediaQuery } from "@mui/material";
 import MainLayout from "@/components/layout/MainLayout";
 import { ApiError, fetchJson } from "@/lib/api/fetchJson";
 import {
@@ -189,7 +190,7 @@ export default function DashboardPage() {
   return (
     <MainLayout title="Dashboard">
       {/* ═══════════ TOP METRIC CARDS ═══════════ */}
-      <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", mb: 3 }}>
+      <Box sx={{ display: "flex", gap: { xs: 1, sm: 2 }, flexWrap: "wrap", mb: 3, px: { xs: 0, sm: 0 } }}>
         {/* Active employees */}
         <MetricCard
           icon={<PeopleIcon />}
@@ -231,10 +232,10 @@ export default function DashboardPage() {
 
       {/* ═══════════ TODAY'S STAFFING ═══════════ */}
       <Card sx={{ mb: 3 }}>
-        <CardContent sx={{ pb: "16px !important" }}>
-          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
+        <CardContent sx={{ pb: "16px !important", px: { xs: 1.5, sm: 2, md: 3 } }}>
+          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 1, flexWrap: "wrap", mb: 2 }}>
             <Box>
-              <Typography variant="h6" sx={{ fontWeight: 600 }}>
+              <Typography variant={{ xs: "subtitle1", sm: "h6" }} sx={{ fontWeight: 600 }}>
                 Heute · {todayTitle}
               </Typography>
             </Box>
@@ -242,7 +243,7 @@ export default function DashboardPage() {
               component={Link}
               href="/schedule"
               endIcon={<ArrowForwardIcon />}
-              size="small"
+              size={{ xs: "small", sm: "small" }}
               variant="outlined"
             >
               Tagesansicht
@@ -254,7 +255,7 @@ export default function DashboardPage() {
               Keine Zuweisungen für heute (oder kein Plan für dieses Datum).
             </Typography>
           ) : (
-            <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
+            <Box sx={{ display: "flex", gap: { xs: 1, sm: 2 }, flexWrap: "wrap" }}>
               {/* Station cards */}
               {data.todayStations.map((st) => (
                 <StationCard key={st.station} station={st} />
@@ -269,8 +270,8 @@ export default function DashboardPage() {
       {/* ═══════════ ABSENT EMPLOYEES ═══════════ */}
       {data.absentEmployees.length > 0 && (
         <Card sx={{ mb: 3 }}>
-          <CardContent sx={{ pb: "16px !important" }}>
-            <Typography variant="h6" sx={{ fontWeight: 600, mb: 1.5 }}>
+          <CardContent sx={{ pb: "16px !important", px: { xs: 1.5, sm: 2, md: 3 } }}>
+            <Typography variant={{ xs: "subtitle1", sm: "h6" }} sx={{ fontWeight: 600, mb: 1.5 }}>
               Abwesende Mitarbeiter
             </Typography>
             <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
@@ -296,24 +297,24 @@ export default function DashboardPage() {
 
       {/* ═══════════ 7-DAY PREVIEW ═══════════ */}
       <Card>
-        <CardContent sx={{ pb: "16px !important" }}>
-          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
-            <Typography variant="h6" sx={{ fontWeight: 600 }}>
+        <CardContent sx={{ pb: "16px !important", px: { xs: 1.5, sm: 2, md: 3 } }}>
+          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 1, flexWrap: "wrap", mb: 2 }}>
+            <Typography variant={{ xs: "subtitle1", sm: "h6" }} sx={{ fontWeight: 600 }}>
               Nächste 7 Tage
             </Typography>
             <Button
               component={Link}
               href="/schedule"
               endIcon={<ArrowForwardIcon />}
-              size="small"
+              size={{ xs: "small", sm: "small" }}
               variant="outlined"
             >
               Monatsplan
             </Button>
           </Box>
 
-          <TableContainer>
-            <Table size="small">
+          <TableContainer sx={{ overflowX: { xs: "auto", sm: "auto" }, mb: 0 }}>
+            <Table size="small" sx={{ minWidth: { xs: 360, sm: 600 } }}>
               <TableHead>
                 <TableRow>
                   <TableCell sx={{ fontWeight: 600, minWidth: 100 }} />
@@ -473,33 +474,34 @@ function MetricCard({
   return (
     <Card
       sx={{
-        flex: "1 1 200px",
-        minWidth: 180,
+        flex: { xs: "1 1 calc(50% - 4px)", sm: "1 1 calc(25% - 6px)", md: "1 1 200px" },
+        minWidth: { xs: 120, sm: 160, md: 180 },
         cursor: onClick ? "pointer" : "default",
         transition: "box-shadow 0.2s",
         "&:hover": onClick ? { boxShadow: 4 } : undefined,
       }}
       onClick={onClick}
     >
-      <CardContent sx={{ py: 2, px: 2.5, "&:last-child": { pb: 2 } }}>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+      <CardContent sx={{ py: 2, px: { xs: 1.5, sm: 2, md: 2.5 }, "&:last-child": { pb: 2 } }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: { xs: 1, sm: 1.5 } }}>
           <Box
             sx={{
               bgcolor: `${color}15`,
               borderRadius: 2,
-              p: 1,
+              p: { xs: 0.75, sm: 1 },
               color,
               display: "flex",
               alignItems: "center",
+              fontSize: { xs: "1.25rem", sm: "1.5rem" },
             }}
           >
             {icon}
           </Box>
           <Box sx={{ minWidth: 0 }}>
-            <Typography variant="caption" color="text.secondary" noWrap>
+            <Typography variant={{ xs: "caption", sm: "caption" }} color="text.secondary" noWrap>
               {label}
             </Typography>
-            <Typography variant="h5" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
+            <Typography variant={{ xs: "h6", sm: "h5" }} sx={{ fontWeight: 700, lineHeight: 1.2 }}>
               {value}
             </Typography>
             {subtitle && (
@@ -520,23 +522,23 @@ function StationCard({ station }: { station: StationData }) {
     <Card
       variant="outlined"
       sx={{
-        flex: "1 1 220px",
-        minWidth: 200,
+        flex: { xs: "1 1 100%", sm: "1 1 calc(50% - 4px)", md: "1 1 220px" },
+        minWidth: { xs: 100, sm: 180, md: 200 },
         borderLeft: `4px solid ${stColor?.main}`,
         bgcolor: stColor?.light,
       }}
     >
-      <CardContent sx={{ py: 1.5, px: 2, "&:last-child": { pb: 1.5 } }}>
-        <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1, color: stColor?.main }}>
+      <CardContent sx={{ py: 1.5, px: { xs: 1.5, sm: 2 }, "&:last-child": { pb: 1.5 } }}>
+        <Typography variant={{ xs: "caption", sm: "subtitle2" }} sx={{ fontWeight: 700, mb: 1, color: stColor?.main, display: "block" }}>
           {station.label}
         </Typography>
         {station.shifts.map((shift) => (
           <Box key={shift.shiftType} sx={{ mb: 0.5 }}>
-            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.25 }}>
-              <Typography variant="caption" sx={{ fontWeight: 600 }}>
+            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.25, gap: 1 }}>
+              <Typography variant={{ xs: "caption", sm: "caption" }} sx={{ fontWeight: 600 }}>
                 {shift.shiftTypeLabel}
               </Typography>
-              <Typography variant="caption" sx={{ fontWeight: 600 }}>
+              <Typography variant={{ xs: "caption", sm: "caption" }} sx={{ fontWeight: 600 }}>
                 {shift.assigned}/{shift.required}
               </Typography>
             </Box>
@@ -547,14 +549,14 @@ function StationCard({ station }: { station: StationData }) {
               sx={{ height: 6, borderRadius: 1, mb: 0.5 }}
             />
             {shift.employees.length > 0 && (
-              <AvatarGroup max={5} sx={{ justifyContent: "flex-start", mb: 0.5 }}>
+              <AvatarGroup max={{ xs: 3, sm: 5 }} sx={{ justifyContent: "flex-start", mb: 0.5 }}>
                 {shift.employees.map((p, i) => (
                   <Tooltip key={`${p.initials}-${i}`} title={p.name} arrow>
                     <Avatar
                       sx={{
-                        width: 24,
-                        height: 24,
-                        fontSize: 10,
+                        width: { xs: 20, sm: 24 },
+                        height: { xs: 20, sm: 24 },
+                        fontSize: { xs: 8, sm: 10 },
                         bgcolor: stColor?.main,
                       }}
                     >
@@ -576,21 +578,21 @@ function NightCard({ night }: { night: StationShift }) {
     <Card
       variant="outlined"
       sx={{
-        flex: "1 1 220px",
-        minWidth: 200,
+        flex: { xs: "1 1 100%", sm: "1 1 calc(50% - 4px)", md: "1 1 220px" },
+        minWidth: { xs: 100, sm: 180, md: 200 },
         borderLeft: `4px solid ${NIGHT_COLOR.main}`,
         bgcolor: NIGHT_COLOR.light,
       }}
     >
-      <CardContent sx={{ py: 1.5, px: 2, "&:last-child": { pb: 1.5 } }}>
-        <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1, color: NIGHT_COLOR.main }}>
+      <CardContent sx={{ py: 1.5, px: { xs: 1.5, sm: 2 }, "&:last-child": { pb: 1.5 } }}>
+        <Typography variant={{ xs: "caption", sm: "subtitle2" }} sx={{ fontWeight: 700, mb: 1, color: NIGHT_COLOR.main, display: "block" }}>
           Nacht (gesamtes Gebäude)
         </Typography>
-        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.25 }}>
-          <Typography variant="caption" sx={{ fontWeight: 600 }}>
+        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.25, gap: 1 }}>
+          <Typography variant={{ xs: "caption", sm: "caption" }} sx={{ fontWeight: 600 }}>
             {night.shiftTypeLabel}
           </Typography>
-          <Typography variant="caption" sx={{ fontWeight: 600 }}>
+          <Typography variant={{ xs: "caption", sm: "caption" }} sx={{ fontWeight: 600 }}>
             {night.assigned}/{night.required}
           </Typography>
         </Box>
@@ -601,14 +603,14 @@ function NightCard({ night }: { night: StationShift }) {
           sx={{ height: 6, borderRadius: 1, mb: 0.5 }}
         />
         {night.employees.length > 0 && (
-          <AvatarGroup max={5} sx={{ justifyContent: "flex-start" }}>
+          <AvatarGroup max={{ xs: 3, sm: 5 }} sx={{ justifyContent: "flex-start" }}>
             {night.employees.map((p, i) => (
               <Tooltip key={`${p.initials}-${i}`} title={p.name} arrow>
                 <Avatar
                   sx={{
-                    width: 24,
-                    height: 24,
-                    fontSize: 10,
+                    width: { xs: 20, sm: 24 },
+                    height: { xs: 20, sm: 24 },
+                    fontSize: { xs: 8, sm: 10 },
                     bgcolor: NIGHT_COLOR.main,
                   }}
                 >

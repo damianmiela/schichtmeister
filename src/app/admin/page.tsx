@@ -100,12 +100,13 @@ export default function AdminPage() {
 
   return (
     <MainLayout title="Admin-Tools">
-      <Box sx={{ borderBottom: 1, borderColor: "divider", mb: 3 }}>
+      <Box sx={{ borderBottom: 1, borderColor: "divider", mb: 3, overflowX: "auto" }}>
         <Tabs
           value={tabIndex}
           onChange={(_, v) => setTabIndex(v)}
           sx={{
-            "& .MuiTab-root": { textTransform: "none", fontWeight: 600, fontSize: 14 },
+            "& .MuiTab-root": { textTransform: "none", fontWeight: 600, fontSize: { xs: 12, sm: 14 } },
+            minWidth: { xs: 360, sm: "auto" },
           }}
         >
           <Tab icon={<PersonIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="Benutzer" />
@@ -232,7 +233,7 @@ function UsersTab({ session }: { session: NonNullable<ReturnType<typeof useSessi
   return (
     <>
       <Box sx={{ mb: 3 }}>
-        <Typography variant="h5" fontWeight={700} sx={{ mb: 1 }}>
+        <Typography variant="h5" fontWeight={700} sx={{ mb: 1, fontSize: { xs: 20, sm: 24 } }}>
           Benutzerverwaltung
         </Typography>
         <Typography variant="body2" color="text.secondary">
@@ -250,8 +251,8 @@ function UsersTab({ session }: { session: NonNullable<ReturnType<typeof useSessi
       {loading ? (
         <Box sx={{ display: "flex", justifyContent: "center", py: 6 }}><CircularProgress /></Box>
       ) : (
-        <TableContainer component={Paper} variant="outlined">
-          <Table>
+        <TableContainer component={Paper} variant="outlined" sx={{ overflowX: "auto" }}>
+          <Table sx={{ minWidth: 360 }}>
             <TableHead>
               <TableRow>
                 <TableCell sx={{ fontWeight: 700 }}>Name</TableCell>
@@ -311,7 +312,7 @@ function UsersTab({ session }: { session: NonNullable<ReturnType<typeof useSessi
       )}
 
       {/* Create / Edit dialog */}
-      <Dialog open={dialogOpen} onClose={() => !formBusy && setDialogOpen(false)} maxWidth="xs" fullWidth>
+      <Dialog open={dialogOpen} onClose={() => !formBusy && setDialogOpen(false)} maxWidth="xs" fullWidth PaperProps={{ sx: { minWidth: { xs: 280, sm: "auto" } } }}>
         <DialogTitle>{dialogMode === "create" ? "Neuen Benutzer anlegen" : "Benutzer bearbeiten"}</DialogTitle>
         <DialogContent>
           <Box sx={{ display: "flex", flexDirection: "column", gap: 2, mt: 1 }}>
@@ -344,7 +345,7 @@ function UsersTab({ session }: { session: NonNullable<ReturnType<typeof useSessi
       </Dialog>
 
       {/* Delete dialog */}
-      <Dialog open={deleteDialogOpen} onClose={() => !deleteBusy && setDeleteDialogOpen(false)} maxWidth="xs">
+      <Dialog open={deleteDialogOpen} onClose={() => !deleteBusy && setDeleteDialogOpen(false)} maxWidth="xs" PaperProps={{ sx: { minWidth: { xs: 280, sm: "auto" } } }}>
         <DialogTitle>Benutzer löschen?</DialogTitle>
         <DialogContent>
           <Typography>
@@ -459,9 +460,9 @@ function DatabaseTab() {
 
   return (
     <>
-      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3 }}>
+      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3, flexDirection: { xs: "column", sm: "row" }, gap: { xs: 2, sm: 0 }, alignItems: { xs: "flex-start", sm: "center" } }}>
         <Box>
-          <Typography variant="h5" fontWeight={700} sx={{ mb: 1 }}>
+          <Typography variant="h5" fontWeight={700} sx={{ mb: 1, fontSize: { xs: 20, sm: 24 } }}>
             Datenbank-Browser
           </Typography>
           <Typography variant="body2" color="text.secondary">
@@ -521,8 +522,8 @@ function DatabaseTab() {
                   </Box>
                 ) : data ? (
                   <Box>
-                    <TableContainer sx={{ maxHeight: 480 }}>
-                      <Table size="small" stickyHeader>
+                    <TableContainer sx={{ maxHeight: 480, overflowX: "auto" }}>
+                      <Table size="small" stickyHeader sx={{ minWidth: 360 }}>
                         <TableHead>
                           <TableRow>
                             {data.columns.map((col) => (
