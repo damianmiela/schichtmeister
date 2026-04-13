@@ -170,6 +170,8 @@ function groupEmployeesByStation(
   const grouped: Record<number, EmployeeJson[]> = { 1: [], 2: [], 3: [] };
 
   for (const emp of employees) {
+    // Ausbildung employees have their own section
+    if (emp.contractType === "AUSBILDUNG") continue;
     const main = emp.mainStation;
     if (main != null && main >= 1 && main <= 3) {
       // Employee appears only in their main station table
@@ -376,6 +378,16 @@ export default function MonthTableView({
     [employees, assignments, profilesById],
   );
 
+  const ausbildungEmployees = useMemo(
+    () => employees.filter((e) => e.contractType === "AUSBILDUNG"),
+    [employees],
+  );
+
+  const ausbildungIds = useMemo(
+    () => new Set(ausbildungEmployees.map((e) => e.id)),
+    [ausbildungEmployees],
+  );
+
   const profilesByType = useMemo(() => {
     const grouped = new Map<string, ShiftProfileJson[]>();
     for (const p of shiftProfiles ?? []) {
@@ -573,7 +585,7 @@ export default function MonthTableView({
 
   /* ──── section renderer ──── */
 
-  type SectionFilter = "none" | "night-only" | { station: number };
+  type SectionFilter = "none" | "night-only" | "ausbildung" | { station: number };
 
   const renderSection = (
     title: string,
@@ -594,6 +606,8 @@ export default function MonthTableView({
       // Already filtered by getNightEmployees
       // In edit mode on empty schedule, skip night section (no assignments to detect night from)
       if (editMode && assignments.length === 0 && !hasEdits) return null;
+    } else if (filter === "ausbildung") {
+      // Always show all Ausbildung employees (they are pre-filtered)
     }
     if (filtered.length === 0) return null;
     const sorted = sortEmployees(filtered);
@@ -601,9 +615,11 @@ export default function MonthTableView({
     const sectionBg =
       filter === "night-only"
         ? NIGHT_COLOR.light
-        : typeof filter === "object" && "station" in filter
-          ? STATION_COLORS[filter.station]?.light ?? "grey.100"
-          : "grey.100";
+        : filter === "ausbildung"
+          ? "#fff8e1" /* amber 50 */
+          : typeof filter === "object" && "station" in filter
+            ? STATION_COLORS[filter.station]?.light ?? "grey.100"
+            : "grey.100";
 
     return (
       <Box key={title} sx={{ mb: 2 }}>
@@ -1232,6 +1248,8 @@ export default function MonthTableView({
       if (prof?.shiftType === "NIGHT") nightEmpIds.add(a.employeeId);
     }
     return employees.filter((e) => {
+      // Ausbildung employees have their own section — never show here
+      if (ausbildungIds.has(e.id)) return false;
       // Has assignments → already in station/night table
       if (assignedIds.has(e.id)) {
         // If no mainStation but only night assignments → in night table, not unassigned
@@ -1357,6 +1375,7 @@ export default function MonthTableView({
           {renderSection("Station 2", stationGroups[2]!, { station: 2 })}
           {renderSection("Station 3", stationGroups[3]!, { station: 3 })}
           {renderSection("Nacht (gesamtes Gebäude)", nightEmployees, "night-only")}
+          {renderSection("Ausbildung", ausbildungEmployees, "ausbildung")}
           {renderUnassignedSection()}
         </>
       )}
