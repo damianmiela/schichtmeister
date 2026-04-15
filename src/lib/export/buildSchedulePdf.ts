@@ -1,7 +1,8 @@
 import PDFDocument from "pdfkit";
 import type { Employee } from "@prisma/client";
 import { toIsoDateOnly } from "@/lib/api/dateOnly";
-import type { AssignmentWithRelations, ExportBundle } from "@/lib/export/scheduleExportContext";
+import type { AssignmentWithRelations, ExportBundle, ExportQualification } from "@/lib/export/scheduleExportContext";
+import { generateColorFromAbbreviation, contrastTextColor } from "@/lib/qualificationColor";
 import { eachIsoDateInPeriod } from "@/lib/export/exportDateRange";
 import {
   buildAssignmentByEmpDay,
@@ -118,7 +119,22 @@ function groupEmployeesByMainStationForPdf(
 export async function buildSchedulePdfBuffer(
   bundle: ExportBundle,
 ): Promise<Buffer> {
-  const { schedule, assignments, facilityName, allEmployees } = bundle;
+  const { schedule, assignments, facilityName, allEmployees, qualificationsByEmployee } = bundle;
+
+  /* ── Sort employees by qualification sortOrder (best first), then by name ── */
+  const bestQualSortOrder = (empId: string): number => {
+    const qs = qualificationsByEmployee.get(empId) ?? [];
+    if (qs.length === 0) return 9999;
+    return Math.min(...qs.map((q) => q.sortOrder));
+  };
+  const sortEmployeesForPdf = (emps: Employee[]): Employee[] =>
+    [...emps].sort((a, b) => {
+      const qa = bestQualSortOrder(a.id);
+      const qb = bestQualSortOrder(b.id);
+      if (qa !== qb) return qa - qb;
+      const ln = a.lastName.localeCompare(b.lastName, "de");
+      return ln !== 0 ? ln : a.firstName.localeCompare(b.firstName, "de");
+    });
 
   const doc = new PDFDocument({
     margin: MARGIN,
@@ -182,11 +198,11 @@ export async function buildSchedulePdfBuffer(
   }
 
   const sections: Section[] = [
-    { title: "Station 1", employees: sortEmployeesByName(byStation[1]), stationNumber: 1 },
-    { title: "Station 2", employees: sortEmployeesByName(byStation[2]), stationNumber: 2 },
-    { title: "Station 3", employees: sortEmployeesByName(byStation[3]), stationNumber: 3 },
-    { title: "Nacht (gesamtes Geb\u00e4ude)", employees: sortEmployeesByName(nightEmps), stationNumber: null },
-    { title: "Ausbildung", employees: sortEmployeesByName(ausbildungEmps), stationNumber: null, isAusbildung: true },
+    { title: "Station 1", employees: sortEmployeesForPdf(byStation[1]), stationNumber: 1 },
+    { title: "Station 2", employees: sortEmployeesForPdf(byStation[2]), stationNumber: 2 },
+    { title: "Station 3", employees: sortEmployeesForPdf(byStation[3]), stationNumber: 3 },
+    { title: "Nacht (gesamtes Geb\u00e4ude)", employees: sortEmployeesForPdf(nightEmps), stationNumber: null },
+    { title: "Ausbildung", employees: sortEmployeesForPdf(ausbildungEmps), stationNumber: null, isAusbildung: true },
   ].filter((s) => s.employees.length > 0);
 
   // Metadata line
@@ -293,11 +309,30 @@ export async function buildSchedulePdfBuffer(
     const st = STATION_COLORS[stationNum];
     const bg = st?.light ?? "#eceff1";
     const fg = st?.main ?? "#546e7a";
-    const r = 4.2;
+    const r = 3.2;
     doc.save();
+    doc.lineWidth(0.5);
     doc.circle(cx, cy, r).fillAndStroke(bg, fg);
-    doc.fontSize(5).font("Helvetica-Bold").fillColor(fg);
-    doc.text(String(stationNum), cx - r, cy - 2.2, {
+    doc.fontSize(3.8).font("Helvetica-Bold").fillColor(fg);
+    doc.text(String(stationNum), cx - r, cy - 1.7, {
+      width: r * 2,
+      align: "center",
+      lineBreak: false,
+    });
+    doc.restore();
+    doc.fillColor("#000");
+  };
+
+  /* ── Helper: draw a small "N" night badge (circle) ── */
+  const drawNightBadge = (cx: number, cy: number) => {
+    const bg = NIGHT_COLORS.light;
+    const fg = NIGHT_COLORS.main;
+    const r = 3.2;
+    doc.save();
+    doc.lineWidth(0.5);
+    doc.circle(cx, cy, r).fillAndStroke(bg, fg);
+    doc.fontSize(3.8).font("Helvetica-Bold").fillColor(fg);
+    doc.text("N", cx - r, cy - 1.7, {
       width: r * 2,
       align: "center",
       lineBreak: false,
@@ -316,15 +351,39 @@ export async function buildSchedulePdfBuffer(
     // Name cell
     doc.rect(x, y, NAME_COL_W, rowH).fill("#ffffff");
     doc.rect(x, y, NAME_COL_W, rowH).stroke();
-    const tags = (emp.qualificationTags ?? []).join(", ");
     const nameStr = `${emp.lastName}, ${emp.firstName}`;
     const pctStr = `${employeeContractPercentLabel(emp)}%`;
-    const fullName = tags ? `${nameStr} (${pctStr}) [${tags}]` : `${nameStr} (${pctStr})`;
+    // Line 1: name + (pct%)
     doc.fontSize(5.5).font("Helvetica").fillColor("#000");
-    doc.text(truncate(fullName, 48), x + 2, y + 3, {
+    doc.text(truncate(`${nameStr} (${pctStr})`, 42), x + 2, y + 2, {
       width: NAME_COL_W - 4,
       lineBreak: false,
     });
+    // Line 2: qualification pills (colored, like website)
+    const quals = qualificationsByEmployee.get(emp.id) ?? [];
+    if (quals.length > 0) {
+      let pillX = x + 2;
+      const pillY = y + 9;
+      const pillH = 5.5;
+      const maxX = x + NAME_COL_W - 2;
+      doc.fontSize(3.8).font("Helvetica-Bold");
+      for (const q of quals) {
+        const bg = q.color || generateColorFromAbbreviation(q.abbreviation);
+        const fg = contrastTextColor(bg);
+        const textW = doc.widthOfString(q.abbreviation);
+        const pillW = textW + 4;
+        if (pillX + pillW > maxX) break;
+        doc.save();
+        doc.roundedRect(pillX, pillY, pillW, pillH, 1.2).fill(bg);
+        doc.fillColor(fg).text(q.abbreviation, pillX + 2, pillY + 1, {
+          width: textW,
+          lineBreak: false,
+        });
+        doc.restore();
+        pillX += pillW + 1.5;
+      }
+      doc.fillColor("#000");
+    }
     x += NAME_COL_W;
 
     // Hours cell
@@ -364,15 +423,26 @@ export async function buildSchedulePdfBuffer(
     x += HOURS_COL_W;
 
     // Day cells
+    const isNightSection = section.title.startsWith("Nacht");
     for (let i = 0; i < dates.length; i++) {
       const iso = dates[i]!;
       const isWe = weekendSet.has(iso);
       const isHol = hMap.has(iso);
       const a = byEmpDay.get(`${emp.id}|${iso}`);
+      const isNightShift = a?.shiftProfile.shiftType === "NIGHT";
+
+      // Determine whether to show the assignment in this section.
+      // - Night section: only show NIGHT shifts (and status dayStatus on any cell? keep status visible for sick/vacation info)
+      // - Station section: NIGHT shifts render as "N" circle (no station mark); day shifts render normally
+      let showAssignment = !!a;
+      if (a && isNightSection && !isNightShift && !a.dayStatus) {
+        // Non-night shift in night table — leave blank (visible elsewhere)
+        showAssignment = false;
+      }
 
       // Determine cell background
       let cellBg = "#ffffff";
-      const status = a?.dayStatus ?? null;
+      const status = showAssignment ? a?.dayStatus ?? null : null;
       if (status && STATUS_BG[status]) {
         cellBg = STATUS_BG[status]!;
       } else if (isHol) {
@@ -388,18 +458,26 @@ export async function buildSchedulePdfBuffer(
       const textColor = status && STATUS_TEXT_COLOR[status] ? STATUS_TEXT_COLOR[status]! : "#333";
       doc.fillColor(textColor);
 
-      if (a) {
-        // Decide if we need a cross-station badge:
-        // - Station section (stationNumber != null): badge when assignment.stationNumber is set and differs from section
-        // - Ausbildung section: always show a badge (resolve from assignment.stationNumber, emp.mainStation, fallback 1)
-        // - Night section: never show
+      if (a && showAssignment) {
+        // Decide badge to render:
+        // - Station section + night shift -> "N" badge only (no shift name beside)
+        // - Station section + cross-station shift -> station number badge
+        // - Ausbildung section -> always station number badge
+        // - Night section -> never
+        let badgeKind: "station" | "night" | null = null;
         let badgeStation: number | null = null;
         if (!status) {
-          if (section.isAusbildung) {
+          if (isNightSection) {
+            // no badge
+          } else if (section.isAusbildung) {
             badgeStation = a.stationNumber ?? emp.mainStation ?? 1;
+            badgeKind = "station";
           } else if (section.stationNumber != null) {
-            if (a.stationNumber != null && a.stationNumber !== section.stationNumber) {
+            if (isNightShift) {
+              badgeKind = "night";
+            } else if (a.stationNumber != null && a.stationNumber !== section.stationNumber) {
               badgeStation = a.stationNumber;
+              badgeKind = "station";
             }
           }
         }
@@ -408,13 +486,22 @@ export async function buildSchedulePdfBuffer(
         const row1 = status ?? a.shiftProfile.name;
         doc.fontSize(5).font(status ? "Helvetica-Bold" : "Helvetica").fillColor(textColor);
 
-        if (badgeStation != null) {
-          // Split cell vertically: left = station circle, right = shift text
-          const leftW = Math.min(12, dayW * 0.38);
+        if (badgeKind === "night") {
+          // "N" circle only, no shift name (night shift in station table)
+          drawNightBadge(x + dayW / 2, y + rowH / 2);
+        } else if (badgeKind === "station" && badgeStation != null) {
+          // Split cell vertically: left = station circle, right = shift text, with divider line
+          const leftW = Math.min(10, dayW * 0.38);
           const rightX = x + leftW;
           const rightW = dayW - leftW;
+          // Vertical divider line
+          doc.save();
+          doc.strokeColor("#d0d0d0").lineWidth(0.3);
+          doc.moveTo(x + leftW, y + 2).lineTo(x + leftW, y + rowH - 2).stroke();
+          doc.restore();
           drawStationBadge(x + leftW / 2, y + rowH / 2, badgeStation);
           doc.fillColor(textColor);
+          doc.fontSize(5).font("Helvetica");
           doc.text(truncate(row1, 6), rightX, y + 1, {
             width: rightW,
             align: "center",
@@ -448,7 +535,7 @@ export async function buildSchedulePdfBuffer(
           }
         }
       } else {
-        // No assignment — empty or weekend
+        // No assignment or hidden (e.g., non-night shift in night table) — empty or weekend
         if (!isWe && !isHol) {
           doc.fontSize(5).font("Helvetica").fillColor("#ccc");
           doc.text("-", x, y + 3, { width: dayW, align: "center", lineBreak: false });

@@ -6,11 +6,19 @@ export type AssignmentWithRelations = Assignment & {
   shiftProfile: ShiftProfile;
 };
 
+export type ExportQualification = {
+  id: string;
+  abbreviation: string;
+  color: string | null;
+  sortOrder: number;
+};
+
 export type ExportBundle = {
   schedule: Schedule;
   assignments: AssignmentWithRelations[];
   facilityName: string;
   allEmployees: Employee[];
+  qualificationsByEmployee: Map<string, ExportQualification[]>;
 };
 
 export async function fetchScheduleExportBundle(
@@ -23,7 +31,7 @@ export async function fetchScheduleExportBundle(
   ]);
   if (!schedule || !facility) return null;
 
-  const [assignments, allEmployees] = await Promise.all([
+  const [assignments, allEmployees, employeesWithQuals] = await Promise.all([
     prisma.assignment.findMany({
       where: { scheduleId },
       include: {
@@ -40,7 +48,22 @@ export async function fetchScheduleExportBundle(
       where: { facilityId, status: "ACTIVE" },
       orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
     }),
+    prisma.employee.findMany({
+      where: { facilityId, status: "ACTIVE" },
+      select: {
+        id: true,
+        qualifications: {
+          select: { id: true, abbreviation: true, color: true, sortOrder: true },
+          orderBy: { sortOrder: "asc" },
+        },
+      },
+    }),
   ]);
 
-  return { schedule, assignments, facilityName: facility.name, allEmployees };
+  const qualificationsByEmployee = new Map<string, ExportQualification[]>();
+  for (const e of employeesWithQuals) {
+    qualificationsByEmployee.set(e.id, e.qualifications as ExportQualification[]);
+  }
+
+  return { schedule, assignments, facilityName: facility.name, allEmployees, qualificationsByEmployee };
 }
