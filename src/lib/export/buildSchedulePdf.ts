@@ -97,15 +97,16 @@ type Section = {
 };
 
 /** Station-grouping used for PDF: mainStation-based, skip Ausbildung, skip unassigned.
- *  Employees without mainStation fall back to Station 1. */
+ *  Employees without mainStation fall back to Station 1.
+ *  Employees with only NIGHT shifts are excluded (they only appear in the Nacht table). */
 function groupEmployeesByMainStationForPdf(
   employees: Employee[],
-  assignedIds: Set<string>,
+  nonNightAssignedIds: Set<string>,
 ): Record<1 | 2 | 3, Employee[]> {
   const grouped: Record<number, Employee[]> = { 1: [], 2: [], 3: [] };
   for (const emp of employees) {
     if ((emp.contractType as string) === "AUSBILDUNG") continue;
-    if (!assignedIds.has(emp.id)) continue;
+    if (!nonNightAssignedIds.has(emp.id)) continue;
     const main = emp.mainStation;
     if (main != null && main >= 1 && main <= 3) {
       grouped[main]!.push(emp);
@@ -170,10 +171,18 @@ export async function buildSchedulePdfBuffer(
 
   // Set of employees that actually have at least one assignment in the schedule
   const assignedIds = new Set<string>();
-  for (const a of assignments) assignedIds.add(a.employeeId);
+  // Employees with at least one non-NIGHT assignment — qualify for station tables.
+  // Employees who only have NIGHT shifts will appear only in the Nacht section.
+  const nonNightAssignedIds = new Set<string>();
+  for (const a of assignments) {
+    assignedIds.add(a.employeeId);
+    if (a.shiftProfile.shiftType !== "NIGHT") {
+      nonNightAssignedIds.add(a.employeeId);
+    }
+  }
 
-  // Build sections — mainStation-based, Ausbildung excluded, only employees with assignments
-  const byStation = groupEmployeesByMainStationForPdf(allEmployees, assignedIds);
+  // Build sections — mainStation-based, Ausbildung excluded, only employees with non-night assignments
+  const byStation = groupEmployeesByMainStationForPdf(allEmployees, nonNightAssignedIds);
   // Night section: employees with any NIGHT assignment, excluding Ausbildung (they get their own section)
   const nightEmps = getNightEmployees(allEmployees, assignments).filter(
     (e) => (e.contractType as string) !== "AUSBILDUNG",
@@ -412,9 +421,10 @@ export async function buildSchedulePdfBuffer(
       lineBreak: false,
     });
     if (target != null && target > 0) {
-      const pctVal = Math.round((istHours / target) * 100);
+      const diff = istHours - target;
+      const diffStr = `(${diff >= 0 ? "+" : ""}${formatHours(diff)}h)`;
       doc.fontSize(4).font("Helvetica").fillColor(hoursColor);
-      doc.text(`(${pctVal}%)`, x + 1, y + 10, {
+      doc.text(diffStr, x + 1, y + 10, {
         width: HOURS_COL_W - 2,
         align: "center",
         lineBreak: false,
