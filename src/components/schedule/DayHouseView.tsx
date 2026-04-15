@@ -77,9 +77,195 @@ function shortName(emp: EmployeeJson | undefined, fallback: string): string {
   return `${f ? f + ". " : ""}${emp.lastName}`;
 }
 
+/* ── Subtle animation keyframes (injected once at the top of the view) ── */
+const ANIMATION_STYLES = `
+  @keyframes house-cloud-drift {
+    0%, 100% { transform: translateX(0px); }
+    50%      { transform: translateX(28px); }
+  }
+  @keyframes house-smoke-rise {
+    0%   { transform: translate(0, 0) scale(1); opacity: 0; }
+    20%  { opacity: 0.9; }
+    100% { transform: translate(8px, -34px) scale(1.6); opacity: 0; }
+  }
+  @keyframes house-bird-fly {
+    0%   { transform: translate(-40px, 4px); }
+    50%  { transform: translate(380px, -10px); }
+    100% { transform: translate(800px, 0px); }
+  }
+  @keyframes house-bird-flap {
+    0%, 100% { transform: scaleY(1); }
+    50%      { transform: scaleY(0.55); }
+  }
+  @keyframes house-sun-pulse {
+    0%, 100% { transform: scale(1); opacity: 0.9; }
+    50%      { transform: scale(1.06); opacity: 1; }
+  }
+  @keyframes house-doorknob-shine {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255,255,255,0); }
+    50%      { box-shadow: 0 0 4px 1px rgba(255,255,255,0.7); }
+  }
+`;
+
 /* ══════════════════════════════════════════════════════════════ */
 /*                       SUB-COMPONENTS                            */
 /* ══════════════════════════════════════════════════════════════ */
+
+/** Tiny decorative 4-pane window — for adding visual texture to floors */
+function DecorativeWindow({ color, size = 18 }: { color: string; size?: number }) {
+  return (
+    <Box
+      sx={{
+        width: size,
+        height: size,
+        bgcolor: alpha(SKY_COLOR, 0.5),
+        border: `1.5px solid ${alpha(color, 0.6)}`,
+        borderRadius: 0.5,
+        position: "relative",
+        boxShadow: `inset 0 0 0 1px ${alpha("#ffffff", 0.6)}`,
+        flexShrink: 0,
+        // Window cross
+        "&::before, &::after": {
+          content: '""',
+          position: "absolute",
+          bgcolor: alpha(color, 0.5),
+        },
+        "&::before": {
+          left: "50%",
+          top: 1,
+          bottom: 1,
+          width: 1,
+          transform: "translateX(-50%)",
+        },
+        "&::after": {
+          top: "50%",
+          left: 1,
+          right: 1,
+          height: 1,
+          transform: "translateY(-50%)",
+        },
+      }}
+    />
+  );
+}
+
+/** Door — replaces plain floor sign column, looks architectural. */
+function FloorDoor({
+  number,
+  label,
+  totalLabel,
+  color,
+  doorIcon,
+}: {
+  number?: string;
+  label: string;
+  totalLabel: string;
+  color: string;
+  /** Optional icon shown above number (e.g., moon for attic, BL for basement) */
+  doorIcon?: React.ReactNode;
+}) {
+  return (
+    <Box
+      sx={{
+        width: 88,
+        flexShrink: 0,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "flex-start",
+        bgcolor: alpha(color, 0.07),
+        borderRight: `2px dashed ${alpha(color, 0.3)}`,
+        py: 1,
+        px: 0.75,
+        gap: 0.5,
+      }}
+    >
+      {/* Two decorative windows above the door, like upper-floor windows */}
+      <Box sx={{ display: "flex", gap: 0.75, mb: 0.25 }}>
+        <DecorativeWindow color={color} size={14} />
+        <DecorativeWindow color={color} size={14} />
+      </Box>
+
+      {/* The door itself */}
+      <Box
+        sx={{
+          width: 52,
+          height: 64,
+          position: "relative",
+          bgcolor: alpha(color, 0.85),
+          border: `2px solid ${color}`,
+          borderRadius: "6px 6px 2px 2px",
+          boxShadow: `inset 0 0 0 2px ${alpha("#ffffff", 0.25)}, 0 1px 3px ${alpha(color, 0.35)}`,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "flex-start",
+          pt: 0.75,
+          gap: 0.4,
+        }}
+      >
+        {/* House-number plaque (or icon) at top of door */}
+        <Box
+          sx={{
+            minWidth: 22,
+            height: 22,
+            px: 0.5,
+            borderRadius: "50%",
+            bgcolor: "#fff",
+            color: color,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontWeight: 800,
+            fontSize: 13,
+            boxShadow: `0 1px 2px ${alpha("#000", 0.2)}`,
+          }}
+        >
+          {doorIcon ?? number}
+        </Box>
+
+        {/* Lower door panel (raised rectangle) */}
+        <Box
+          sx={{
+            mt: 0.5,
+            width: "75%",
+            flex: 1,
+            bgcolor: alpha("#ffffff", 0.18),
+            border: `1px solid ${alpha("#ffffff", 0.35)}`,
+            borderRadius: 0.5,
+            position: "relative",
+          }}
+        />
+
+        {/* Doorknob — animated subtle shine */}
+        <Box
+          sx={{
+            position: "absolute",
+            right: 5,
+            top: "60%",
+            width: 5,
+            height: 5,
+            borderRadius: "50%",
+            bgcolor: "#ffd54f",
+            border: "1px solid #f9a825",
+            animation: "house-doorknob-shine 4s ease-in-out infinite",
+          }}
+        />
+      </Box>
+
+      {/* Floor label below the door */}
+      <Typography
+        variant="caption"
+        sx={{ fontWeight: 700, color, fontSize: 10.5, lineHeight: 1.1, mt: 0.25, textAlign: "center" }}
+      >
+        {label}
+      </Typography>
+      <Typography variant="caption" sx={{ fontSize: 9.5, color: "text.secondary", lineHeight: 1 }}>
+        {totalLabel}
+      </Typography>
+    </Box>
+  );
+}
 
 /** A single employee chip — name + tiny shift badge */
 function PersonChip({ row }: { row: Row }) {
@@ -195,6 +381,23 @@ function FloorWindow({
   );
 }
 
+/** Wooden side-wall background — subtle horizontal grain */
+const WOOD_GRAIN_BG = `repeating-linear-gradient(
+  to bottom,
+  ${ROOF_COLOR} 0px,
+  ${ROOF_COLOR} 4px,
+  ${ROOF_DARK} 5px,
+  ${ROOF_COLOR} 6px,
+  ${ROOF_COLOR} 11px,
+  ${alpha(ROOF_DARK, 0.5)} 12px,
+  ${ROOF_COLOR} 13px
+)`;
+
+const SIDE_WALL_SX = {
+  background: WOOD_GRAIN_BG,
+  borderRight: `1px solid ${ROOF_DARK}`,
+};
+
 /** A standard station floor */
 function StationFloor({
   stationNumber,
@@ -215,57 +418,34 @@ function StationFloor({
         display: "flex",
         alignItems: "stretch",
         bgcolor: colors.wall,
-        borderLeft: `6px solid ${ROOF_DARK}`,
-        borderRight: `6px solid ${ROOF_DARK}`,
         borderTop: `2px dashed ${alpha(ROOF_DARK, 0.4)}`,
       }}
     >
-      {/* Floor sign — narrow column on the left */}
-      <Box
-        sx={{
-          width: 88,
-          flexShrink: 0,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 0.25,
-          bgcolor: alpha(colors.main, 0.07),
-          borderRight: `2px dashed ${alpha(colors.main, 0.3)}`,
-          py: 1.25,
-        }}
-      >
-        <Box
-          sx={{
-            width: 32,
-            height: 32,
-            borderRadius: "50%",
-            bgcolor: colors.main,
-            color: "#fff",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontWeight: 700,
-            fontSize: 16,
-            boxShadow: `0 2px 4px ${alpha(colors.main, 0.4)}`,
-          }}
-        >
-          {stationNumber}
-        </Box>
-        <Typography variant="caption" sx={{ fontWeight: 700, color: colors.main, fontSize: 11, lineHeight: 1.1, mt: 0.25 }}>
-          Station {stationNumber}
-        </Typography>
-        <Typography variant="caption" sx={{ fontSize: 10, color: "text.secondary", lineHeight: 1 }}>
-          {total} MA
-        </Typography>
-      </Box>
+      {/* Left wood-wall */}
+      <Box sx={{ width: 6, ...SIDE_WALL_SX }} />
 
-      {/* Windows */}
+      <FloorDoor
+        number={String(stationNumber)}
+        label={`Station ${stationNumber}`}
+        totalLabel={`${total} MA`}
+        color={colors.main}
+      />
+
+      {/* Windows + decorative window strip */}
       <Box sx={{ flex: 1, p: 1, display: "flex", flexDirection: "column", gap: 0.75, minWidth: 0 }}>
+        {/* Decorative window-pane strip on the floor wall */}
+        <Box sx={{ display: "flex", gap: 1, justifyContent: "flex-end", mb: 0.25, opacity: 0.85 }}>
+          <DecorativeWindow color={colors.main} size={16} />
+          <DecorativeWindow color={colors.main} size={16} />
+          <DecorativeWindow color={colors.main} size={16} />
+        </Box>
         <FloorWindow shiftType="EARLY" rows={early} />
         <FloorWindow shiftType="LATE" rows={late} />
         {bl.length > 0 && <FloorWindow shiftType="BL" rows={bl} />}
       </Box>
+
+      {/* Right wood-wall */}
+      <Box sx={{ width: 6, ...SIDE_WALL_SX, borderRight: "none", borderLeft: `1px solid ${ROOF_DARK}` }} />
     </Box>
   );
 }
@@ -278,116 +458,95 @@ function AtticFloor({ rows }: { rows: Row[] }) {
         display: "flex",
         alignItems: "stretch",
         bgcolor: alpha(NIGHT_COLOR, 0.08),
-        borderLeft: `6px solid ${ROOF_DARK}`,
-        borderRight: `6px solid ${ROOF_DARK}`,
       }}
     >
-      <Box
-        sx={{
-          width: 88,
-          flexShrink: 0,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 0.25,
-          bgcolor: alpha(NIGHT_COLOR, 0.18),
-          borderRight: `2px dashed ${alpha(NIGHT_COLOR, 0.4)}`,
-          py: 1.25,
-          color: NIGHT_COLOR,
-        }}
-      >
-        <NightsStayIcon sx={{ fontSize: 26 }} />
-        <Typography variant="caption" sx={{ fontWeight: 700, fontSize: 11, lineHeight: 1.1, mt: 0.25 }}>
-          Dachboden
-        </Typography>
-        <Typography variant="caption" sx={{ fontSize: 10, color: alpha(NIGHT_COLOR, 0.75), lineHeight: 1 }}>
-          {rows.length} MA
-        </Typography>
+      <Box sx={{ width: 6, ...SIDE_WALL_SX }} />
+      <FloorDoor
+        label="Dachboden"
+        totalLabel={`${rows.length} MA`}
+        color={NIGHT_COLOR}
+        doorIcon={<NightsStayIcon sx={{ fontSize: 14, color: NIGHT_COLOR }} />}
+      />
+      <Box sx={{ flex: 1, p: 1, display: "flex", flexDirection: "column", gap: 0.5, minWidth: 0 }}>
+        {/* Dormer-like decorative windows */}
+        <Box sx={{ display: "flex", gap: 1, justifyContent: "flex-end", mb: 0.25, opacity: 0.85 }}>
+          <DecorativeWindow color={NIGHT_COLOR} size={14} />
+          <DecorativeWindow color={NIGHT_COLOR} size={14} />
+        </Box>
+        <Box sx={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 0.5, minHeight: 28 }}>
+          {rows.length === 0 ? (
+            <Typography variant="caption" sx={{ color: "text.disabled", fontStyle: "italic" }}>
+              – niemand hier oben, alles still –
+            </Typography>
+          ) : (
+            rows.map((r) => <PersonChip key={r.employeeId + r.profile.id} row={r} />)
+          )}
+        </Box>
       </Box>
-      <Box sx={{ flex: 1, p: 1, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 0.5, minWidth: 0 }}>
-        {rows.length === 0 ? (
-          <Typography variant="caption" sx={{ color: "text.disabled", fontStyle: "italic" }}>
-            – niemand hier oben –
-          </Typography>
-        ) : (
-          rows.map((r) => <PersonChip key={r.employeeId + r.profile.id} row={r} />)
-        )}
-      </Box>
+      <Box sx={{ width: 6, ...SIDE_WALL_SX, borderRight: "none", borderLeft: `1px solid ${ROOF_DARK}` }} />
     </Box>
   );
 }
 
 /** Basement — sits below the grass line, full width, dim */
 function BasementFloor({ rows }: { rows: Row[] }) {
+  // Brick-pattern background for foundation walls
+  const brickBg = `repeating-linear-gradient(
+    to bottom,
+    ${alpha(SOIL_COLOR, 0.55)} 0px,
+    ${alpha(SOIL_COLOR, 0.55)} 5px,
+    ${alpha(SOIL_COLOR, 0.85)} 6px,
+    ${alpha(SOIL_COLOR, 0.55)} 7px
+  )`;
   return (
     <Box
       sx={{
         display: "flex",
         alignItems: "stretch",
         bgcolor: alpha(BL_COLOR, 0.08),
-        borderLeft: `6px dashed ${alpha(SOIL_COLOR, 0.7)}`,
-        borderRight: `6px dashed ${alpha(SOIL_COLOR, 0.7)}`,
         borderBottom: `4px solid ${SOIL_COLOR}`,
         borderRadius: "0 0 6px 6px",
       }}
     >
-      <Box
-        sx={{
-          width: 88,
-          flexShrink: 0,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 0.25,
-          bgcolor: alpha(BL_COLOR, 0.18),
-          borderRight: `2px dashed ${alpha(BL_COLOR, 0.4)}`,
-          py: 1.25,
-        }}
-      >
-        <Box
-          sx={{
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            width: 32,
-            height: 32,
-            borderRadius: 1,
-            bgcolor: BL_COLOR,
-            color: "#fff",
-            fontWeight: 800,
-            fontSize: 13,
-            boxShadow: `0 2px 4px ${alpha(BL_COLOR, 0.4)}`,
-          }}
-        >
-          BL
+      <Box sx={{ width: 6, background: brickBg, borderRight: `1px solid ${SOIL_COLOR}` }} />
+      <FloorDoor
+        label="Keller"
+        totalLabel={`${rows.length} MA`}
+        color={BL_COLOR}
+        doorIcon={
+          <Box component="span" sx={{ fontSize: 9, fontWeight: 800, color: BL_COLOR }}>
+            BL
+          </Box>
+        }
+      />
+      <Box sx={{ flex: 1, p: 1, display: "flex", flexDirection: "column", gap: 0.5, minWidth: 0 }}>
+        {/* Cellar windows — small slits high on the wall */}
+        <Box sx={{ display: "flex", gap: 1, justifyContent: "flex-end", mb: 0.25, opacity: 0.7 }}>
+          <DecorativeWindow color={BL_COLOR} size={12} />
+          <DecorativeWindow color={BL_COLOR} size={12} />
         </Box>
-        <Typography variant="caption" sx={{ fontWeight: 700, fontSize: 11, color: "#2e7d32", lineHeight: 1.1, mt: 0.25 }}>
-          Keller
-        </Typography>
-        <Typography variant="caption" sx={{ fontSize: 10, color: "text.secondary", lineHeight: 1 }}>
-          {rows.length} MA
-        </Typography>
+        <Box sx={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 0.5, minHeight: 28 }}>
+          {rows.length === 0 ? (
+            <Typography variant="caption" sx={{ color: "text.disabled", fontStyle: "italic" }}>
+              – Keller leer –
+            </Typography>
+          ) : (
+            rows.map((r) => <PersonChip key={r.employeeId + r.profile.id + (r.stationNumber ?? "")} row={r} />)
+          )}
+        </Box>
       </Box>
-      <Box sx={{ flex: 1, p: 1, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 0.5, minWidth: 0 }}>
-        {rows.length === 0 ? (
-          <Typography variant="caption" sx={{ color: "text.disabled", fontStyle: "italic" }}>
-            – Keller leer –
-          </Typography>
-        ) : (
-          rows.map((r) => <PersonChip key={r.employeeId + r.profile.id + (r.stationNumber ?? "")} row={r} />)
-        )}
-      </Box>
+      <Box sx={{ width: 6, background: brickBg, borderLeft: `1px solid ${SOIL_COLOR}` }} />
     </Box>
   );
 }
 
-/** SVG roof — triangle (full width) + chimney + sun + cloud */
-function HouseRoof({ width = 800, height = 95 }: { width?: number; height?: number }) {
-  // Chimney positioned over right slope; cloud moved to far left so it doesn't collide.
+/** SVG roof — triangle + chimney + sun + animated clouds + bird + smoke trail */
+function HouseRoof({ width = 800, height = 110 }: { width?: number; height?: number }) {
   const CHIMNEY_X = 0.78;
   const CHIMNEY_W = 0.045;
+  const smokeBaseX = width * (CHIMNEY_X + CHIMNEY_W / 2);
+  const smokeBaseY = height * 0.05;
+
   return (
     <Box sx={{ width: "100%", height, position: "relative", bgcolor: SKY_COLOR, overflow: "hidden" }}>
       <svg
@@ -397,15 +556,14 @@ function HouseRoof({ width = 800, height = 95 }: { width?: number; height?: numb
         height="100%"
         style={{ display: "block" }}
       >
-        {/* Sun (top-left) */}
-        <g>
-          {/* Sun rays */}
+        {/* Sun (top-left, gentle pulse) */}
+        <g style={{ animation: "house-sun-pulse 5s ease-in-out infinite", transformOrigin: `${width * 0.08}px ${height * 0.35}px` }}>
           {Array.from({ length: 8 }).map((_, i) => {
             const a = (i * Math.PI) / 4;
             const cx = width * 0.08;
-            const cy = height * 0.4;
-            const r1 = height * 0.26;
-            const r2 = height * 0.34;
+            const cy = height * 0.35;
+            const r1 = height * 0.22;
+            const r2 = height * 0.3;
             return (
               <line
                 key={i}
@@ -416,19 +574,45 @@ function HouseRoof({ width = 800, height = 95 }: { width?: number; height?: numb
                 stroke="#fdd835"
                 strokeWidth={2}
                 strokeLinecap="round"
-                opacity={0.9}
               />
             );
           })}
-          <circle cx={width * 0.08} cy={height * 0.4} r={height * 0.22} fill="#ffeb3b" opacity={0.95} />
-          <circle cx={width * 0.08} cy={height * 0.4} r={height * 0.14} fill="#fdd835" />
+          <circle cx={width * 0.08} cy={height * 0.35} r={height * 0.18} fill="#ffeb3b" />
+          <circle cx={width * 0.08} cy={height * 0.35} r={height * 0.11} fill="#fdd835" />
         </g>
 
-        {/* Cloud (mid-left, well clear of chimney) */}
-        <g fill="#ffffff" opacity={0.95}>
-          <ellipse cx={width * 0.42} cy={height * 0.24} rx={32} ry={11} />
-          <ellipse cx={width * 0.46} cy={height * 0.18} rx={20} ry={10} />
-          <ellipse cx={width * 0.38} cy={height * 0.2} rx={16} ry={9} />
+        {/* Cloud A (mid-left, drifts) */}
+        <g
+          fill="#ffffff"
+          opacity={0.95}
+          style={{ animation: "house-cloud-drift 14s ease-in-out infinite" }}
+        >
+          <ellipse cx={width * 0.36} cy={height * 0.22} rx={32} ry={11} />
+          <ellipse cx={width * 0.4} cy={height * 0.16} rx={20} ry={10} />
+          <ellipse cx={width * 0.32} cy={height * 0.18} rx={16} ry={9} />
+        </g>
+
+        {/* Cloud B (smaller, drifts on different timing) */}
+        <g
+          fill="#ffffff"
+          opacity={0.85}
+          style={{ animation: "house-cloud-drift 22s ease-in-out infinite reverse" }}
+        >
+          <ellipse cx={width * 0.58} cy={height * 0.13} rx={22} ry={8} />
+          <ellipse cx={width * 0.54} cy={height * 0.1} rx={14} ry={7} />
+        </g>
+
+        {/* Bird flying across (loops) */}
+        <g
+          stroke="#37474f"
+          strokeWidth={2}
+          fill="none"
+          strokeLinecap="round"
+          style={{ animation: "house-bird-fly 18s linear infinite" }}
+        >
+          <g style={{ animation: "house-bird-flap 0.45s ease-in-out infinite", transformOrigin: "center" }}>
+            <path d={`M 0 0 q 5 -7 10 0 q 5 -7 10 0`} />
+          </g>
         </g>
 
         {/* Roof triangle — full width to match the house body below */}
@@ -440,21 +624,34 @@ function HouseRoof({ width = 800, height = 95 }: { width?: number; height?: numb
           strokeLinejoin="round"
         />
 
-        {/* Roof tile lines for texture */}
-        {[0.25, 0.45, 0.65, 0.85].map((t) => (
-          <line
-            key={t}
-            x1={width * (0.5 - 0.5 * t)}
-            y1={height * t + 6}
-            x2={width * (0.5 + 0.5 * t)}
-            y2={height * t + 6}
-            stroke={ROOF_DARK}
-            strokeWidth={0.5}
-            opacity={0.4}
-          />
-        ))}
+        {/* Roof tile texture — more visible horizontal stripes */}
+        {Array.from({ length: 8 }).map((_, i) => {
+          const t = (i + 1) / 9;
+          return (
+            <line
+              key={i}
+              x1={width * (0.5 - 0.5 * t)}
+              y1={height * t + 6}
+              x2={width * (0.5 + 0.5 * t)}
+              y2={height * t + 6}
+              stroke={ROOF_DARK}
+              strokeWidth={0.8}
+              opacity={0.55}
+            />
+          );
+        })}
 
-        {/* Chimney (drawn AFTER roof so it sits on top of the slope) */}
+        {/* Roof ridge highlight */}
+        <line
+          x1={0}
+          y1={height}
+          x2={width * 0.5}
+          y2={6}
+          stroke={alpha("#ffffff", 0.25)}
+          strokeWidth={1}
+        />
+
+        {/* Chimney (drawn AFTER roof) */}
         <rect
           x={width * CHIMNEY_X}
           y={height * 0.1}
@@ -464,17 +661,39 @@ function HouseRoof({ width = 800, height = 95 }: { width?: number; height?: numb
           stroke="#3e2723"
           strokeWidth={1}
         />
+        {/* Brick lines on chimney */}
+        {[0.2, 0.4, 0.6].map((t) => (
+          <line
+            key={t}
+            x1={width * CHIMNEY_X}
+            y1={height * (0.1 + 0.55 * t)}
+            x2={width * (CHIMNEY_X + CHIMNEY_W)}
+            y2={height * (0.1 + 0.55 * t)}
+            stroke="#3e2723"
+            strokeWidth={0.6}
+            opacity={0.6}
+          />
+        ))}
+        {/* Chimney cap */}
         <rect
-          x={width * (CHIMNEY_X - 0.005)}
+          x={width * (CHIMNEY_X - 0.006)}
           y={height * 0.08}
-          width={width * (CHIMNEY_W + 0.01)}
-          height={height * 0.06}
+          width={width * (CHIMNEY_W + 0.012)}
+          height={height * 0.05}
           fill="#3e2723"
         />
-        {/* Smoke puffs */}
-        <g fill="#ffffff" opacity={0.85}>
-          <circle cx={width * (CHIMNEY_X + CHIMNEY_W / 2)} cy={height * 0.05} r={5} />
-          <circle cx={width * (CHIMNEY_X + CHIMNEY_W / 2 + 0.015)} cy={height * 0.0} r={4} />
+
+        {/* Smoke trail — three puffs offset in time so they continuously rise */}
+        <g fill="#ffffff" opacity={0}>
+          <circle cx={smokeBaseX} cy={smokeBaseY} r={5}
+            style={{ animation: "house-smoke-rise 3s ease-out infinite" }}
+          />
+          <circle cx={smokeBaseX + 2} cy={smokeBaseY} r={6}
+            style={{ animation: "house-smoke-rise 3s ease-out infinite", animationDelay: "1s" }}
+          />
+          <circle cx={smokeBaseX - 2} cy={smokeBaseY} r={5}
+            style={{ animation: "house-smoke-rise 3s ease-out infinite", animationDelay: "2s" }}
+          />
         </g>
       </svg>
     </Box>
@@ -548,6 +767,8 @@ export default function DayHouseView({
 
   return (
     <Box sx={{ display: "flex", justifyContent: "center", py: 1 }}>
+      {/* Inject animation keyframes (scoped to this view via unique animation names) */}
+      <style dangerouslySetInnerHTML={{ __html: ANIMATION_STYLES }} />
       <Box
         sx={{
           width: "100%",
@@ -581,22 +802,22 @@ export default function DayHouseView({
           bl={[]}
         />
 
-        {/* Ground / grass */}
+        {/* Ground / grass with tufts + flowers */}
         <Box
           sx={{
             position: "relative",
-            height: 14,
+            height: 16,
             bgcolor: GRASS_COLOR,
             borderTop: `2px solid ${alpha("#558b2f", 0.6)}`,
           }}
         >
-          {/* Cute grass tufts */}
-          {Array.from({ length: 14 }).map((_, i) => (
+          {/* Grass tufts */}
+          {Array.from({ length: 18 }).map((_, i) => (
             <Box
-              key={i}
+              key={`tuft-${i}`}
               sx={{
                 position: "absolute",
-                left: `${(i + 0.5) * (100 / 14)}%`,
+                left: `${(i + 0.5) * (100 / 18)}%`,
                 top: -2,
                 width: 0,
                 height: 0,
@@ -604,6 +825,29 @@ export default function DayHouseView({
                 borderRight: "3px solid transparent",
                 borderBottom: `5px solid ${alpha("#33691e", 0.7)}`,
                 transform: "translateX(-50%)",
+              }}
+            />
+          ))}
+          {/* A couple of flowers */}
+          {[
+            { left: "12%", color: "#ff5252" },
+            { left: "27%", color: "#ffeb3b" },
+            { left: "63%", color: "#e040fb" },
+            { left: "84%", color: "#ff5252" },
+          ].map((f, i) => (
+            <Box
+              key={`flower-${i}`}
+              sx={{
+                position: "absolute",
+                left: f.left,
+                top: -6,
+                transform: "translateX(-50%)",
+                width: 6,
+                height: 6,
+                borderRadius: "50%",
+                bgcolor: f.color,
+                border: "1px solid #fff",
+                boxShadow: "0 1px 0 #33691e",
               }}
             />
           ))}
