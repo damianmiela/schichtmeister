@@ -89,9 +89,11 @@ const ANIMATION_STYLES = `
     100% { transform: translate(8px, -34px) scale(1.6); opacity: 0; }
   }
   @keyframes house-bird-fly {
-    0%   { transform: translate(-40px, 4px); }
-    50%  { transform: translate(380px, -10px); }
-    100% { transform: translate(800px, 0px); }
+    0%        { transform: translate(120px, 50px); opacity: 0; }
+    8%        { opacity: 1; }
+    50%       { transform: translate(420px, 20px); opacity: 1; }
+    92%       { opacity: 1; }
+    100%      { transform: translate(680px, 50px); opacity: 0; }
   }
   @keyframes house-bird-flap {
     0%, 100% { transform: scaleY(1); }
@@ -110,97 +112,6 @@ const ANIMATION_STYLES = `
 /* ══════════════════════════════════════════════════════════════ */
 /*                       SUB-COMPONENTS                            */
 /* ══════════════════════════════════════════════════════════════ */
-
-/** Decorative window — proper architectural window with frame, sill, cross panes,
- *  glass reflection, and curtain hint. Looks like a real house window. */
-function DecorativeWindow({ width = 28, height = 22 }: { width?: number; height?: number }) {
-  const frameColor = ROOF_DARK;
-  const sillColor = ROOF_COLOR;
-  const glassGradient = `linear-gradient(135deg,
-    ${alpha("#bbdefb", 0.95)} 0%,
-    ${alpha("#e3f2fd", 0.85)} 35%,
-    ${alpha("#ffffff", 0.95)} 50%,
-    ${alpha("#e3f2fd", 0.85)} 65%,
-    ${alpha("#bbdefb", 0.9)} 100%)`;
-  return (
-    <Box
-      sx={{
-        flexShrink: 0,
-        width,
-        // Total height includes the sill below the frame
-        position: "relative",
-        // The window frame
-        "& .frame": {
-          width,
-          height,
-          bgcolor: glassGradient,
-          background: glassGradient,
-          border: `2px solid ${frameColor}`,
-          borderRadius: "2px 2px 0 0",
-          position: "relative",
-          boxShadow: `0 1px 2px ${alpha("#000", 0.15)}, inset 0 0 0 1px ${alpha("#fff", 0.4)}`,
-          overflow: "hidden",
-        },
-        // Window cross (4 panes)
-        "& .frame::before, & .frame::after": {
-          content: '""',
-          position: "absolute",
-          bgcolor: frameColor,
-          zIndex: 2,
-        },
-        "& .frame::before": {
-          left: "50%",
-          top: 0,
-          bottom: 0,
-          width: "1.5px",
-          transform: "translateX(-50%)",
-        },
-        "& .frame::after": {
-          top: "50%",
-          left: 0,
-          right: 0,
-          height: "1.5px",
-          transform: "translateY(-50%)",
-        },
-        // Curtain hint inside the frame
-        "& .curtainL, & .curtainR": {
-          position: "absolute",
-          top: 2,
-          width: width * 0.18,
-          height: height - 4,
-          bgcolor: alpha("#c62828", 0.55),
-          zIndex: 1,
-        },
-        "& .curtainL": {
-          left: 2,
-          borderRadius: "1px 4px 4px 1px",
-          background: `repeating-linear-gradient(90deg, ${alpha("#c62828", 0.6)} 0, ${alpha("#c62828", 0.6)} 1.5px, ${alpha("#b71c1c", 0.7)} 2px)`,
-        },
-        "& .curtainR": {
-          right: 2,
-          borderRadius: "4px 1px 1px 4px",
-          background: `repeating-linear-gradient(90deg, ${alpha("#c62828", 0.6)} 0, ${alpha("#c62828", 0.6)} 1.5px, ${alpha("#b71c1c", 0.7)} 2px)`,
-        },
-        // Window sill (slight overhang)
-        "& .sill": {
-          width: width + 4,
-          height: 3,
-          bgcolor: sillColor,
-          marginLeft: "-2px",
-          borderRadius: "1px",
-          boxShadow: `0 1px 1px ${alpha("#000", 0.2)}`,
-          borderTop: `1px solid ${frameColor}`,
-        },
-      }}
-    >
-      <Box className="frame">
-        <Box className="curtainL" />
-        <Box className="curtainR" />
-      </Box>
-      <Box className="sill" />
-    </Box>
-  );
-}
 
 /** Door — replaces plain floor sign column, looks architectural. */
 function FloorDoor({
@@ -233,12 +144,6 @@ function FloorDoor({
         gap: 0.5,
       }}
     >
-      {/* Two decorative windows above the door, like upper-floor windows */}
-      <Box sx={{ display: "flex", gap: 0.75, mb: 0.5, alignItems: "flex-end" }}>
-        <DecorativeWindow width={20} height={16} />
-        <DecorativeWindow width={20} height={16} />
-      </Box>
-
       {/* The door itself */}
       <Box
         sx={{
@@ -490,14 +395,8 @@ function StationFloor({
         color={colors.main}
       />
 
-      {/* Windows + decorative window strip */}
+      {/* Shift rows */}
       <Box sx={{ flex: 1, p: 1, display: "flex", flexDirection: "column", gap: 0.75, minWidth: 0 }}>
-        {/* Decorative window-pane strip on the floor wall */}
-        <Box sx={{ display: "flex", gap: 1, justifyContent: "flex-end", mb: 0.25, opacity: 0.85 }}>
-          <DecorativeWindow width={32} height={26} />
-          <DecorativeWindow width={32} height={26} />
-          <DecorativeWindow width={32} height={26} />
-        </Box>
         <FloorWindow shiftType="EARLY" rows={early} />
         <FloorWindow shiftType="LATE" rows={late} />
         {bl.length > 0 && <FloorWindow shiftType="BL" rows={bl} />}
@@ -526,21 +425,14 @@ function AtticFloor({ rows }: { rows: Row[] }) {
         color={NIGHT_COLOR}
         doorIcon={<NightsStayIcon sx={{ fontSize: 14, color: NIGHT_COLOR }} />}
       />
-      <Box sx={{ flex: 1, p: 1, display: "flex", flexDirection: "column", gap: 0.5, minWidth: 0 }}>
-        {/* Dormer-like decorative windows */}
-        <Box sx={{ display: "flex", gap: 1, justifyContent: "flex-end", mb: 0.25, opacity: 0.85 }}>
-          <DecorativeWindow width={26} height={20} />
-          <DecorativeWindow width={26} height={20} />
-        </Box>
-        <Box sx={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 0.5, minHeight: 28 }}>
-          {rows.length === 0 ? (
-            <Typography variant="caption" sx={{ color: "text.disabled", fontStyle: "italic" }}>
-              – niemand hier oben, alles still –
-            </Typography>
-          ) : (
-            rows.map((r) => <PersonChip key={r.employeeId + r.profile.id} row={r} />)
-          )}
-        </Box>
+      <Box sx={{ flex: 1, p: 1, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 0.5, minWidth: 0 }}>
+        {rows.length === 0 ? (
+          <Typography variant="caption" sx={{ color: "text.disabled", fontStyle: "italic" }}>
+            – niemand hier oben, alles still –
+          </Typography>
+        ) : (
+          rows.map((r) => <PersonChip key={r.employeeId + r.profile.id} row={r} />)
+        )}
       </Box>
       <Box sx={{ width: SIDE_WALL_WIDTH, ...SIDE_WALL_SX, borderRight: "none", borderLeft: `1px solid ${ROOF_DARK}` }} />
     </Box>
@@ -578,126 +470,139 @@ function BasementFloor({ rows }: { rows: Row[] }) {
           </Box>
         }
       />
-      <Box sx={{ flex: 1, p: 1, display: "flex", flexDirection: "column", gap: 0.5, minWidth: 0 }}>
-        {/* Cellar windows — small slits high on the wall */}
-        <Box sx={{ display: "flex", gap: 1, justifyContent: "flex-end", mb: 0.25, opacity: 0.7 }}>
-          <DecorativeWindow width={22} height={14} />
-          <DecorativeWindow width={22} height={14} />
-        </Box>
-        <Box sx={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 0.5, minHeight: 28 }}>
-          {rows.length === 0 ? (
-            <Typography variant="caption" sx={{ color: "text.disabled", fontStyle: "italic" }}>
-              – Keller leer –
-            </Typography>
-          ) : (
-            rows.map((r) => <PersonChip key={r.employeeId + r.profile.id + (r.stationNumber ?? "")} row={r} />)
-          )}
-        </Box>
+      <Box sx={{ flex: 1, p: 1, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 0.5, minWidth: 0 }}>
+        {rows.length === 0 ? (
+          <Typography variant="caption" sx={{ color: "text.disabled", fontStyle: "italic" }}>
+            – Keller leer –
+          </Typography>
+        ) : (
+          rows.map((r) => <PersonChip key={r.employeeId + r.profile.id + (r.stationNumber ?? "")} row={r} />)
+        )}
       </Box>
       <Box sx={{ width: SIDE_WALL_WIDTH, background: brickBg, borderLeft: `1px solid ${SOIL_COLOR}` }} />
     </Box>
   );
 }
 
-/** SVG roof — triangle + chimney + sun + animated clouds + bird + smoke trail */
-function HouseRoof({ width = 800, height = 110 }: { width?: number; height?: number }) {
+/** SVG roof — sky, triangle roof, chimney, sun, clouds, bird, smoke. */
+function HouseRoof({
+  width = 800,
+  skyHeight = 130,
+  roofHeight = 95,
+}: {
+  width?: number;
+  skyHeight?: number;
+  roofHeight?: number;
+}) {
+  const totalH = skyHeight + roofHeight;
+  const peakY = skyHeight;
+  const baseY = totalH;
+
+  // Chimney
   const CHIMNEY_X = 0.78;
   const CHIMNEY_W = 0.045;
+  const chimneyTopY = peakY - 18;
+  const chimneyBottomY = peakY + roofHeight * 0.55;
+  const chimneyHeightPx = chimneyBottomY - chimneyTopY;
   const smokeBaseX = width * (CHIMNEY_X + CHIMNEY_W / 2);
-  const smokeBaseY = height * 0.05;
+  const smokeBaseY = chimneyTopY - 4;
+
+  // Sun
+  const sunX = 60;
+  const sunY = skyHeight * 0.42;
+  const sunR = 22;
 
   return (
-    <Box sx={{ width: "100%", height, position: "relative", bgcolor: SKY_COLOR, overflow: "hidden" }}>
+    <Box sx={{ width: "100%", height: totalH, position: "relative", bgcolor: SKY_COLOR, overflow: "hidden" }}>
       <svg
-        viewBox={`0 0 ${width} ${height}`}
+        viewBox={`0 0 ${width} ${totalH}`}
         preserveAspectRatio="none"
         width="100%"
         height="100%"
         style={{ display: "block" }}
       >
         {/* Sun (top-left, gentle pulse) */}
-        <g style={{ animation: "house-sun-pulse 5s ease-in-out infinite", transformOrigin: `${width * 0.08}px ${height * 0.35}px` }}>
+        <g style={{ animation: "house-sun-pulse 5s ease-in-out infinite", transformOrigin: `${sunX}px ${sunY}px` }}>
           {Array.from({ length: 8 }).map((_, i) => {
             const a = (i * Math.PI) / 4;
-            const cx = width * 0.08;
-            const cy = height * 0.35;
-            const r1 = height * 0.22;
-            const r2 = height * 0.3;
+            const r1 = sunR * 1.25;
+            const r2 = sunR * 1.7;
             return (
               <line
                 key={i}
-                x1={cx + Math.cos(a) * r1}
-                y1={cy + Math.sin(a) * r1}
-                x2={cx + Math.cos(a) * r2}
-                y2={cy + Math.sin(a) * r2}
+                x1={sunX + Math.cos(a) * r1}
+                y1={sunY + Math.sin(a) * r1}
+                x2={sunX + Math.cos(a) * r2}
+                y2={sunY + Math.sin(a) * r2}
                 stroke="#fdd835"
                 strokeWidth={2}
                 strokeLinecap="round"
               />
             );
           })}
-          <circle cx={width * 0.08} cy={height * 0.35} r={height * 0.18} fill="#ffeb3b" />
-          <circle cx={width * 0.08} cy={height * 0.35} r={height * 0.11} fill="#fdd835" />
+          <circle cx={sunX} cy={sunY} r={sunR} fill="#ffeb3b" />
+          <circle cx={sunX} cy={sunY} r={sunR * 0.6} fill="#fdd835" />
         </g>
 
-        {/* Cloud A (mid-left, drifts) — bigger, fluffier */}
+        {/* Cloud A (mid-left, drifts) */}
         <g
           fill="#ffffff"
           opacity={0.97}
           style={{ animation: "house-cloud-drift 14s ease-in-out infinite" }}
         >
-          <ellipse cx={width * 0.36} cy={height * 0.28} rx={48} ry={14} />
-          <ellipse cx={width * 0.32} cy={height * 0.22} rx={26} ry={14} />
-          <ellipse cx={width * 0.38} cy={height * 0.18} rx={28} ry={16} />
-          <ellipse cx={width * 0.43} cy={height * 0.23} rx={22} ry={13} />
-          <ellipse cx={width * 0.28} cy={height * 0.26} rx={18} ry={11} />
-          <ellipse cx={width * 0.36} cy={height * 0.18} rx={20} ry={6} fill="#ffffff" opacity={0.95} />
+          <ellipse cx={width * 0.32} cy={skyHeight * 0.55} rx={48} ry={14} />
+          <ellipse cx={width * 0.28} cy={skyHeight * 0.48} rx={26} ry={14} />
+          <ellipse cx={width * 0.34} cy={skyHeight * 0.43} rx={28} ry={16} />
+          <ellipse cx={width * 0.4} cy={skyHeight * 0.5} rx={22} ry={13} />
+          <ellipse cx={width * 0.24} cy={skyHeight * 0.52} rx={18} ry={11} />
+          <ellipse cx={width * 0.32} cy={skyHeight * 0.43} rx={20} ry={6} opacity={0.95} />
         </g>
 
-        {/* Cloud B (mid sky, drifts opposite) — also bigger */}
+        {/* Cloud B (high right, drifts opposite) */}
         <g
           fill="#ffffff"
           opacity={0.92}
           style={{ animation: "house-cloud-drift 22s ease-in-out infinite reverse" }}
         >
-          <ellipse cx={width * 0.58} cy={height * 0.16} rx={32} ry={10} />
-          <ellipse cx={width * 0.54} cy={height * 0.11} rx={20} ry={11} />
-          <ellipse cx={width * 0.62} cy={height * 0.12} rx={18} ry={10} />
-          <ellipse cx={width * 0.6} cy={height * 0.18} rx={14} ry={8} />
+          <ellipse cx={width * 0.58} cy={skyHeight * 0.32} rx={32} ry={10} />
+          <ellipse cx={width * 0.54} cy={skyHeight * 0.24} rx={20} ry={11} />
+          <ellipse cx={width * 0.62} cy={skyHeight * 0.27} rx={18} ry={10} />
+          <ellipse cx={width * 0.6} cy={skyHeight * 0.36} rx={14} ry={8} />
         </g>
 
-        {/* Bird flying across (loops) */}
+        {/* Bird flying — slow loop, contained within sky */}
         <g
           stroke="#37474f"
           strokeWidth={2}
           fill="none"
           strokeLinecap="round"
-          style={{ animation: "house-bird-fly 18s linear infinite" }}
+          style={{ animation: "house-bird-fly 45s ease-in-out infinite" }}
         >
           <g style={{ animation: "house-bird-flap 0.45s ease-in-out infinite", transformOrigin: "center" }}>
-            <path d={`M 0 0 q 5 -7 10 0 q 5 -7 10 0`} />
+            <path d="M 0 0 q 5 -7 10 0 q 5 -7 10 0" />
           </g>
         </g>
 
         {/* Roof triangle — full width to match the house body below */}
         <polygon
-          points={`0,${height} ${width * 0.5},6 ${width},${height}`}
+          points={`0,${baseY} ${width * 0.5},${peakY} ${width},${baseY}`}
           fill={ROOF_COLOR}
           stroke={ROOF_DARK}
           strokeWidth={2}
           strokeLinejoin="round"
         />
 
-        {/* Roof tile texture — more visible horizontal stripes */}
+        {/* Roof tile texture */}
         {Array.from({ length: 8 }).map((_, i) => {
           const t = (i + 1) / 9;
+          const lineY = peakY + roofHeight * t;
           return (
             <line
               key={i}
               x1={width * (0.5 - 0.5 * t)}
-              y1={height * t + 6}
+              y1={lineY}
               x2={width * (0.5 + 0.5 * t)}
-              y2={height * t + 6}
+              y2={lineY}
               stroke={ROOF_DARK}
               strokeWidth={0.8}
               opacity={0.55}
@@ -708,9 +613,9 @@ function HouseRoof({ width = 800, height = 110 }: { width?: number; height?: num
         {/* Roof ridge highlight */}
         <line
           x1={0}
-          y1={height}
+          y1={baseY}
           x2={width * 0.5}
-          y2={6}
+          y2={peakY}
           stroke={alpha("#ffffff", 0.25)}
           strokeWidth={1}
         />
@@ -718,21 +623,21 @@ function HouseRoof({ width = 800, height = 110 }: { width?: number; height?: num
         {/* Chimney (drawn AFTER roof) */}
         <rect
           x={width * CHIMNEY_X}
-          y={height * 0.1}
+          y={chimneyTopY}
           width={width * CHIMNEY_W}
-          height={height * 0.55}
+          height={chimneyHeightPx}
           fill={ROOF_DARK}
           stroke="#3e2723"
           strokeWidth={1}
         />
         {/* Brick lines on chimney */}
-        {[0.2, 0.4, 0.6].map((t) => (
+        {[0.25, 0.5, 0.75].map((t) => (
           <line
             key={t}
             x1={width * CHIMNEY_X}
-            y1={height * (0.1 + 0.55 * t)}
+            y1={chimneyTopY + chimneyHeightPx * t}
             x2={width * (CHIMNEY_X + CHIMNEY_W)}
-            y2={height * (0.1 + 0.55 * t)}
+            y2={chimneyTopY + chimneyHeightPx * t}
             stroke="#3e2723"
             strokeWidth={0.6}
             opacity={0.6}
@@ -741,9 +646,9 @@ function HouseRoof({ width = 800, height = 110 }: { width?: number; height?: num
         {/* Chimney cap */}
         <rect
           x={width * (CHIMNEY_X - 0.006)}
-          y={height * 0.08}
+          y={chimneyTopY - 5}
           width={width * (CHIMNEY_W + 0.012)}
-          height={height * 0.05}
+          height={5}
           fill="#3e2723"
         />
 
