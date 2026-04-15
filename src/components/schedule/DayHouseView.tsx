@@ -111,41 +111,94 @@ const ANIMATION_STYLES = `
 /*                       SUB-COMPONENTS                            */
 /* ══════════════════════════════════════════════════════════════ */
 
-/** Tiny decorative 4-pane window — for adding visual texture to floors */
-function DecorativeWindow({ color, size = 18 }: { color: string; size?: number }) {
+/** Decorative window — proper architectural window with frame, sill, cross panes,
+ *  glass reflection, and curtain hint. Looks like a real house window. */
+function DecorativeWindow({ width = 28, height = 22 }: { width?: number; height?: number }) {
+  const frameColor = ROOF_DARK;
+  const sillColor = ROOF_COLOR;
+  const glassGradient = `linear-gradient(135deg,
+    ${alpha("#bbdefb", 0.95)} 0%,
+    ${alpha("#e3f2fd", 0.85)} 35%,
+    ${alpha("#ffffff", 0.95)} 50%,
+    ${alpha("#e3f2fd", 0.85)} 65%,
+    ${alpha("#bbdefb", 0.9)} 100%)`;
   return (
     <Box
       sx={{
-        width: size,
-        height: size,
-        bgcolor: alpha(SKY_COLOR, 0.5),
-        border: `1.5px solid ${alpha(color, 0.6)}`,
-        borderRadius: 0.5,
-        position: "relative",
-        boxShadow: `inset 0 0 0 1px ${alpha("#ffffff", 0.6)}`,
         flexShrink: 0,
-        // Window cross
-        "&::before, &::after": {
+        width,
+        // Total height includes the sill below the frame
+        position: "relative",
+        // The window frame
+        "& .frame": {
+          width,
+          height,
+          bgcolor: glassGradient,
+          background: glassGradient,
+          border: `2px solid ${frameColor}`,
+          borderRadius: "2px 2px 0 0",
+          position: "relative",
+          boxShadow: `0 1px 2px ${alpha("#000", 0.15)}, inset 0 0 0 1px ${alpha("#fff", 0.4)}`,
+          overflow: "hidden",
+        },
+        // Window cross (4 panes)
+        "& .frame::before, & .frame::after": {
           content: '""',
           position: "absolute",
-          bgcolor: alpha(color, 0.5),
+          bgcolor: frameColor,
+          zIndex: 2,
         },
-        "&::before": {
+        "& .frame::before": {
           left: "50%",
-          top: 1,
-          bottom: 1,
-          width: 1,
+          top: 0,
+          bottom: 0,
+          width: "1.5px",
           transform: "translateX(-50%)",
         },
-        "&::after": {
+        "& .frame::after": {
           top: "50%",
-          left: 1,
-          right: 1,
-          height: 1,
+          left: 0,
+          right: 0,
+          height: "1.5px",
           transform: "translateY(-50%)",
         },
+        // Curtain hint inside the frame
+        "& .curtainL, & .curtainR": {
+          position: "absolute",
+          top: 2,
+          width: width * 0.18,
+          height: height - 4,
+          bgcolor: alpha("#c62828", 0.55),
+          zIndex: 1,
+        },
+        "& .curtainL": {
+          left: 2,
+          borderRadius: "1px 4px 4px 1px",
+          background: `repeating-linear-gradient(90deg, ${alpha("#c62828", 0.6)} 0, ${alpha("#c62828", 0.6)} 1.5px, ${alpha("#b71c1c", 0.7)} 2px)`,
+        },
+        "& .curtainR": {
+          right: 2,
+          borderRadius: "4px 1px 1px 4px",
+          background: `repeating-linear-gradient(90deg, ${alpha("#c62828", 0.6)} 0, ${alpha("#c62828", 0.6)} 1.5px, ${alpha("#b71c1c", 0.7)} 2px)`,
+        },
+        // Window sill (slight overhang)
+        "& .sill": {
+          width: width + 4,
+          height: 3,
+          bgcolor: sillColor,
+          marginLeft: "-2px",
+          borderRadius: "1px",
+          boxShadow: `0 1px 1px ${alpha("#000", 0.2)}`,
+          borderTop: `1px solid ${frameColor}`,
+        },
       }}
-    />
+    >
+      <Box className="frame">
+        <Box className="curtainL" />
+        <Box className="curtainR" />
+      </Box>
+      <Box className="sill" />
+    </Box>
   );
 }
 
@@ -181,9 +234,9 @@ function FloorDoor({
       }}
     >
       {/* Two decorative windows above the door, like upper-floor windows */}
-      <Box sx={{ display: "flex", gap: 0.75, mb: 0.25 }}>
-        <DecorativeWindow color={color} size={14} />
-        <DecorativeWindow color={color} size={14} />
+      <Box sx={{ display: "flex", gap: 0.75, mb: 0.5, alignItems: "flex-end" }}>
+        <DecorativeWindow width={20} height={16} />
+        <DecorativeWindow width={20} height={16} />
       </Box>
 
       {/* The door itself */}
@@ -381,21 +434,27 @@ function FloorWindow({
   );
 }
 
-/** Wooden side-wall background — subtle horizontal grain */
+/** Wooden side-wall background — visible plank pattern */
 const WOOD_GRAIN_BG = `repeating-linear-gradient(
   to bottom,
   ${ROOF_COLOR} 0px,
-  ${ROOF_COLOR} 4px,
-  ${ROOF_DARK} 5px,
-  ${ROOF_COLOR} 6px,
-  ${ROOF_COLOR} 11px,
-  ${alpha(ROOF_DARK, 0.5)} 12px,
-  ${ROOF_COLOR} 13px
+  ${ROOF_COLOR} 14px,
+  ${ROOF_DARK} 15px,
+  ${ROOF_DARK} 16px,
+  ${ROOF_COLOR} 17px
+), repeating-linear-gradient(
+  90deg,
+  ${alpha(ROOF_DARK, 0.0)} 0px,
+  ${alpha(ROOF_DARK, 0.25)} 1px,
+  ${alpha(ROOF_DARK, 0.0)} 3px
 )`;
+
+const SIDE_WALL_WIDTH = 12;
 
 const SIDE_WALL_SX = {
   background: WOOD_GRAIN_BG,
   borderRight: `1px solid ${ROOF_DARK}`,
+  boxShadow: `inset 1px 0 0 ${alpha("#ffffff", 0.12)}, inset -1px 0 0 ${alpha("#000", 0.2)}`,
 };
 
 /** A standard station floor */
@@ -422,7 +481,7 @@ function StationFloor({
       }}
     >
       {/* Left wood-wall */}
-      <Box sx={{ width: 6, ...SIDE_WALL_SX }} />
+      <Box sx={{ width: SIDE_WALL_WIDTH, ...SIDE_WALL_SX }} />
 
       <FloorDoor
         number={String(stationNumber)}
@@ -435,9 +494,9 @@ function StationFloor({
       <Box sx={{ flex: 1, p: 1, display: "flex", flexDirection: "column", gap: 0.75, minWidth: 0 }}>
         {/* Decorative window-pane strip on the floor wall */}
         <Box sx={{ display: "flex", gap: 1, justifyContent: "flex-end", mb: 0.25, opacity: 0.85 }}>
-          <DecorativeWindow color={colors.main} size={16} />
-          <DecorativeWindow color={colors.main} size={16} />
-          <DecorativeWindow color={colors.main} size={16} />
+          <DecorativeWindow width={32} height={26} />
+          <DecorativeWindow width={32} height={26} />
+          <DecorativeWindow width={32} height={26} />
         </Box>
         <FloorWindow shiftType="EARLY" rows={early} />
         <FloorWindow shiftType="LATE" rows={late} />
@@ -445,7 +504,7 @@ function StationFloor({
       </Box>
 
       {/* Right wood-wall */}
-      <Box sx={{ width: 6, ...SIDE_WALL_SX, borderRight: "none", borderLeft: `1px solid ${ROOF_DARK}` }} />
+      <Box sx={{ width: SIDE_WALL_WIDTH, ...SIDE_WALL_SX, borderRight: "none", borderLeft: `1px solid ${ROOF_DARK}` }} />
     </Box>
   );
 }
@@ -460,7 +519,7 @@ function AtticFloor({ rows }: { rows: Row[] }) {
         bgcolor: alpha(NIGHT_COLOR, 0.08),
       }}
     >
-      <Box sx={{ width: 6, ...SIDE_WALL_SX }} />
+      <Box sx={{ width: SIDE_WALL_WIDTH, ...SIDE_WALL_SX }} />
       <FloorDoor
         label="Dachboden"
         totalLabel={`${rows.length} MA`}
@@ -470,8 +529,8 @@ function AtticFloor({ rows }: { rows: Row[] }) {
       <Box sx={{ flex: 1, p: 1, display: "flex", flexDirection: "column", gap: 0.5, minWidth: 0 }}>
         {/* Dormer-like decorative windows */}
         <Box sx={{ display: "flex", gap: 1, justifyContent: "flex-end", mb: 0.25, opacity: 0.85 }}>
-          <DecorativeWindow color={NIGHT_COLOR} size={14} />
-          <DecorativeWindow color={NIGHT_COLOR} size={14} />
+          <DecorativeWindow width={26} height={20} />
+          <DecorativeWindow width={26} height={20} />
         </Box>
         <Box sx={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 0.5, minHeight: 28 }}>
           {rows.length === 0 ? (
@@ -483,7 +542,7 @@ function AtticFloor({ rows }: { rows: Row[] }) {
           )}
         </Box>
       </Box>
-      <Box sx={{ width: 6, ...SIDE_WALL_SX, borderRight: "none", borderLeft: `1px solid ${ROOF_DARK}` }} />
+      <Box sx={{ width: SIDE_WALL_WIDTH, ...SIDE_WALL_SX, borderRight: "none", borderLeft: `1px solid ${ROOF_DARK}` }} />
     </Box>
   );
 }
@@ -508,7 +567,7 @@ function BasementFloor({ rows }: { rows: Row[] }) {
         borderRadius: "0 0 6px 6px",
       }}
     >
-      <Box sx={{ width: 6, background: brickBg, borderRight: `1px solid ${SOIL_COLOR}` }} />
+      <Box sx={{ width: SIDE_WALL_WIDTH, background: brickBg, borderRight: `1px solid ${SOIL_COLOR}` }} />
       <FloorDoor
         label="Keller"
         totalLabel={`${rows.length} MA`}
@@ -522,8 +581,8 @@ function BasementFloor({ rows }: { rows: Row[] }) {
       <Box sx={{ flex: 1, p: 1, display: "flex", flexDirection: "column", gap: 0.5, minWidth: 0 }}>
         {/* Cellar windows — small slits high on the wall */}
         <Box sx={{ display: "flex", gap: 1, justifyContent: "flex-end", mb: 0.25, opacity: 0.7 }}>
-          <DecorativeWindow color={BL_COLOR} size={12} />
-          <DecorativeWindow color={BL_COLOR} size={12} />
+          <DecorativeWindow width={22} height={14} />
+          <DecorativeWindow width={22} height={14} />
         </Box>
         <Box sx={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 0.5, minHeight: 28 }}>
           {rows.length === 0 ? (
@@ -535,7 +594,7 @@ function BasementFloor({ rows }: { rows: Row[] }) {
           )}
         </Box>
       </Box>
-      <Box sx={{ width: 6, background: brickBg, borderLeft: `1px solid ${SOIL_COLOR}` }} />
+      <Box sx={{ width: SIDE_WALL_WIDTH, background: brickBg, borderLeft: `1px solid ${SOIL_COLOR}` }} />
     </Box>
   );
 }
@@ -581,25 +640,30 @@ function HouseRoof({ width = 800, height = 110 }: { width?: number; height?: num
           <circle cx={width * 0.08} cy={height * 0.35} r={height * 0.11} fill="#fdd835" />
         </g>
 
-        {/* Cloud A (mid-left, drifts) */}
+        {/* Cloud A (mid-left, drifts) — bigger, fluffier */}
         <g
           fill="#ffffff"
-          opacity={0.95}
+          opacity={0.97}
           style={{ animation: "house-cloud-drift 14s ease-in-out infinite" }}
         >
-          <ellipse cx={width * 0.36} cy={height * 0.22} rx={32} ry={11} />
-          <ellipse cx={width * 0.4} cy={height * 0.16} rx={20} ry={10} />
-          <ellipse cx={width * 0.32} cy={height * 0.18} rx={16} ry={9} />
+          <ellipse cx={width * 0.36} cy={height * 0.28} rx={48} ry={14} />
+          <ellipse cx={width * 0.32} cy={height * 0.22} rx={26} ry={14} />
+          <ellipse cx={width * 0.38} cy={height * 0.18} rx={28} ry={16} />
+          <ellipse cx={width * 0.43} cy={height * 0.23} rx={22} ry={13} />
+          <ellipse cx={width * 0.28} cy={height * 0.26} rx={18} ry={11} />
+          <ellipse cx={width * 0.36} cy={height * 0.18} rx={20} ry={6} fill="#ffffff" opacity={0.95} />
         </g>
 
-        {/* Cloud B (smaller, drifts on different timing) */}
+        {/* Cloud B (mid sky, drifts opposite) — also bigger */}
         <g
           fill="#ffffff"
-          opacity={0.85}
+          opacity={0.92}
           style={{ animation: "house-cloud-drift 22s ease-in-out infinite reverse" }}
         >
-          <ellipse cx={width * 0.58} cy={height * 0.13} rx={22} ry={8} />
-          <ellipse cx={width * 0.54} cy={height * 0.1} rx={14} ry={7} />
+          <ellipse cx={width * 0.58} cy={height * 0.16} rx={32} ry={10} />
+          <ellipse cx={width * 0.54} cy={height * 0.11} rx={20} ry={11} />
+          <ellipse cx={width * 0.62} cy={height * 0.12} rx={18} ry={10} />
+          <ellipse cx={width * 0.6} cy={height * 0.18} rx={14} ry={8} />
         </g>
 
         {/* Bird flying across (loops) */}
@@ -683,9 +747,17 @@ function HouseRoof({ width = 800, height = 110 }: { width?: number; height?: num
           fill="#3e2723"
         />
 
-        {/* Smoke trail — three puffs offset in time so they continuously rise */}
+        {/* Always-visible smoke base — small puffs sitting on top of the chimney */}
+        <g fill="#ffffff" opacity={0.85}>
+          <circle cx={smokeBaseX} cy={smokeBaseY + 2} r={5} />
+          <circle cx={smokeBaseX + 4} cy={smokeBaseY - 1} r={4} />
+          <circle cx={smokeBaseX - 3} cy={smokeBaseY - 1} r={3.5} />
+          <circle cx={smokeBaseX + 1} cy={smokeBaseY - 5} r={3} opacity={0.7} />
+        </g>
+
+        {/* Animated rising puffs — continuous trail */}
         <g fill="#ffffff" opacity={0}>
-          <circle cx={smokeBaseX} cy={smokeBaseY} r={5}
+          <circle cx={smokeBaseX} cy={smokeBaseY} r={5.5}
             style={{ animation: "house-smoke-rise 3s ease-out infinite" }}
           />
           <circle cx={smokeBaseX + 2} cy={smokeBaseY} r={6}
