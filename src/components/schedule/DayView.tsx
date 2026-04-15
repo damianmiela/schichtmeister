@@ -20,6 +20,8 @@ import {
 } from "@mui/material";
 import ViewColumnIcon from "@mui/icons-material/ViewColumn";
 import TimelineIcon from "@mui/icons-material/Timeline";
+import HomeIcon from "@mui/icons-material/Home";
+import DayHouseView from "@/components/schedule/DayHouseView";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import AddIcon from "@mui/icons-material/Add";
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
@@ -51,7 +53,7 @@ interface DayViewProps {
   onAssignmentChange?: () => void;
 }
 
-type DayViewMode = "columns" | "timeline";
+type DayViewMode = "columns" | "timeline" | "house";
 
 // ── Shared types ──
 
@@ -1166,10 +1168,14 @@ export default function DayView({
             <TimelineIcon sx={{ fontSize: 15, mr: 0.5 }} />
             Zeitstrahl
           </ToggleButton>
+          <ToggleButton value="house">
+            <HomeIcon sx={{ fontSize: 15, mr: 0.5 }} />
+            Haus
+          </ToggleButton>
         </ToggleButtonGroup>
       </Box>
 
-      {viewMode === "columns" ? (
+      {viewMode === "columns" && (
         <ColumnView
           dayAssignments={dayAssignments}
           employeesById={employeesById}
@@ -1181,7 +1187,8 @@ export default function DayView({
           allProfiles={allProfiles}
           onAssignmentChange={onAssignmentChange}
         />
-      ) : (
+      )}
+      {viewMode === "timeline" && (
         <TimelineView
           dayAssignments={dayAssignments}
           employeesById={employeesById}
@@ -1190,6 +1197,13 @@ export default function DayView({
           onEmployeeClick={onEmployeeClick}
           shiftWishSet={shiftWishSet}
           nameCol={NAME_COL}
+        />
+      )}
+      {viewMode === "house" && (
+        <DayHouseView
+          dayAssignments={dayAssignments}
+          employeesById={employeesById}
+          profilesById={profilesById}
         />
       )}
     </Box>
