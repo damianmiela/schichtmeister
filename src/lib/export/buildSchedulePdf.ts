@@ -92,7 +92,28 @@ type Section = {
   title: string;
   employees: Employee[];
   stationNumber: number | null; // null for night
+  isAusbildung?: boolean;
 };
+
+/** Station-grouping used for PDF: mainStation-based, skip Ausbildung, skip unassigned.
+ *  Employees without mainStation fall back to Station 1. */
+function groupEmployeesByMainStationForPdf(
+  employees: Employee[],
+  assignedIds: Set<string>,
+): Record<1 | 2 | 3, Employee[]> {
+  const grouped: Record<number, Employee[]> = { 1: [], 2: [], 3: [] };
+  for (const emp of employees) {
+    if ((emp.contractType as string) === "AUSBILDUNG") continue;
+    if (!assignedIds.has(emp.id)) continue;
+    const main = emp.mainStation;
+    if (main != null && main >= 1 && main <= 3) {
+      grouped[main]!.push(emp);
+    } else {
+      grouped[1]!.push(emp);
+    }
+  }
+  return grouped as Record<1 | 2 | 3, Employee[]>;
+}
 
 export async function buildSchedulePdfBuffer(
   bundle: ExportBundle,
@@ -131,9 +152,20 @@ export async function buildSchedulePdfBuffer(
   const dayW = (CONTENT_W - NAME_COL_W - HOURS_COL_W) / dayCount;
   const tableW = NAME_COL_W + HOURS_COL_W + dayW * dayCount;
 
-  // Build sections — use allEmployees to include those without assignments
-  const byStation = groupEmployeesByStation(allEmployees);
-  const nightEmps = getNightEmployees(allEmployees, assignments);
+  // Set of employees that actually have at least one assignment in the schedule
+  const assignedIds = new Set<string>();
+  for (const a of assignments) assignedIds.add(a.employeeId);
+
+  // Build sections — mainStation-based, Ausbildung excluded, only employees with assignments
+  const byStation = groupEmployeesByMainStationForPdf(allEmployees, assignedIds);
+  // Night section: employees with any NIGHT assignment, excluding Ausbildung (they get their own section)
+  const nightEmps = getNightEmployees(allEmployees, assignments).filter(
+    (e) => (e.contractType as string) !== "AUSBILDUNG",
+  );
+  // Ausbildung employees with at least one assignment
+  const ausbildungEmps = allEmployees.filter(
+    (e) => (e.contractType as string) === "AUSBILDUNG" && assignedIds.has(e.id),
+  );
 
   // Compute absence hours per employee (K/U on working days)
   const absenceHoursMap = new Map<string, number>();
@@ -154,6 +186,7 @@ export async function buildSchedulePdfBuffer(
     { title: "Station 2", employees: sortEmployeesByName(byStation[2]), stationNumber: 2 },
     { title: "Station 3", employees: sortEmployeesByName(byStation[3]), stationNumber: 3 },
     { title: "Nacht (gesamtes Geb\u00e4ude)", employees: sortEmployeesByName(nightEmps), stationNumber: null },
+    { title: "Ausbildung", employees: sortEmployeesByName(ausbildungEmps), stationNumber: null, isAusbildung: true },
   ].filter((s) => s.employees.length > 0);
 
   // Metadata line
@@ -181,8 +214,13 @@ export async function buildSchedulePdfBuffer(
     doc.text(`Erstellt: ${printDate}`, MARGIN + 400, y + 2, { lineBreak: false });
 
     const titleY = y + 16;
-    const stNum = sections.find((s) => s.title === sectionTitle)?.stationNumber;
-    const color = stNum ? STATION_COLORS[stNum]?.header ?? "#333" : NIGHT_COLORS.header;
+    const secMeta = sections.find((s) => s.title === sectionTitle);
+    const stNum = secMeta?.stationNumber;
+    const color = secMeta?.isAusbildung
+      ? "#546e7a"
+      : stNum
+        ? STATION_COLORS[stNum]?.header ?? "#333"
+        : NIGHT_COLORS.header;
     doc.fontSize(10).font("Helvetica-Bold").fillColor(color);
     doc.text(
       continuation ? `${sectionTitle} (Fortsetzung)` : sectionTitle,
@@ -250,8 +288,26 @@ export async function buildSchedulePdfBuffer(
     return y + HEADER_ROW_H;
   };
 
+  /* ── Helper: draw a small station-number badge (circle) ── */
+  const drawStationBadge = (cx: number, cy: number, stationNum: number) => {
+    const st = STATION_COLORS[stationNum];
+    const bg = st?.light ?? "#eceff1";
+    const fg = st?.main ?? "#546e7a";
+    const r = 4.2;
+    doc.save();
+    doc.circle(cx, cy, r).fillAndStroke(bg, fg);
+    doc.fontSize(5).font("Helvetica-Bold").fillColor(fg);
+    doc.text(String(stationNum), cx - r, cy - 2.2, {
+      width: r * 2,
+      align: "center",
+      lineBreak: false,
+    });
+    doc.restore();
+    doc.fillColor("#000");
+  };
+
   /* ── Helper: draw a single employee data row ── */
-  const drawDataRow = (y: number, emp: Employee) => {
+  const drawDataRow = (y: number, emp: Employee, section: Section) => {
     const rowH = DATA_ROW_H;
 
     // Row background (alternating would be nice but keep it simple)
@@ -333,24 +389,63 @@ export async function buildSchedulePdfBuffer(
       doc.fillColor(textColor);
 
       if (a) {
+        // Decide if we need a cross-station badge:
+        // - Station section (stationNumber != null): badge when assignment.stationNumber is set and differs from section
+        // - Ausbildung section: always show a badge (resolve from assignment.stationNumber, emp.mainStation, fallback 1)
+        // - Night section: never show
+        let badgeStation: number | null = null;
+        if (!status) {
+          if (section.isAusbildung) {
+            badgeStation = a.stationNumber ?? emp.mainStation ?? 1;
+          } else if (section.stationNumber != null) {
+            if (a.stationNumber != null && a.stationNumber !== section.stationNumber) {
+              badgeStation = a.stationNumber;
+            }
+          }
+        }
+
         // Row 1: shift name or status
         const row1 = status ?? a.shiftProfile.name;
-        doc.fontSize(5).font(status ? "Helvetica-Bold" : "Helvetica");
-        doc.text(truncate(row1, 8), x, y + 1, {
-          width: dayW,
-          align: "center",
-          lineBreak: false,
-        });
+        doc.fontSize(5).font(status ? "Helvetica-Bold" : "Helvetica").fillColor(textColor);
 
-        // Row 2/3: markings
-        const marks = [a.markingRow2, a.markingRow3].filter(Boolean);
-        if (marks.length > 0) {
-          doc.fontSize(3.5).font("Helvetica").fillColor("#777");
-          doc.text(marks.join(" "), x, y + 9, {
+        if (badgeStation != null) {
+          // Split cell vertically: left = station circle, right = shift text
+          const leftW = Math.min(12, dayW * 0.38);
+          const rightX = x + leftW;
+          const rightW = dayW - leftW;
+          drawStationBadge(x + leftW / 2, y + rowH / 2, badgeStation);
+          doc.fillColor(textColor);
+          doc.text(truncate(row1, 6), rightX, y + 1, {
+            width: rightW,
+            align: "center",
+            lineBreak: false,
+          });
+          const marks = [a.markingRow2, a.markingRow3].filter(Boolean);
+          if (marks.length > 0) {
+            doc.fontSize(3.5).font("Helvetica").fillColor("#777");
+            doc.text(marks.join(" "), rightX, y + 9, {
+              width: rightW,
+              align: "center",
+              lineBreak: false,
+            });
+          }
+        } else {
+          doc.text(truncate(row1, 8), x, y + 1, {
             width: dayW,
             align: "center",
             lineBreak: false,
           });
+
+          // Row 2/3: markings
+          const marks = [a.markingRow2, a.markingRow3].filter(Boolean);
+          if (marks.length > 0) {
+            doc.fontSize(3.5).font("Helvetica").fillColor("#777");
+            doc.text(marks.join(" "), x, y + 9, {
+              width: dayW,
+              align: "center",
+              lineBreak: false,
+            });
+          }
         }
       } else {
         // No assignment — empty or weekend
@@ -405,7 +500,7 @@ export async function buildSchedulePdfBuffer(
         y = drawColumnHeaders(y);
       }
 
-      y = drawDataRow(y, emp);
+      y = drawDataRow(y, emp, section);
     }
 
     drawFooter();
