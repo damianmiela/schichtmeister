@@ -126,63 +126,66 @@ function PersonChip({ row }: { row: Row }) {
   );
 }
 
-/** A small "window" rectangle inside a floor — shows shift type and people */
+/** A "window" rectangle inside a floor — shows shift type and people.
+ *  Side-by-side layout: small label column on the left, chips fill the rest. */
 function FloorWindow({
   shiftType,
   rows,
-  flexBasis = "50%",
 }: {
   shiftType: string;
   rows: Row[];
-  flexBasis?: string;
 }) {
   const fg = SHIFT_FG[shiftType] ?? "#546e7a";
   const label = SHIFT_LABEL[shiftType] ?? shiftType;
   return (
     <Box
       sx={{
-        flex: `1 1 ${flexBasis}`,
-        minWidth: 200,
+        width: "100%",
         bgcolor: "#ffffff",
         border: `2px solid ${alpha(fg, 0.4)}`,
         borderRadius: 1.5,
         p: 1,
         boxShadow: `inset 0 0 0 2px ${alpha(fg, 0.08)}`,
-        position: "relative",
+        display: "flex",
+        alignItems: "center",
+        gap: 1.25,
       }}
     >
-      {/* Window cross (fake muntins) */}
       <Box
         sx={{
-          position: "absolute",
-          left: "50%",
-          top: 4,
-          bottom: 4,
-          width: "1px",
-          bgcolor: alpha(fg, 0.15),
-          pointerEvents: "none",
-        }}
-      />
-      <Typography
-        variant="caption"
-        sx={{
-          display: "block",
-          fontWeight: 700,
-          color: fg,
-          mb: 0.5,
-          fontSize: 10,
-          textTransform: "uppercase",
-          letterSpacing: 0.5,
+          flexShrink: 0,
+          minWidth: 56,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "flex-start",
+          borderRight: `1px dashed ${alpha(fg, 0.3)}`,
+          pr: 1,
         }}
       >
-        {label} · {rows.length} MA
-      </Typography>
+        <Typography
+          variant="caption"
+          sx={{
+            fontWeight: 800,
+            color: fg,
+            fontSize: 10,
+            textTransform: "uppercase",
+            letterSpacing: 0.5,
+            lineHeight: 1.1,
+          }}
+        >
+          {label}
+        </Typography>
+        <Typography variant="caption" sx={{ color: alpha(fg, 0.75), fontSize: 9, fontWeight: 600 }}>
+          {rows.length} MA
+        </Typography>
+      </Box>
+
       {rows.length === 0 ? (
         <Typography variant="caption" sx={{ color: "text.disabled", fontStyle: "italic" }}>
           – leer –
         </Typography>
       ) : (
-        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, flex: 1 }}>
           {rows.map((r) => (
             <PersonChip key={r.employeeId + r.profile.id} row={r} />
           ))}
@@ -209,30 +212,33 @@ function StationFloor({
   return (
     <Box
       sx={{
-        position: "relative",
+        display: "flex",
+        alignItems: "stretch",
         bgcolor: colors.wall,
         borderLeft: `6px solid ${ROOF_DARK}`,
         borderRight: `6px solid ${ROOF_DARK}`,
         borderTop: `2px dashed ${alpha(ROOF_DARK, 0.4)}`,
-        px: 2,
-        py: 1.5,
       }}
     >
-      {/* Floor label / "door sign" on the left */}
+      {/* Floor sign — narrow column on the left */}
       <Box
         sx={{
-          position: "absolute",
-          left: 12,
-          top: 8,
+          width: 88,
+          flexShrink: 0,
           display: "flex",
+          flexDirection: "column",
           alignItems: "center",
-          gap: 1,
+          justifyContent: "center",
+          gap: 0.25,
+          bgcolor: alpha(colors.main, 0.07),
+          borderRight: `2px dashed ${alpha(colors.main, 0.3)}`,
+          py: 1.25,
         }}
       >
         <Box
           sx={{
-            width: 28,
-            height: 28,
+            width: 32,
+            height: 32,
             borderRadius: "50%",
             bgcolor: colors.main,
             color: "#fff",
@@ -240,67 +246,66 @@ function StationFloor({
             alignItems: "center",
             justifyContent: "center",
             fontWeight: 700,
-            fontSize: 14,
+            fontSize: 16,
             boxShadow: `0 2px 4px ${alpha(colors.main, 0.4)}`,
           }}
         >
           {stationNumber}
         </Box>
-        <Box>
-          <Typography variant="caption" sx={{ display: "block", fontWeight: 700, color: colors.main, lineHeight: 1 }}>
-            Station {stationNumber}
-          </Typography>
-          <Typography variant="caption" sx={{ fontSize: 9, color: "text.secondary", lineHeight: 1 }}>
-            {total} MA
-          </Typography>
-        </Box>
+        <Typography variant="caption" sx={{ fontWeight: 700, color: colors.main, fontSize: 11, lineHeight: 1.1, mt: 0.25 }}>
+          Station {stationNumber}
+        </Typography>
+        <Typography variant="caption" sx={{ fontSize: 10, color: "text.secondary", lineHeight: 1 }}>
+          {total} MA
+        </Typography>
       </Box>
 
       {/* Windows */}
-      <Box sx={{ display: "flex", gap: 1.5, ml: 14, flexWrap: "wrap" }}>
+      <Box sx={{ flex: 1, p: 1, display: "flex", flexDirection: "column", gap: 0.75, minWidth: 0 }}>
         <FloorWindow shiftType="EARLY" rows={early} />
         <FloorWindow shiftType="LATE" rows={late} />
-        {bl.length > 0 && (
-          <FloorWindow shiftType="BL" rows={bl} flexBasis="100%" />
-        )}
+        {bl.length > 0 && <FloorWindow shiftType="BL" rows={bl} />}
       </Box>
     </Box>
   );
 }
 
-/** Attic — trapezoid-ish shape via inset margins, contains night shifts */
+/** Attic — full width, sits directly under the roof, contains night shifts */
 function AtticFloor({ rows }: { rows: Row[] }) {
   return (
     <Box
       sx={{
-        position: "relative",
-        // Slight inset to look like attic walls follow the roof slope
-        mx: "5%",
-        bgcolor: alpha(NIGHT_COLOR, 0.06),
-        border: `2px solid ${alpha(NIGHT_COLOR, 0.4)}`,
-        borderBottom: "none",
-        borderRadius: "12px 12px 0 0",
-        px: 2,
-        py: 1.25,
+        display: "flex",
+        alignItems: "stretch",
+        bgcolor: alpha(NIGHT_COLOR, 0.08),
+        borderLeft: `6px solid ${ROOF_DARK}`,
+        borderRight: `6px solid ${ROOF_DARK}`,
       }}
     >
       <Box
         sx={{
-          position: "absolute",
-          left: 12,
-          top: 8,
+          width: 88,
+          flexShrink: 0,
           display: "flex",
+          flexDirection: "column",
           alignItems: "center",
-          gap: 0.75,
+          justifyContent: "center",
+          gap: 0.25,
+          bgcolor: alpha(NIGHT_COLOR, 0.18),
+          borderRight: `2px dashed ${alpha(NIGHT_COLOR, 0.4)}`,
+          py: 1.25,
           color: NIGHT_COLOR,
         }}
       >
-        <NightsStayIcon sx={{ fontSize: 18 }} />
-        <Typography variant="caption" sx={{ fontWeight: 700, fontSize: 11 }}>
-          Dachboden · Nacht ({rows.length} MA)
+        <NightsStayIcon sx={{ fontSize: 26 }} />
+        <Typography variant="caption" sx={{ fontWeight: 700, fontSize: 11, lineHeight: 1.1, mt: 0.25 }}>
+          Dachboden
+        </Typography>
+        <Typography variant="caption" sx={{ fontSize: 10, color: alpha(NIGHT_COLOR, 0.75), lineHeight: 1 }}>
+          {rows.length} MA
         </Typography>
       </Box>
-      <Box sx={{ ml: 18, mt: 0.5, display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+      <Box sx={{ flex: 1, p: 1, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 0.5, minWidth: 0 }}>
         {rows.length === 0 ? (
           <Typography variant="caption" sx={{ color: "text.disabled", fontStyle: "italic" }}>
             – niemand hier oben –
@@ -313,54 +318,59 @@ function AtticFloor({ rows }: { rows: Row[] }) {
   );
 }
 
-/** Basement — sits below the grass line, slightly inset and dim */
+/** Basement — sits below the grass line, full width, dim */
 function BasementFloor({ rows }: { rows: Row[] }) {
   return (
     <Box
       sx={{
-        position: "relative",
-        mx: "3%",
+        display: "flex",
+        alignItems: "stretch",
         bgcolor: alpha(BL_COLOR, 0.08),
-        border: `2px dashed ${alpha(BL_COLOR, 0.5)}`,
-        borderTop: "none",
-        borderRadius: "0 0 10px 10px",
-        px: 2,
-        py: 1.25,
+        borderLeft: `6px dashed ${alpha(SOIL_COLOR, 0.7)}`,
+        borderRight: `6px dashed ${alpha(SOIL_COLOR, 0.7)}`,
+        borderBottom: `4px solid ${SOIL_COLOR}`,
+        borderRadius: "0 0 6px 6px",
       }}
     >
       <Box
         sx={{
-          position: "absolute",
-          left: 12,
-          top: 8,
+          width: 88,
+          flexShrink: 0,
           display: "flex",
+          flexDirection: "column",
           alignItems: "center",
-          gap: 0.75,
-          color: "#2e7d32",
+          justifyContent: "center",
+          gap: 0.25,
+          bgcolor: alpha(BL_COLOR, 0.18),
+          borderRight: `2px dashed ${alpha(BL_COLOR, 0.4)}`,
+          py: 1.25,
         }}
       >
         <Box
-          component="span"
           sx={{
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
-            width: 22,
-            height: 22,
+            width: 32,
+            height: 32,
             borderRadius: 1,
             bgcolor: BL_COLOR,
             color: "#fff",
             fontWeight: 800,
-            fontSize: 11,
+            fontSize: 13,
+            boxShadow: `0 2px 4px ${alpha(BL_COLOR, 0.4)}`,
           }}
         >
           BL
         </Box>
-        <Typography variant="caption" sx={{ fontWeight: 700, fontSize: 11 }}>
-          Keller · BL ({rows.length} MA)
+        <Typography variant="caption" sx={{ fontWeight: 700, fontSize: 11, color: "#2e7d32", lineHeight: 1.1, mt: 0.25 }}>
+          Keller
+        </Typography>
+        <Typography variant="caption" sx={{ fontSize: 10, color: "text.secondary", lineHeight: 1 }}>
+          {rows.length} MA
         </Typography>
       </Box>
-      <Box sx={{ ml: 14, mt: 0.5, display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+      <Box sx={{ flex: 1, p: 1, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 0.5, minWidth: 0 }}>
         {rows.length === 0 ? (
           <Typography variant="caption" sx={{ color: "text.disabled", fontStyle: "italic" }}>
             – Keller leer –
@@ -373,8 +383,11 @@ function BasementFloor({ rows }: { rows: Row[] }) {
   );
 }
 
-/** SVG roof — triangle + chimney + sun + cloud */
-function HouseRoof({ width = 800, height = 110 }: { width?: number; height?: number }) {
+/** SVG roof — triangle (full width) + chimney + sun + cloud */
+function HouseRoof({ width = 800, height = 95 }: { width?: number; height?: number }) {
+  // Chimney positioned over right slope; cloud moved to far left so it doesn't collide.
+  const CHIMNEY_X = 0.78;
+  const CHIMNEY_W = 0.045;
   return (
     <Box sx={{ width: "100%", height, position: "relative", bgcolor: SKY_COLOR, overflow: "hidden" }}>
       <svg
@@ -384,20 +397,43 @@ function HouseRoof({ width = 800, height = 110 }: { width?: number; height?: num
         height="100%"
         style={{ display: "block" }}
       >
-        {/* Sun */}
-        <circle cx={width * 0.08} cy={height * 0.35} r={height * 0.22} fill="#ffeb3b" opacity={0.9} />
-        <circle cx={width * 0.08} cy={height * 0.35} r={height * 0.13} fill="#fdd835" />
-
-        {/* Cloud */}
-        <g fill="#ffffff" opacity={0.95}>
-          <ellipse cx={width * 0.78} cy={height * 0.35} rx={28} ry={14} />
-          <ellipse cx={width * 0.82} cy={height * 0.28} rx={22} ry={12} />
-          <ellipse cx={width * 0.74} cy={height * 0.32} rx={18} ry={10} />
+        {/* Sun (top-left) */}
+        <g>
+          {/* Sun rays */}
+          {Array.from({ length: 8 }).map((_, i) => {
+            const a = (i * Math.PI) / 4;
+            const cx = width * 0.08;
+            const cy = height * 0.4;
+            const r1 = height * 0.26;
+            const r2 = height * 0.34;
+            return (
+              <line
+                key={i}
+                x1={cx + Math.cos(a) * r1}
+                y1={cy + Math.sin(a) * r1}
+                x2={cx + Math.cos(a) * r2}
+                y2={cy + Math.sin(a) * r2}
+                stroke="#fdd835"
+                strokeWidth={2}
+                strokeLinecap="round"
+                opacity={0.9}
+              />
+            );
+          })}
+          <circle cx={width * 0.08} cy={height * 0.4} r={height * 0.22} fill="#ffeb3b" opacity={0.95} />
+          <circle cx={width * 0.08} cy={height * 0.4} r={height * 0.14} fill="#fdd835" />
         </g>
 
-        {/* Roof triangle (matches the inset of the attic — 5% margin) */}
+        {/* Cloud (mid-left, well clear of chimney) */}
+        <g fill="#ffffff" opacity={0.95}>
+          <ellipse cx={width * 0.42} cy={height * 0.24} rx={32} ry={11} />
+          <ellipse cx={width * 0.46} cy={height * 0.18} rx={20} ry={10} />
+          <ellipse cx={width * 0.38} cy={height * 0.2} rx={16} ry={9} />
+        </g>
+
+        {/* Roof triangle — full width to match the house body below */}
         <polygon
-          points={`${width * 0.05},${height} ${width * 0.5},6 ${width * 0.95},${height}`}
+          points={`0,${height} ${width * 0.5},6 ${width},${height}`}
           fill={ROOF_COLOR}
           stroke={ROOF_DARK}
           strokeWidth={2}
@@ -408,9 +444,9 @@ function HouseRoof({ width = 800, height = 110 }: { width?: number; height?: num
         {[0.25, 0.45, 0.65, 0.85].map((t) => (
           <line
             key={t}
-            x1={width * (0.5 - 0.45 * t)}
+            x1={width * (0.5 - 0.5 * t)}
             y1={height * t + 6}
-            x2={width * (0.5 + 0.45 * t)}
+            x2={width * (0.5 + 0.5 * t)}
             y2={height * t + 6}
             stroke={ROOF_DARK}
             strokeWidth={0.5}
@@ -418,27 +454,27 @@ function HouseRoof({ width = 800, height = 110 }: { width?: number; height?: num
           />
         ))}
 
-        {/* Chimney */}
+        {/* Chimney (drawn AFTER roof so it sits on top of the slope) */}
         <rect
-          x={width * 0.72}
-          y={height * 0.18}
-          width={width * 0.05}
+          x={width * CHIMNEY_X}
+          y={height * 0.1}
+          width={width * CHIMNEY_W}
           height={height * 0.55}
           fill={ROOF_DARK}
           stroke="#3e2723"
           strokeWidth={1}
         />
         <rect
-          x={width * 0.715}
-          y={height * 0.16}
-          width={width * 0.06}
+          x={width * (CHIMNEY_X - 0.005)}
+          y={height * 0.08}
+          width={width * (CHIMNEY_W + 0.01)}
           height={height * 0.06}
           fill="#3e2723"
         />
-        {/* Smoke */}
-        <g fill="#ffffff" opacity={0.7}>
-          <circle cx={width * 0.745} cy={height * 0.1} r={5} />
-          <circle cx={width * 0.76} cy={height * 0.05} r={4} />
+        {/* Smoke puffs */}
+        <g fill="#ffffff" opacity={0.85}>
+          <circle cx={width * (CHIMNEY_X + CHIMNEY_W / 2)} cy={height * 0.05} r={5} />
+          <circle cx={width * (CHIMNEY_X + CHIMNEY_W / 2 + 0.015)} cy={height * 0.0} r={4} />
         </g>
       </svg>
     </Box>
