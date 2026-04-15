@@ -89,11 +89,14 @@ const ANIMATION_STYLES = `
     100% { transform: translate(8px, -34px) scale(1.6); opacity: 0; }
   }
   @keyframes house-bird-fly {
-    0%        { transform: translate(120px, 50px); opacity: 0; }
+    0%        { transform: translateX(120px); opacity: 0; }
     8%        { opacity: 1; }
-    50%       { transform: translate(420px, 20px); opacity: 1; }
     92%       { opacity: 1; }
-    100%      { transform: translate(680px, 50px); opacity: 0; }
+    100%      { transform: translateX(680px); opacity: 0; }
+  }
+  @keyframes house-bird-bob {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-6px); }
   }
   @keyframes house-bird-flap {
     0%, 100% { transform: scaleY(1); }
@@ -570,16 +573,19 @@ function HouseRoof({
           <ellipse cx={width * 0.6} cy={skyHeight * 0.36} rx={14} ry={8} />
         </g>
 
-        {/* Bird flying — slow loop, contained within sky */}
+        {/* Bird flying — slow horizontal flight, with subtle vertical bobbing */}
         <g
           stroke="#37474f"
           strokeWidth={2}
           fill="none"
           strokeLinecap="round"
+          transform={`translate(0, ${skyHeight * 0.3})`}
           style={{ animation: "house-bird-fly 45s ease-in-out infinite" }}
         >
-          <g style={{ animation: "house-bird-flap 0.45s ease-in-out infinite", transformOrigin: "center" }}>
-            <path d="M 0 0 q 5 -7 10 0 q 5 -7 10 0" />
+          <g style={{ animation: "house-bird-bob 4s ease-in-out infinite" }}>
+            <g style={{ animation: "house-bird-flap 0.45s ease-in-out infinite", transformOrigin: "center" }}>
+              <path d="M 0 0 q 5 -7 10 0 q 5 -7 10 0" />
+            </g>
           </g>
         </g>
 
