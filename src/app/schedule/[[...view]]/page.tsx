@@ -20,6 +20,7 @@ import {
   ToggleButton,
   ToggleButtonGroup,
   Alert,
+  AlertTitle,
   CircularProgress,
   Menu,
   MenuItem,
@@ -94,6 +95,12 @@ type GenerateScheduleResponse = {
   manualPlacementsApplied?: number;
   unmetStaffing: { date: string; shiftType: string; requested: number; assigned: number }[];
   warnings: string[];
+  /** True when the solver returned INFEASIBLE / UNKNOWN. */
+  infeasible?: boolean;
+  infeasibleReason?: string | null;
+  /** Pre-flight conflicts detected before the solver ran. */
+  preflightIssues?: string[];
+  manualPlacementCount?: number;
 };
 
 type ManualPlacement = {
@@ -264,6 +271,11 @@ export default function SchedulePage() {
   const [editedFreiWishSet, setEditedFreiWishSet] = useState<Set<string>>(new Set());
   const [editedVirtualPlacements, setEditedVirtualPlacements] = useState<Record<string, "1" | "2" | "3" | "NIGHT">>({});
   const [editSaving, setEditSaving] = useState(false);
+  const [infeasibleInfo, setInfeasibleInfo] = useState<{
+    reason: string | null;
+    preflightIssues: string[];
+    manualPlacementCount: number;
+  } | null>(null);
   const [logDialogOpen, setLogDialogOpen] = useState(false);
   const [logContent, setLogContent] = useState<string | null>(null);
   const [logLoading, setLogLoading] = useState(false);
@@ -829,6 +841,17 @@ export default function SchedulePage() {
       await loadBundle({ preserveActionMessage: true });
 
       if (result) {
+        // Infeasibility banner: set on INFEASIBLE, clear on success
+        if (result.infeasible) {
+          setInfeasibleInfo({
+            reason: result.infeasibleReason ?? null,
+            preflightIssues: result.preflightIssues ?? [],
+            manualPlacementCount: result.manualPlacementCount ?? 0,
+          });
+        } else {
+          setInfeasibleInfo(null);
+        }
+
         const msgParts: string[] = [];
         const manual = result.manualPlacementsApplied ?? 0;
         const auto = result.createdAssignments - manual;
@@ -1885,6 +1908,78 @@ export default function SchedulePage() {
           <EditIcon sx={{ fontSize: 18 }} />
           Bearbeitungsmodus — Änderungen werden erst beim Speichern übernommen
         </Box>
+      )}
+
+      {infeasibleInfo && (
+        <Alert
+          severity="error"
+          variant="outlined"
+          onClose={() => setInfeasibleInfo(null)}
+          sx={{ mb: 2, alignItems: "flex-start" }}
+          action={
+            <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+              <Button
+                size="small"
+                variant="outlined"
+                color="error"
+                onClick={() => setPreGenOpen(true)}
+              >
+                Vorgaben öffnen
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                color="error"
+                onClick={() => void onViewLogs()}
+              >
+                Protokoll anzeigen
+              </Button>
+              <IconButton
+                size="small"
+                onClick={() => setInfeasibleInfo(null)}
+                aria-label="Schließen"
+              >
+                <CloseIcon fontSize="small" />
+              </IconButton>
+            </Box>
+          }
+        >
+          <AlertTitle sx={{ fontWeight: 700 }}>
+            Generator: Keine zulässige Lösung (INFEASIBLE)
+          </AlertTitle>
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            Der Solver konnte mit den aktuellen Vorgaben ({infeasibleInfo.manualPlacementCount} manuelle
+            Einträge) und den Besetzungs-/Ruhezeit-Regeln keinen gültigen Dienstplan erzeugen.
+            Es wurden <strong>keine Dienste eingetragen</strong>.
+          </Typography>
+          {infeasibleInfo.preflightIssues.length > 0 ? (
+            <>
+              <Typography variant="body2" sx={{ fontWeight: 600, mt: 1 }}>
+                Mögliche Ursachen (Vorab-Prüfung):
+              </Typography>
+              <Box component="ul" sx={{ my: 0.5, pl: 3 }}>
+                {infeasibleInfo.preflightIssues.slice(0, 8).map((issue, i) => (
+                  <li key={i}>
+                    <Typography variant="body2">{issue}</Typography>
+                  </li>
+                ))}
+                {infeasibleInfo.preflightIssues.length > 8 && (
+                  <li>
+                    <Typography variant="body2" color="text.secondary">
+                      … und {infeasibleInfo.preflightIssues.length - 8} weitere — siehe Protokoll.
+                    </Typography>
+                  </li>
+                )}
+              </Box>
+            </>
+          ) : (
+            <Typography variant="body2" sx={{ mt: 1 }}>
+              Keine offensichtlichen Konflikte in den Vorgaben erkannt. Bitte prüfen Sie:
+              Personalbesetzungs-Regeln, Abwesenheiten, Wochenend-/Ruhetage-Regeln, Mini-Job-Stundenobergrenzen.
+              Details im Protokoll.
+            </Typography>
+          )}
+        </Alert>
       )}
 
       {loading ? (

@@ -341,8 +341,20 @@ export async function POST(request: Request, context: RouteCtx) {
           }[]) ?? [];
         console.log(`[generate-stream] Solver status: ${solverStatus}, assignments: ${solverAssignments.length}, reason: ${solverResult.reason ?? "none"}`);
 
-        // Build debug log
-        const debugLog = buildDebugLog(solverResult, payload);
+        // Load employee names for human-readable debug/preflight output
+        const empRows = await prisma.employee.findMany({
+          where: { facilityId },
+          select: { id: true, firstName: true, lastName: true },
+        });
+        const employeeNames = new Map(
+          empRows.map((e) => [e.id, `${e.lastName}, ${e.firstName}`]),
+        );
+
+        // Pre-flight diagnostic — detect cheap, obvious conflicts
+        const preflightIssues = preflightManualPlacements(payload, employeeNames);
+
+        // Build debug log (infeasibility-aware + preflight issues)
+        const debugLog = buildDebugLog(solverResult, payload, employeeNames, preflightIssues);
 
         if (
           solverStatus === "INFEASIBLE" ||
@@ -391,6 +403,10 @@ export async function POST(request: Request, context: RouteCtx) {
               warnings: [
                 `CP-SAT: Keine zulässige Lösung gefunden. ${(solverResult.reason as string) ?? ""}`,
               ],
+              infeasible: true,
+              infeasibleReason: (solverResult.reason as string) ?? null,
+              preflightIssues,
+              manualPlacementCount: payload.manualPlacements.length,
             },
           });
           controller.close();
@@ -678,10 +694,129 @@ export async function POST(request: Request, context: RouteCtx) {
   });
 }
 
-/** Build a simple debug log string from the solver result. */
+/**
+ * Pre-flight check — runs BEFORE the solver and detects obvious conflicts
+ * among manual placements and other inputs. Returns an array of
+ * human-readable German issue strings (empty if none).
+ *
+ * This is best-effort: we only flag issues that are cheap and clearly
+ * impossible. The authoritative infeasibility check is still the solver.
+ */
+function preflightManualPlacements(
+  payload: SolverPayload,
+  employeeNames: Map<string, string>,
+): string[] {
+  const issues: string[] = [];
+  const profMap = new Map(payload.shiftProfiles.map((p) => [p.id, p]));
+  const empMap = new Map(payload.employees.map((e) => [e.id, e]));
+  const mps = payload.manualPlacements;
+
+  const nameFor = (id: string) => employeeNames.get(id) ?? id.slice(0, 8);
+  const profNameFor = (id: string) => profMap.get(id)?.name ?? "?";
+
+  // 1) Duplicate placements (same employee + date, different profile)
+  const byEmpDay = new Map<string, typeof mps>();
+  for (const mp of mps) {
+    const k = `${mp.employeeId}|${mp.date}`;
+    const arr = byEmpDay.get(k) ?? [];
+    arr.push(mp);
+    byEmpDay.set(k, arr);
+  }
+  for (const [k, arr] of byEmpDay) {
+    if (arr.length > 1) {
+      const [empId, date] = k.split("|");
+      const profs = arr.map((m) => profNameFor(m.shiftProfileId)).join(", ");
+      issues.push(`${nameFor(empId!)} am ${date}: mehrere Vorgaben am gleichen Tag (${profs}).`);
+    }
+  }
+
+  // 2) Placement on a blocked date (Frei-Vorgabe or Absence)
+  const blockedSet = new Set(payload.blockedDates.map((b) => `${b.employeeId}|${b.date}`));
+  for (const mp of mps) {
+    if (blockedSet.has(`${mp.employeeId}|${mp.date}`)) {
+      issues.push(
+        `${nameFor(mp.employeeId)} am ${mp.date}: ${profNameFor(mp.shiftProfileId)} kollidiert mit Frei-Vorgabe oder Abwesenheit.`,
+      );
+    }
+  }
+
+  // 3) Placement on a date in the employee's unavailableDates list (DB absences)
+  for (const mp of mps) {
+    const emp = empMap.get(mp.employeeId);
+    if (!emp) {
+      issues.push(`${nameFor(mp.employeeId)} am ${mp.date}: Mitarbeiter nicht im Generator-Kontext (evtl. inaktiv).`);
+      continue;
+    }
+    if (emp.unavailableDates.includes(mp.date)) {
+      issues.push(
+        `${nameFor(mp.employeeId)} am ${mp.date}: ${profNameFor(mp.shiftProfileId)} fällt in Abwesenheit.`,
+      );
+    }
+  }
+
+  // 4) Shift profile not allowed for this employee
+  for (const mp of mps) {
+    const emp = empMap.get(mp.employeeId);
+    if (!emp) continue;
+    if (emp.allowedShiftProfileIds.length > 0 && !emp.allowedShiftProfileIds.includes(mp.shiftProfileId)) {
+      issues.push(
+        `${nameFor(mp.employeeId)} am ${mp.date}: Schichtprofil "${profNameFor(mp.shiftProfileId)}" ist für diesen Mitarbeiter nicht zugelassen.`,
+      );
+    }
+  }
+
+  // 5) Station out of employee's assignedStations
+  for (const mp of mps) {
+    if (mp.stationNumber == null) continue;
+    const emp = empMap.get(mp.employeeId);
+    if (!emp) continue;
+    if (emp.assignedStations.length > 0 && !emp.assignedStations.includes(mp.stationNumber)) {
+      issues.push(
+        `${nameFor(mp.employeeId)} am ${mp.date}: Station ${mp.stationNumber} ist für diesen Mitarbeiter nicht hinterlegt (Stationen: ${emp.assignedStations.join(", ") || "keine"}).`,
+      );
+    }
+  }
+
+  // 6) Consecutive-day rest hours violation between two placements
+  //    (only flags direct conflicts; solver checks the full picture)
+  const minRest = payload.rules.minRestHours || 0;
+  if (minRest > 0) {
+    const sorted = [...mps].sort((a, b) => (a.employeeId + a.date).localeCompare(b.employeeId + b.date));
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const a = sorted[i]!;
+      const b = sorted[i + 1]!;
+      if (a.employeeId !== b.employeeId) continue;
+      // Only flag adjacent days
+      const aDay = new Date(a.date + "T00:00:00Z").getTime();
+      const bDay = new Date(b.date + "T00:00:00Z").getTime();
+      const diffDays = Math.round((bDay - aDay) / 86_400_000);
+      if (diffDays !== 1) continue;
+      const pA = profMap.get(a.shiftProfileId);
+      const pB = profMap.get(b.shiftProfileId);
+      if (!pA || !pB) continue;
+      const [eh, em] = pA.endTime.split(":").map(Number);
+      const [sh, sm] = pB.startTime.split(":").map(Number);
+      const endMinA = eh! * 60 + em!;
+      const startMinB = sh! * 60 + sm!;
+      // Rest = (24:00 - endA) + startB
+      const restMin = (24 * 60 - endMinA) + startMinB;
+      if (restMin < minRest * 60) {
+        issues.push(
+          `${nameFor(a.employeeId)}: nur ${(restMin / 60).toFixed(1)}h Ruhezeit zwischen ${pA.name} (${a.date}) und ${pB.name} (${b.date}) — Mindestruhe ${minRest}h.`,
+        );
+      }
+    }
+  }
+
+  return issues;
+}
+
+/** Build a debug log string from the solver result. */
 function buildDebugLog(
   response: Record<string, unknown>,
   payload: SolverPayload,
+  employeeNames: Map<string, string>,
+  preflightIssues: string[],
 ): string {
   const profMap = new Map(
     payload.shiftProfiles.map((p) => [p.id, p]),
@@ -693,6 +828,9 @@ function buildDebugLog(
     stationNumber: number | null;
   }[];
 
+  const isInfeasible = response.status === "INFEASIBLE" || response.status === "UNKNOWN";
+  const nameFor = (id: string) => employeeNames.get(id) ?? id.slice(0, 8);
+
   const lines: string[] = [
     `=== CP-SAT Solver Run ===`,
     `Status: ${response.status}`,
@@ -701,17 +839,38 @@ function buildDebugLog(
     `Employees: ${payload.employees.length}`,
     `Shift profiles: ${payload.shiftProfiles.length}`,
     `Manual placements: ${payload.manualPlacements.length}`,
+    `Blocked dates: ${payload.blockedDates.length}`,
     `Assignments created: ${assignments.length}`,
   ];
 
+  if (isInfeasible) {
+    lines.push("");
+    lines.push(
+      `⚠️  Der Solver hat KEINE zulässige Lösung gefunden — es wurden keine Dienste eingetragen.`,
+    );
+    lines.push(
+      `Die unten aufgeführten Vorgaben sind deshalb nicht eingeplant (das bedeutet NICHT, dass sie ungültig sind).`,
+    );
+  }
+
+  if (preflightIssues.length > 0) {
+    lines.push("");
+    lines.push(`--- Vorab-Prüfung: ${preflightIssues.length} mögliche Konflikt(e) ---`);
+    for (const issue of preflightIssues) {
+      lines.push(`  • ${issue}`);
+    }
+  }
+
   if (payload.manualPlacements.length > 0) {
-    lines.push(`--- Manual placement details ---`);
+    lines.push("");
+    lines.push(`--- Manuelle Vorgaben (${payload.manualPlacements.length}) ---`);
     for (const mp of payload.manualPlacements) {
       const prof = profMap.get(mp.shiftProfileId);
       const profName = prof?.name ?? "?";
       const matched = assignments.find(
         (a) => a.employeeId === mp.employeeId && a.date === mp.date,
       );
+      const prefix = `  ${nameFor(mp.employeeId)} ${mp.date}: ${profName} Station=${mp.stationNumber ?? "egal"}`;
       if (matched) {
         const mProf = profMap.get(matched.shiftProfileId);
         const mName = mProf?.name ?? "?";
@@ -720,14 +879,26 @@ function buildDebugLog(
           mp.stationNumber == null ||
           matched.stationNumber === mp.stationNumber;
         lines.push(
-          `  ${mp.employeeId.slice(0, 8)} ${mp.date}: wanted ${profName} station=${mp.stationNumber ?? "egal"} → got ${mName} station=${matched.stationNumber ?? "?"} ${shiftOk && stationOk ? "OK" : "MISMATCH!"}`,
+          `${prefix} → eingeplant als ${mName} Station=${matched.stationNumber ?? "?"} ${shiftOk && stationOk ? "✓" : "⚠ Abweichung"}`,
         );
+      } else if (isInfeasible) {
+        lines.push(`${prefix} → nicht eingeplant (Solver INFEASIBLE)`);
       } else {
-        lines.push(
-          `  ${mp.employeeId.slice(0, 8)} ${mp.date}: wanted ${profName} station=${mp.stationNumber ?? "egal"} → NOT FOUND!`,
-        );
+        lines.push(`${prefix} → nicht eingeplant!`);
       }
     }
+  }
+
+  if (isInfeasible) {
+    lines.push("");
+    lines.push(`--- Mögliche Ursachen prüfen ---`);
+    lines.push(`  1. Vorgaben untereinander: kollidieren manuelle Einträge (Ruhezeit, gleicher Tag)?`);
+    lines.push(`  2. Abwesenheiten: liegen Vorgaben auf Krank-/Urlaubs-Tagen?`);
+    lines.push(`  3. Personalbesetzung: zwingen Vorgaben so viele Mitarbeiter auf einen Tag, dass die Max-Besetzung überschritten würde?`);
+    lines.push(`  4. Qualifikationen: sind für die geforderten Stationen genug qualifizierte Mitarbeiter verfügbar?`);
+    lines.push(`  5. Wochenend-Regel (alternierend): zu viele Vorgaben am gleichen Wochenende?`);
+    lines.push(`  6. Mini-Job-Stunden: würden Vorgaben die Monats-Stundenobergrenze sprengen?`);
+    lines.push(`  7. Ketten-/Ruhetage-Regeln: zu viele Tage hintereinander ohne Ruhe?`);
   }
 
   return lines.join("\n");
