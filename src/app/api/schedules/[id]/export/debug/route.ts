@@ -3,10 +3,98 @@ import { toIsoDateOnly } from "@/lib/api/dateOnly";
 import { plannerJsonErrors } from "@/lib/api/validation";
 import { requirePlanner } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
-import { loadGenerateContext } from "@/lib/schedule/generateDraftSchedule";
+import { loadGenerateContext, type ManualPlacementInput } from "@/lib/schedule/generateDraftSchedule";
 import { buildSolverPayload, type SolverPayload, type SolverPreviousAssignment } from "@/lib/schedule/solverClient";
 import { mergePlanningRules, type FacilityRulesSlice } from "@/lib/planning/merge";
 import { defaultPlanningRulesConfig } from "@/lib/planning/defaultConfig";
+
+type BlockedDateInput = { employeeId: string; date: string };
+type AbsenceInput = { employeeId: string; type: "KRANK" | "URLAUB"; startDate: string; endDate: string };
+
+/**
+ * Reconstruct manualPlacements / blockedDates / absences from the schedule's
+ * preGenWishesJson.savedEntries, the same way the UI does before it POSTs
+ * `/generate-stream`.  This makes the Debug JSON export identical in
+ * structure to what the live solver actually receives, so offline tooling
+ * (solver/scorer) can reproduce production behavior exactly.
+ */
+function reconstructPreGenInputs(
+  preGenWishesJson: string | null,
+  profiles: { id: string; shiftType: string }[],
+): {
+  manualPlacements: ManualPlacementInput[];
+  blockedDates: BlockedDateInput[];
+  absences: AbsenceInput[];
+} {
+  const manualPlacements: ManualPlacementInput[] = [];
+  const blockedDates: BlockedDateInput[] = [];
+  const absences: AbsenceInput[] = [];
+  if (!preGenWishesJson) return { manualPlacements, blockedDates, absences };
+
+  let saved: unknown[] = [];
+  try {
+    const parsed = JSON.parse(preGenWishesJson);
+    if (Array.isArray(parsed?.savedEntries)) saved = parsed.savedEntries;
+  } catch {
+    return { manualPlacements, blockedDates, absences };
+  }
+
+  const profType = new Map<string, string>();
+  for (const p of profiles) profType.set(p.id, p.shiftType);
+
+  const expand = (empId: string, from: string, to: string): BlockedDateInput[] => {
+    const out: BlockedDateInput[] = [];
+    const [fy, fm, fd] = from.split("-").map(Number);
+    const [ty, tm, td] = to.split("-").map(Number);
+    if (!fy || !fm || !fd || !ty || !tm || !td) return out;
+    let cur = Date.UTC(fy, fm - 1, fd);
+    const end = Date.UTC(ty, tm - 1, td);
+    while (cur <= end) {
+      out.push({ employeeId: empId, date: new Date(cur).toISOString().slice(0, 10) });
+      cur += 24 * 60 * 60 * 1000;
+    }
+    return out;
+  };
+
+  for (const raw of saved) {
+    if (!raw || typeof raw !== "object") continue;
+    const e = raw as Record<string, unknown>;
+    const empId = typeof e.employeeId === "string" ? e.employeeId : null;
+    if (!empId) continue;
+
+    if (e.type === "shift") {
+      const date = typeof e.date === "string" ? e.date : null;
+      const pid = typeof e.shiftProfileId === "string" ? e.shiftProfileId : null;
+      if (!date || !pid) continue;
+      const st = profType.get(pid) ?? "EARLY";
+      const sn =
+        typeof e.stationNumber === "number" && e.stationNumber >= 1 && e.stationNumber <= 3
+          ? e.stationNumber
+          : undefined;
+      manualPlacements.push({
+        employeeId: empId,
+        date,
+        shiftProfileId: pid,
+        shiftType: st,
+        ...(sn != null ? { stationNumber: sn } : {}),
+      });
+    } else if (e.type === "frei") {
+      const from = typeof e.dateFrom === "string" ? e.dateFrom : null;
+      const to = typeof e.dateTo === "string" ? e.dateTo : null;
+      if (from && to) blockedDates.push(...expand(empId, from, to));
+    } else if (e.type === "absence") {
+      const from = typeof e.dateFrom === "string" ? e.dateFrom : null;
+      const to = typeof e.dateTo === "string" ? e.dateTo : null;
+      if (from && to) {
+        blockedDates.push(...expand(empId, from, to));
+        const at = e.absenceType === "KRANK" || e.absenceType === "URLAUB" ? e.absenceType : "URLAUB";
+        absences.push({ employeeId: empId, type: at, startDate: from, endDate: to });
+      }
+    }
+  }
+
+  return { manualPlacements, blockedDates, absences };
+}
 
 export const runtime = "nodejs";
 
@@ -24,6 +112,11 @@ export async function GET(_request: Request, context: RouteCtx) {
 
   const schedule = await prisma.schedule.findFirst({
     where: { id: scheduleId, facilityId },
+    // NOTE: Include preGenWishesJson so the debug export can reconstruct
+    // manualPlacements / blockedDates / absences (the UI keeps these in its
+    // own state and sends them as the POST body for /generate-stream).
+    // Without this the exported solverPayload had empty wishes / manual
+    // placements, which diverged from what the live solver actually sees.
   });
   if (!schedule) {
     return NextResponse.json({ error: "Nicht gefunden" }, { status: 404 });
@@ -125,6 +218,13 @@ export async function GET(_request: Request, context: RouteCtx) {
     ruleOverridesJson: facility.ruleOverridesJson,
   };
 
+  // Reconstruct the UI's pre-generation entries (Dienstwunsch /
+  // Frei-Wunsch / Abwesenheit) from preGenWishesJson.savedEntries so the
+  // debug export's solverPayload mirrors what the live generate-stream
+  // solver actually receives.
+  const { manualPlacements, blockedDates, absences: reconstructedAbsences } =
+    reconstructPreGenInputs(schedule.preGenWishesJson ?? null, genCtx.profiles);
+
   let solverPayload: SolverPayload | null = null;
   try {
     solverPayload = buildSolverPayload(
@@ -133,9 +233,9 @@ export async function GET(_request: Request, context: RouteCtx) {
       schedule.periodEnd,
       genCtx,
       facilitySlice,
-      [], // manualPlacements
-      [], // blockedDates
-      [], // absences
+      manualPlacements,
+      blockedDates,
+      reconstructedAbsences,
       previousAssignments,
     );
   } catch {

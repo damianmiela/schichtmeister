@@ -18,45 +18,120 @@ ShiftVar = dict[tuple[str, str, str], cp_model.IntVar]
 SCALE = 100
 
 # ── Weight hierarchy ──────────────────────────────────────────────────
-# Tier 1 — Qualification coverage MUST outweigh staffing minimum so the
-#          solver leaves a slot empty rather than filling it with an
-#          unqualified person.
-W_STAFFING_MIN = 50_000
-W_QUALIFICATION = 500_000
+# Design goal: filling every required staffing slot is ALWAYS worth
+# accepting some overtime / weekend / rest-after-streak violation (but
+# never an un-covered qualification, double-booking, or minimum-rest-
+# between-shifts violation).
+#
+# Tier 1 — Shift coverage (must dominate overtime / weekend / rest-after-6).
+# These are deliberately large: a single empty slot must cost more than
+# the worst realistic overtime penalty we might pay to fill it (e.g.
+# pushing a MINI_JOB employee several hours over their monthly cap).
+W_QUALIFICATION = 5_000_000
+W_STAFFING_MIN = 3_000_000
 # Tier 2 — Employee utilization & contractual obligations
 W_MIN_UTIL = 30_000
 W_WBL_BL = 60_000
-# Tier 3 — Hours accuracy & distribution
+# Tier 3 — Hours accuracy (contract-type tiering handled via helper below)
 W_SOLL_DEV = 100
-W_OVERTIME = 200
 W_UNDERCUT = 150
 W_FAIRNESS = 50
-# Tier 0 — Soll hard-delta bounds (nearly hard constraint)
-W_SOLL_HARD = 200_000
 # Tier 4 — Wishes & preferences
 W_WISH_NORMAL = 3_000
 W_WISH_STRONG = 6_000
 W_PREFERENCE = 1
-# Tier 2b — Cross-month boundary weekends (strong but not infeasible)
-W_WEEKEND_BOUNDARY = 80_000
+# Tier 5 — Cross-month boundary soft penalties (breakable to cover shifts)
+W_WEEKEND_BOUNDARY = 10_000
+# (W_CONSEC_DAYS_BOUNDARY / W_REST_AFTER_6_BOUNDARY defined lower down.)
+
+# ── Contract-tiered overtime penalties ────────────────────────────────
+# Weight is applied per-SCALED-unit against the number of hours ABOVE
+# (soll + maxOvertimeHours). Scale=100, so multiply by 100 for cost/hour.
+# FULL_TIME absorbs overtime cheaply, PART_TIME moderately, MINI_JOB
+# heavily so the solver only pushes mini-jobbers into overtime when
+# absolutely nothing else works (and never above their legal cap, which
+# is still enforced by add_mini_job_cap).
+W_OVERTIME_FT = 30          #    3_000 per hour
+W_OVERTIME_PT = 200         #   20_000 per hour
+W_OVERTIME_MINI = 2_000     #  200_000 per hour
+
+# Contract-tiered soll-delta out-of-range penalty. Applied per scaled
+# unit for hours outside the [soll+min_delta, soll+max_delta] band.
+# Much lower than before so the solver is willing to give overtime to
+# cover shifts, but still meaningful so it prefers balanced hours.
+W_SOLL_HARD_FT = 50         #    5_000 per hour out of range
+W_SOLL_HARD_PT = 300        #   30_000 per hour out of range
+W_SOLL_HARD_MINI = 3_000    #  300_000 per hour out of range
+
+# Contract-tiered OVER-soll preference (within the allowed delta band).
+# Kept small so it's a gentle nudge toward using FT/PT overtime first,
+# but never strong enough to stop the solver from filling a slot by
+# giving extra hours to a MINI_JOB employee if nobody else can cover.
+# Per-employee-per-hour costs chosen so that a single filled slot
+# (W_STAFFING_MIN = 3_000_000) is always cheaper than leaving it empty,
+# even if the only available cover is a mini-jobber pushed many hours
+# over soll. With current FT/PT roster sizes, mini-jobber overtime
+# beyond +15h is essentially never the cheapest coverage option, so
+# the solver reliably redistributes hours onto FT/PT where possible.
+W_OVER_SOLL_PREF_FT = 0        #       0 per hour over soll
+W_OVER_SOLL_PREF_PT = 100      #  10_000 per hour over soll
+W_OVER_SOLL_PREF_MINI = 800    #  80_000 per hour over soll
+
+
+def over_soll_pref_weight(emp) -> int:
+    """Extra penalty per scaled unit of hours ABOVE soll (within range)."""
+    ct = _contract_type(emp)
+    if ct == "MINI_JOB":
+        return W_OVER_SOLL_PREF_MINI
+    if ct == "PART_TIME":
+        return W_OVER_SOLL_PREF_PT
+    return W_OVER_SOLL_PREF_FT
+
+
+def _contract_type(emp) -> str:
+    ct = getattr(emp, "contractType", None) or "FULL_TIME"
+    return ct.upper()
+
+
+def overtime_weight(emp) -> int:
+    """Return per-scaled-unit overtime penalty weight for an employee."""
+    ct = _contract_type(emp)
+    if ct == "MINI_JOB":
+        return W_OVERTIME_MINI
+    if ct == "PART_TIME":
+        return W_OVERTIME_PT
+    return W_OVERTIME_FT
+
+
+def soll_hard_weight(emp) -> int:
+    """Return per-scaled-unit penalty for hours outside soll delta range."""
+    ct = _contract_type(emp)
+    if ct == "MINI_JOB":
+        return W_SOLL_HARD_MINI
+    if ct == "PART_TIME":
+        return W_SOLL_HARD_PT
+    return W_SOLL_HARD_FT
+
 
 # ── Tier -1 — RELAXED-MODE PENALTIES ───────────────────────────────────
 # These weights apply ONLY in Phase 2 ("relaxed" mode), when the strict
 # model was infeasible and we allow the solver to break a rule to still
-# produce a plan. They are intentionally MUCH larger than Tier 1 so the
-# solver respects them unless truly forced to violate. After solve, the
-# existing post-solve validation pipeline re-detects the violations and
-# surfaces them in the warnings panel.
-W_RELAX_MIN_REST = 10_000_000
-W_RELAX_CONSEC_NIGHTS = 8_000_000
-W_RELAX_CONSEC_DAYS = 8_000_000
-W_RELAX_REST_AFTER_6 = 5_000_000
-W_RELAX_STAFFING_MAX = 4_000_000
-W_RELAX_MINI_JOB_CAP = 3_000_000
-W_RELAX_ALT_WEEKENDS = 2_000_000
+# produce a plan. The high-value weights (min rest between shifts, max
+# consecutive days/nights, mini-job legal cap, staffing max) remain far
+# above W_STAFFING_MIN so they stay near-hard. The low-value weights
+# (alt weekends, rest-after-streak) are below W_STAFFING_MIN so the
+# solver will break them rather than leave a required slot empty.
+W_RELAX_MIN_REST = 20_000_000
+W_RELAX_CONSEC_NIGHTS = 15_000_000
+W_RELAX_CONSEC_DAYS = 15_000_000
+W_RELAX_STAFFING_MAX = 8_000_000
+W_RELAX_MINI_JOB_CAP = 6_000_000
 W_RELAX_WBL_WEEKEND_LIMIT = 1_500_000
 W_RELAX_WBL_BL_MAX_PER_WEEK = 1_000_000
 W_RELAX_WBL_BL_WEEKLY_MIN = 800_000
+# Below W_STAFFING_MIN (3M) so staffing coverage wins:
+W_RELAX_REST_AFTER_6 = 300_000
+W_RELAX_ALT_WEEKENDS = 100_000
 
 
 def _emp_station_map(req: SolveRequest) -> dict[str, set[int]]:
@@ -410,17 +485,30 @@ def add_soll_deviation(
         model.Add(dev >= soll_scaled - total)
         terms.append((dev, W_SOLL_DEV))
 
-        # Tier 0 heavy penalty: beyond allowed delta range
+        # Contract-tiered preference for WHERE to park overtime (within
+        # the delta band). Extra cost per hour ABOVE soll, so the solver
+        # prefers shifting overtime onto FT first, PT next, MINI_JOB last.
+        pref_w = over_soll_pref_weight(emp)
+        if pref_w > 0:
+            over_in_range = model.NewIntVar(0, 744 * SCALE, f"over_pref_{emp.id}")
+            model.Add(over_in_range >= total - soll_scaled)
+            terms.append((over_in_range, pref_w))
+
+        # Tier 0 penalty: beyond allowed delta range. Contract-tiered so
+        # the solver is willing to push overtime onto full-timers to cover
+        # shifts, moderately onto part-timers, and only onto mini-jobbers
+        # as an absolute last resort.
         upper_bound_scaled = int((soll + max_delta) * SCALE)
         lower_bound_scaled = int((soll + min_delta) * SCALE)
+        w_hard = soll_hard_weight(emp)
 
         over_excess = model.NewIntVar(0, 744 * SCALE, f"soll_over_{emp.id}")
         model.Add(over_excess >= total - upper_bound_scaled)
-        terms.append((over_excess, W_SOLL_HARD))
+        terms.append((over_excess, w_hard))
 
         under_excess = model.NewIntVar(0, 744 * SCALE, f"soll_under_{emp.id}")
         model.Add(under_excess >= lower_bound_scaled - total)
-        terms.append((under_excess, W_SOLL_HARD))
+        terms.append((under_excess, w_hard))
 
     return terms
 
@@ -462,7 +550,8 @@ def add_overtime_penalty(
 
         excess = model.NewIntVar(0, 744 * SCALE, f"ot_excess_{emp.id}")
         model.Add(excess >= total - cap_scaled)
-        terms.append((excess, W_OVERTIME))
+        # Contract-tiered: cheap for full-timers, heavy for mini-jobbers.
+        terms.append((excess, overtime_weight(emp)))
 
     return terms
 
@@ -671,9 +760,11 @@ def add_shift_distribution_soft(
 
 
 # ── Cross-month boundary soft constraints ────────────────────────────
-
-W_CONSEC_DAYS_BOUNDARY = 80_000
-W_REST_AFTER_6_BOUNDARY = 70_000
+# W_CONSEC_DAYS_BOUNDARY stays strong because max-consecutive-days is
+# NOT on the user-breakable list. W_REST_AFTER_6_BOUNDARY is reduced
+# so it never blocks filling a required slot.
+W_CONSEC_DAYS_BOUNDARY = 500_000
+W_REST_AFTER_6_BOUNDARY = 30_000
 
 WorksDay = dict[tuple[str, str], cp_model.IntVar]
 

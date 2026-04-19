@@ -308,14 +308,18 @@ export async function POST(request: Request, context: RouteCtx) {
         where: { id: facilityId },
         select: { minRestHours: true, miniJobMaxMonthlyHours: true, maxSolveTimeSeconds: true, ruleOverridesJson: true },
       });
+      // Pass the real manualPlacements / blockedDates so the score
+      // report's solverPayload matches what the solver actually ran with.
+      // Without this the downstream scorer sees empty wishes / manual
+      // placements and produces misleading diagnostics.
       solverPayload = buildSolverPayload(
         scheduleId,
         schedule.periodStart,
         schedule.periodEnd,
         genCtx,
         facilitySlice,
-        [],
-        [],
+        manualPlacements,
+        blockedDates,
       ) as unknown as Record<string, unknown>;
     } catch {
       // Non-critical: proceed without solver payload
