@@ -14,8 +14,9 @@ log = logging.getLogger(__name__)
 
 from models import (
     SolveRequest, SolveResponse, AssignmentOutput,
-    ModelStats, Diagnostics, SollDelta,
+    ModelStats, Diagnostics, SollDelta, QualityMetrics,
 )
+from scorer import extract_quality_metrics
 from utils import dates_in_range, paid_hours, is_weekend_or_holiday
 import collections
 from constraints.hard import (
@@ -438,10 +439,14 @@ def solve(request: SolveRequest) -> SolveResponse:
 
         solver = cp_model.CpSolver()
         solver.parameters.max_time_in_seconds = request.maxSolveTimeSeconds
-        solver.parameters.num_workers = 4
-        log.info("Solving (%s) with %d objective terms, max_time=%ds...",
+        solver.parameters.num_workers = request.numWorkers
+        if request.randomSeed is not None:
+            solver.parameters.random_seed = request.randomSeed
+        log.info("Solving (%s) with %d objective terms, max_time=%ds, num_workers=%d, random_seed=%s...",
                  "RELAXED" if relaxed else "STRICT",
-                 len(objective_terms), request.maxSolveTimeSeconds)
+                 len(objective_terms), request.maxSolveTimeSeconds,
+                 request.numWorkers,
+                 request.randomSeed if request.randomSeed is not None else "default")
         status_code = solver.Solve(model)
         status_str = STATUS_MAP.get(status_code, "UNKNOWN")
         log.info("Solve (%s) done: status=%s, objective=%.0f",
@@ -546,6 +551,10 @@ def solve(request: SolveRequest) -> SolveResponse:
     deltas = [abs(sd.delta) for sd in soll_deviation.values()]
     fairness = max(deltas) - min(deltas) if len(deltas) >= 2 else 0.0
 
+    quality_metrics = QualityMetrics(
+        **extract_quality_metrics(request, assignments, soll_deviation)
+    )
+
     return SolveResponse(
         status=status_str,
         solveTimeMs=round(wall_ms, 1),
@@ -563,6 +572,7 @@ def solve(request: SolveRequest) -> SolveResponse:
             fairnessSpread=round(fairness, 1),
             wishFulfillmentRate=round(rate, 2) if rate is not None else None,
         ),
+        qualityMetrics=quality_metrics,
     )
 
 
@@ -631,7 +641,12 @@ def solve_streaming(request: SolveRequest) -> Generator[str, None, None]:
     # ── Phase 1: strict solve ──
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = request.maxSolveTimeSeconds
-    solver.parameters.num_workers = 4
+    solver.parameters.num_workers = request.numWorkers
+    if request.randomSeed is not None:
+        solver.parameters.random_seed = request.randomSeed
+    log.info("Stream-solving (STRICT) max_time=%ds, num_workers=%d, random_seed=%s",
+             request.maxSolveTimeSeconds, request.numWorkers,
+             request.randomSeed if request.randomSeed is not None else "default")
     progress_events: list[str] = []
     callback = ProgressCallback(progress_events, wall_start)
     result_holder: list[int] = []
@@ -665,7 +680,9 @@ def solve_streaming(request: SolveRequest) -> Generator[str, None, None]:
 
         solver = cp_model.CpSolver()
         solver.parameters.max_time_in_seconds = request.maxSolveTimeSeconds
-        solver.parameters.num_workers = 4
+        solver.parameters.num_workers = request.numWorkers
+        if request.randomSeed is not None:
+            solver.parameters.random_seed = request.randomSeed
         progress_events = []
         callback = ProgressCallback(progress_events, wall_start)
         result_holder = []
@@ -757,6 +774,10 @@ def solve_streaming(request: SolveRequest) -> Generator[str, None, None]:
     deltas = [abs(sd.delta) for sd in soll_deviation.values()]
     fairness = max(deltas) - min(deltas) if len(deltas) >= 2 else 0.0
 
+    quality_metrics = QualityMetrics(
+        **extract_quality_metrics(request, assignments, soll_deviation)
+    )
+
     response = SolveResponse(
         status=status_str,
         solveTimeMs=round(wall_ms, 1),
@@ -774,6 +795,7 @@ def solve_streaming(request: SolveRequest) -> Generator[str, None, None]:
             fairnessSpread=round(fairness, 1),
             wishFulfillmentRate=round(rate, 2) if rate is not None else None,
         ),
+        qualityMetrics=quality_metrics,
     )
 
     yield json.dumps({"type": "result", "data": response.model_dump()}) + "\n"

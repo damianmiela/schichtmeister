@@ -103,6 +103,11 @@ class SolveRequest(BaseModel):
     periodStart: str
     periodEnd: str
     maxSolveTimeSeconds: int = 120
+    # CP-SAT tuning. `randomSeed` lets the API race multiple runs with different
+    # seeds (comparison mode). `numWorkers` lets a parallel race use smaller
+    # per-process portfolios (e.g. 2 processes × 2 workers on a 4-core VPS).
+    randomSeed: int | None = None
+    numWorkers: int = 4
     employees: list[EmployeeInput]
     shiftProfiles: list[ShiftProfileInput]
     staffingRequirements: list[StaffingRequirementInput] = []
@@ -143,6 +148,21 @@ class Diagnostics(BaseModel):
     wishFulfillmentRate: float | None = None
 
 
+class QualityMetrics(BaseModel):
+    """Human-readable headline metrics derived from the solved schedule.
+
+    These are surfaced in Generator-Protokoll (especially in comparison mode)
+    so reviewers can eyeball why one run beat another beyond the raw objective.
+    All hour values are in paid hours (not shift-count).
+    """
+    maxOverSollH: float = 0.0            # largest positive soll-delta across all employees
+    avgAbsDeviationH: float = 0.0        # mean |delta| across employees with a soll target
+    blWeekViolations: int = 0            # count of (WBL emp, week) pairs missing BL in workable weeks
+    peakEmployeeId: str | None = None    # employee id with the largest |delta|
+    peakEmployeeDeltaH: float = 0.0      # that employee's signed delta
+    employeesOutsideRange: int = 0       # count with delta outside [-4, +8] h
+
+
 class SolveResponse(BaseModel):
     status: str
     solveTimeMs: float = 0
@@ -152,5 +172,6 @@ class SolveResponse(BaseModel):
     assignments: list[AssignmentOutput] = []
     unfulfilledWishes: list[str] = []
     diagnostics: Diagnostics = Field(default_factory=Diagnostics)
+    qualityMetrics: QualityMetrics | None = None
     reason: str | None = None
     conflictingConstraints: list[str] = []

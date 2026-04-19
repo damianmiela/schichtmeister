@@ -3,6 +3,10 @@
 Accepts a debug-export dict (same shape as the Debug JSON export) and returns
 a plain-text quality report.  Used both by the ``/score`` API endpoint and by
 the standalone ``debug/score_schedule.py`` CLI tool.
+
+Also exposes ``extract_quality_metrics()`` — a lightweight helper used by
+the engine to attach headline metrics (over-soll, BL gaps, peak deviation,
+…) to the ``SolveResponse`` for comparison-mode reviews.
 """
 
 from __future__ import annotations
@@ -11,6 +15,10 @@ import collections
 import io
 import contextlib
 from datetime import date, timedelta
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from models import SolveRequest, AssignmentOutput
 
 
 BOUNDARY_DAYS = 7
@@ -811,3 +819,156 @@ def _run(data: dict) -> None:
             print(f"    (of which {bnd} cross-month boundary)")
     print(f"  WBL weekend-day violations: {len(wbl_wknd_violations)}")
     print("=" * 80)
+
+
+# ── Headline metrics helper (used by the engine, not the text report) ────────
+
+
+def extract_quality_metrics(
+    request: "SolveRequest",
+    assignments: list[Any],  # list[AssignmentOutput]
+    soll_deviation: dict[str, Any] | None = None,  # dict[str, SollDelta]
+) -> dict:
+    """Compute the headline ``QualityMetrics`` for a solved schedule.
+
+    This is intentionally cheap — it reuses ``soll_deviation`` if the engine
+    already computed it (so we don't recompute per-employee Ist hours).  All
+    hour values are paid hours.  Safe to call even when ``assignments`` is
+    empty (returns sensible zero defaults).
+
+    Returned dict can be unpacked directly: ``QualityMetrics(**result)``.
+    """
+
+    # ── Defensive defaults ──
+    defaults = {
+        "maxOverSollH": 0.0,
+        "avgAbsDeviationH": 0.0,
+        "blWeekViolations": 0,
+        "peakEmployeeId": None,
+        "peakEmployeeDeltaH": 0.0,
+        "employeesOutsideRange": 0,
+    }
+
+    # ── Soll-side metrics (re-use soll_deviation if provided) ──
+    if soll_deviation:
+        max_over = 0.0
+        peak_id: str | None = None
+        peak_delta_signed = 0.0
+        peak_abs = -1.0
+        outside_range = 0
+        abs_deltas: list[float] = []
+        for emp_id, sd in soll_deviation.items():
+            delta = float(getattr(sd, "delta", sd["delta"] if isinstance(sd, dict) else 0.0))
+            if delta > max_over:
+                max_over = delta
+            if abs(delta) > peak_abs:
+                peak_abs = abs(delta)
+                peak_id = emp_id
+                peak_delta_signed = delta
+            if delta < -4 or delta > 8:
+                outside_range += 1
+            abs_deltas.append(abs(delta))
+        avg_abs = (sum(abs_deltas) / len(abs_deltas)) if abs_deltas else 0.0
+    else:
+        # Compute from scratch (mirrors engine.py logic).
+        prof_hours = {p.id: p.paidHours for p in request.shiftProfiles}
+        soll_map = request.monthlySollHoursByEmployee or {}
+        wd = request.monthlyWorkingDays or 22
+
+        emp_actual: dict[str, float] = {}
+        for a in assignments:
+            pid = a.shiftProfileId
+            eid = a.employeeId
+            emp_actual[eid] = emp_actual.get(eid, 0.0) + prof_hours.get(pid, 0)
+
+        max_over = 0.0
+        peak_id = None
+        peak_delta_signed = 0.0
+        peak_abs = -1.0
+        outside_range = 0
+        abs_deltas = []
+        for emp in request.employees:
+            soll = soll_map.get(emp.id)
+            if soll is None:
+                pct = emp.targetHoursPercent
+                if pct is None:
+                    continue
+                soll = wd * 8.0 * (pct / 100.0)
+            actual = emp_actual.get(emp.id, 0.0)
+            delta = actual - soll
+            if delta > max_over:
+                max_over = delta
+            if abs(delta) > peak_abs:
+                peak_abs = abs(delta)
+                peak_id = emp.id
+                peak_delta_signed = delta
+            if delta < -4 or delta > 8:
+                outside_range += 1
+            abs_deltas.append(abs(delta))
+        avg_abs = (sum(abs_deltas) / len(abs_deltas)) if abs_deltas else 0.0
+
+    # ── BL week violations (WBL employees missing BL in workable weeks) ──
+    bl_week_violations = 0
+    wbl_emp_ids = {e.id for e in request.employees if getattr(e, "isWbl", False)}
+    if wbl_emp_ids:
+        try:
+            period_dates = _dates_in_range(request.periodStart, request.periodEnd)
+        except (ValueError, AttributeError):
+            period_dates = []
+
+        if period_dates:
+            # Profile shift-type lookup
+            prof_type = {p.id: p.shiftType for p in request.shiftProfiles}
+
+            # Absent dates per employee (blockedDates + unavailableDates)
+            absent: dict[str, set[date]] = collections.defaultdict(set)
+            for bd in request.blockedDates or []:
+                try:
+                    absent[bd.employeeId].add(date.fromisoformat(bd.date))
+                except (ValueError, AttributeError):
+                    continue
+            for emp in request.employees:
+                for ds in getattr(emp, "unavailableDates", []) or []:
+                    try:
+                        absent[emp.id].add(date.fromisoformat(ds))
+                    except ValueError:
+                        continue
+
+            # Group dates by ISO week
+            weeks_dates: dict[str, list[date]] = collections.defaultdict(list)
+            for d in period_dates:
+                weeks_dates[_iso_week(d)].append(d)
+
+            # Count BL assignments per (wbl_emp, week)
+            bl_per_emp_week: dict[str, dict[str, int]] = collections.defaultdict(
+                lambda: collections.defaultdict(int)
+            )
+            for a in assignments:
+                if a.employeeId not in wbl_emp_ids:
+                    continue
+                if prof_type.get(a.shiftProfileId) != "BL":
+                    continue
+                try:
+                    d = date.fromisoformat(a.date)
+                except ValueError:
+                    continue
+                bl_per_emp_week[a.employeeId][_iso_week(d)] += 1
+
+            for eid in wbl_emp_ids:
+                emp_absent = absent.get(eid, set())
+                workable_weeks = {
+                    w for w, wk_dates in weeks_dates.items()
+                    if any(d not in emp_absent for d in wk_dates)
+                }
+                for w in workable_weeks:
+                    if bl_per_emp_week[eid].get(w, 0) < 1:
+                        bl_week_violations += 1
+
+    return {
+        "maxOverSollH": round(max_over, 2),
+        "avgAbsDeviationH": round(avg_abs, 2),
+        "blWeekViolations": bl_week_violations,
+        "peakEmployeeId": peak_id,
+        "peakEmployeeDeltaH": round(peak_delta_signed, 2),
+        "employeesOutsideRange": outside_range,
+    }
