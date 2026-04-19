@@ -207,6 +207,17 @@ export async function POST(request: NextRequest, context: RouteCtx) {
     data: { warningsJson: warningStrings.length > 0 ? JSON.stringify(warningStrings) : null },
   });
 
+  // Keep the currently-active version's warningCount in sync with the fresh
+  // schedule.warningsJson so the "Aktuell" chip in the versions drawer always
+  // matches the badge count on the main view. Historical (non-current) versions
+  // keep their original snapshot-time count and are not touched here.
+  if (schedule.currentVersionId) {
+    await prisma.scheduleVersion.updateMany({
+      where: { id: schedule.currentVersionId, scheduleId },
+      data: { warningCount: warningStrings.length },
+    });
+  }
+
   return NextResponse.json({
     warnings: warningStrings,
     warningsByDay,
