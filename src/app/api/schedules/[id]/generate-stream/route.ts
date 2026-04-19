@@ -754,59 +754,11 @@ function preflightManualPlacements(
     }
   }
 
-  // 4) Shift profile not allowed for this employee
-  for (const mp of mps) {
-    const emp = empMap.get(mp.employeeId);
-    if (!emp) continue;
-    if (emp.allowedShiftProfileIds.length > 0 && !emp.allowedShiftProfileIds.includes(mp.shiftProfileId)) {
-      issues.push(
-        `${nameFor(mp.employeeId)} am ${mp.date}: Schichtprofil "${profNameFor(mp.shiftProfileId)}" ist für diesen Mitarbeiter nicht zugelassen.`,
-      );
-    }
-  }
-
-  // 5) Station out of employee's assignedStations
-  for (const mp of mps) {
-    if (mp.stationNumber == null) continue;
-    const emp = empMap.get(mp.employeeId);
-    if (!emp) continue;
-    if (emp.assignedStations.length > 0 && !emp.assignedStations.includes(mp.stationNumber)) {
-      issues.push(
-        `${nameFor(mp.employeeId)} am ${mp.date}: Station ${mp.stationNumber} ist für diesen Mitarbeiter nicht hinterlegt (Stationen: ${emp.assignedStations.join(", ") || "keine"}).`,
-      );
-    }
-  }
-
-  // 6) Consecutive-day rest hours violation between two placements
-  //    (only flags direct conflicts; solver checks the full picture)
-  const minRest = payload.rules.minRestHours || 0;
-  if (minRest > 0) {
-    const sorted = [...mps].sort((a, b) => (a.employeeId + a.date).localeCompare(b.employeeId + b.date));
-    for (let i = 0; i < sorted.length - 1; i++) {
-      const a = sorted[i]!;
-      const b = sorted[i + 1]!;
-      if (a.employeeId !== b.employeeId) continue;
-      // Only flag adjacent days
-      const aDay = new Date(a.date + "T00:00:00Z").getTime();
-      const bDay = new Date(b.date + "T00:00:00Z").getTime();
-      const diffDays = Math.round((bDay - aDay) / 86_400_000);
-      if (diffDays !== 1) continue;
-      const pA = profMap.get(a.shiftProfileId);
-      const pB = profMap.get(b.shiftProfileId);
-      if (!pA || !pB) continue;
-      const [eh, em] = pA.endTime.split(":").map(Number);
-      const [sh, sm] = pB.startTime.split(":").map(Number);
-      const endMinA = eh! * 60 + em!;
-      const startMinB = sh! * 60 + sm!;
-      // Rest = (24:00 - endA) + startB
-      const restMin = (24 * 60 - endMinA) + startMinB;
-      if (restMin < minRest * 60) {
-        issues.push(
-          `${nameFor(a.employeeId)}: nur ${(restMin / 60).toFixed(1)}h Ruhezeit zwischen ${pA.name} (${a.date}) und ${pB.name} (${b.date}) — Mindestruhe ${minRest}h.`,
-        );
-      }
-    }
-  }
+  // Note: we intentionally do NOT flag issues for disallowed shift profiles,
+  // stations outside assignedStations, or rest-hour conflicts between manual
+  // placements. Manual placements are the planner's authoritative override —
+  // the solver honors them verbatim and may relax other rules to accommodate
+  // them (violations are reported as warnings after solve).
 
   return issues;
 }

@@ -40,6 +40,24 @@ W_PREFERENCE = 1
 # Tier 2b — Cross-month boundary weekends (strong but not infeasible)
 W_WEEKEND_BOUNDARY = 80_000
 
+# ── Tier -1 — RELAXED-MODE PENALTIES ───────────────────────────────────
+# These weights apply ONLY in Phase 2 ("relaxed" mode), when the strict
+# model was infeasible and we allow the solver to break a rule to still
+# produce a plan. They are intentionally MUCH larger than Tier 1 so the
+# solver respects them unless truly forced to violate. After solve, the
+# existing post-solve validation pipeline re-detects the violations and
+# surfaces them in the warnings panel.
+W_RELAX_MIN_REST = 10_000_000
+W_RELAX_CONSEC_NIGHTS = 8_000_000
+W_RELAX_CONSEC_DAYS = 8_000_000
+W_RELAX_REST_AFTER_6 = 5_000_000
+W_RELAX_STAFFING_MAX = 4_000_000
+W_RELAX_MINI_JOB_CAP = 3_000_000
+W_RELAX_ALT_WEEKENDS = 2_000_000
+W_RELAX_WBL_WEEKEND_LIMIT = 1_500_000
+W_RELAX_WBL_BL_MAX_PER_WEEK = 1_000_000
+W_RELAX_WBL_BL_WEEKLY_MIN = 800_000
+
 
 def _emp_station_map(req: SolveRequest) -> dict[str, set[int]]:
     return {e.id: set(e.assignedStations) if e.assignedStations else set() for e in req.employees}

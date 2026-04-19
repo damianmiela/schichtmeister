@@ -335,48 +335,53 @@ def _resolve_stations(
     return result
 
 
-def solve(request: SolveRequest) -> SolveResponse:
-    """Build model, add all constraints and objectives, solve, return results."""
-    wall_start = time.perf_counter()
+STATUS_MAP = {
+    cp_model.OPTIMAL: "OPTIMAL",
+    cp_model.FEASIBLE: "FEASIBLE",
+    cp_model.INFEASIBLE: "INFEASIBLE",
+    cp_model.MODEL_INVALID: "INFEASIBLE",
+}
 
-    model = cp_model.CpModel()
-    shift, works_day, station_assign = _build_variables(model, request)
 
-    prof_map = {p.id: p for p in request.shiftProfiles}
-    log.info("Model: %d shift vars, %d works_day vars, %d station_assign vars, %d employees, %d profiles, %d dates",
-             len(shift), len(works_day), len(station_assign),
-             len(request.employees), len(request.shiftProfiles),
-             len(dates_in_range(request.periodStart, request.periodEnd)))
-    if request.manualPlacements:
-        for mp in request.manualPlacements:
-            pn = prof_map[mp.shiftProfileId].name if mp.shiftProfileId in prof_map else "UNKNOWN"
-            log.info("ManualPlacement received: emp=%s date=%s profileId=%s (%s) station=%s",
-                     mp.employeeId[:8], mp.date, mp.shiftProfileId[:8], pn, mp.stationNumber)
+def _build_and_add_all_constraints(
+    model: cp_model.CpModel,
+    shift: dict,
+    works_day: dict,
+    station_assign: dict,
+    request: SolveRequest,
+    relaxed: bool,
+) -> list[tuple[cp_model.IntVar, int]]:
+    """Add every constraint to the given model and return the objective terms.
 
-    if not shift:
-        return SolveResponse(
-            status="INFEASIBLE",
-            solveTimeMs=0,
-            reason="Keine gültigen Zuweisungsmöglichkeiten (keine Variablen erstellt).",
-        )
+    When ``relaxed=False`` (Phase 1) behaves exactly as before: strict hard
+    constraints for rest, consecutive days/nights, staffing max, mini-job cap,
+    alternating weekends, WBL rules.
 
-    # ── Hard constraints (physically impossible to violate) ─────────────
+    When ``relaxed=True`` (Phase 2 fallback, only used if Phase 1 is INFEASIBLE)
+    those same constraints are converted to soft penalties with very large
+    weights so the solver can still produce a plan. Manual placements,
+    absences, one-shift-per-day, and station assignment remain HARD.
+    """
+    objective_terms: list[tuple[cp_model.IntVar, int]] = []
+
+    # ── Hard (always) ───────────────────────────────────────────────
     add_one_shift_per_day(model, shift, works_day, request)
     add_unavailability(model, shift, request)
-    add_staffing_maximum(model, shift, request, station_assign)
-    add_min_rest(model, shift, request)
-    add_max_consecutive_nights(model, shift, request)
-    add_max_consecutive_days(model, works_day, request)
     add_manual_placements(model, shift, request, station_assign)
-    add_mini_job_cap(model, shift, request)
-    add_wbl_bl_max_one_per_week(model, shift, request)
-    add_alternating_weekends(model, works_day, request)
-    add_wbl_weekend_limit(model, works_day, request)
     add_station_assignment(model, shift, works_day, station_assign, request)
-    add_wbl_bl_weekly(model, shift, request)
 
-    # ── Soft objectives (penalized, but relaxable) ───────────────────
-    objective_terms: list[tuple[cp_model.IntVar, int]] = []
+    # ── Hard in strict mode, soft in relaxed mode ───────────────────
+    objective_terms.extend(add_staffing_maximum(model, shift, request, station_assign, relaxed=relaxed))
+    objective_terms.extend(add_min_rest(model, shift, request, relaxed=relaxed))
+    objective_terms.extend(add_max_consecutive_nights(model, shift, request, relaxed=relaxed))
+    objective_terms.extend(add_max_consecutive_days(model, works_day, request, relaxed=relaxed))
+    objective_terms.extend(add_mini_job_cap(model, shift, request, relaxed=relaxed))
+    objective_terms.extend(add_wbl_bl_max_one_per_week(model, shift, request, relaxed=relaxed))
+    objective_terms.extend(add_alternating_weekends(model, works_day, request, relaxed=relaxed))
+    objective_terms.extend(add_wbl_weekend_limit(model, works_day, request, relaxed=relaxed))
+    objective_terms.extend(add_wbl_bl_weekly(model, shift, request, relaxed=relaxed))
+
+    # ── Always soft ─────────────────────────────────────────────────
     objective_terms.extend(add_staffing_minimum_soft(model, shift, request, station_assign))
     objective_terms.extend(add_qualification_coverage_soft(model, shift, request, station_assign))
     objective_terms.extend(add_wbl_bl_soft(model, shift, request))
@@ -395,35 +400,81 @@ def solve(request: SolveRequest) -> SolveResponse:
     if objective_terms:
         model.Minimize(sum(var * weight for var, weight in objective_terms))
 
-    # ── Solve ───────────────────────────────────────────────────────────
-    solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = request.maxSolveTimeSeconds
-    solver.parameters.num_workers = 4
+    return objective_terms
 
-    log.info("Solving with %d objective terms, max_time=%ds...",
-             len(objective_terms), request.maxSolveTimeSeconds)
-    status_code = solver.Solve(model)
-    wall_ms = (time.perf_counter() - wall_start) * 1000
-    log.info("Solve done: status=%s, wall=%.1fms, objective=%.0f, bound=%.0f, gap=%.3f",
-             status_code, wall_ms,
-             solver.ObjectiveValue() if status_code in (cp_model.OPTIMAL, cp_model.FEASIBLE) else 0,
-             solver.BestObjectiveBound() if status_code in (cp_model.OPTIMAL, cp_model.FEASIBLE) else 0,
-             solver.BestObjectiveBound() / max(solver.ObjectiveValue(), 1e-9)
-             if status_code in (cp_model.OPTIMAL, cp_model.FEASIBLE) and solver.ObjectiveValue() > 0 else 0)
 
-    status_map = {
-        cp_model.OPTIMAL: "OPTIMAL",
-        cp_model.FEASIBLE: "FEASIBLE",
-        cp_model.INFEASIBLE: "INFEASIBLE",
-        cp_model.MODEL_INVALID: "INFEASIBLE",
-    }
-    status_str = status_map.get(status_code, "UNKNOWN")
+def solve(request: SolveRequest) -> SolveResponse:
+    """Build model, add all constraints and objectives, solve, return results.
 
-    if status_str in ("INFEASIBLE", "UNKNOWN"):
+    Uses a two-phase approach: Phase 1 with strict hard constraints (unchanged
+    behavior). If Phase 1 returns INFEASIBLE, Phase 2 rebuilds the model with
+    most rules converted to soft penalties so a plan is still produced. Rule
+    violations in the Phase-2 result are detected by the post-solve TypeScript
+    validator and surfaced in the warnings panel.
+    """
+    wall_start = time.perf_counter()
+
+    prof_map = {p.id: p for p in request.shiftProfiles}
+    if request.manualPlacements:
+        for mp in request.manualPlacements:
+            pn = prof_map[mp.shiftProfileId].name if mp.shiftProfileId in prof_map else "UNKNOWN"
+            log.info("ManualPlacement received: emp=%s date=%s profileId=%s (%s) station=%s",
+                     mp.employeeId[:8], mp.date, mp.shiftProfileId[:8], pn, mp.stationNumber)
+
+    def attempt(relaxed: bool):
+        model = cp_model.CpModel()
+        shift, works_day, station_assign = _build_variables(model, request)
+        log.info("Model (%s): %d shift vars, %d works_day vars, %d station_assign vars, %d employees, %d profiles, %d dates",
+                 "RELAXED" if relaxed else "STRICT",
+                 len(shift), len(works_day), len(station_assign),
+                 len(request.employees), len(request.shiftProfiles),
+                 len(dates_in_range(request.periodStart, request.periodEnd)))
+        if not shift:
+            return None, model, shift, works_day, station_assign, [], None, "NO_VARS"
+
+        objective_terms = _build_and_add_all_constraints(
+            model, shift, works_day, station_assign, request, relaxed=relaxed,
+        )
+
+        solver = cp_model.CpSolver()
+        solver.parameters.max_time_in_seconds = request.maxSolveTimeSeconds
+        solver.parameters.num_workers = 4
+        log.info("Solving (%s) with %d objective terms, max_time=%ds...",
+                 "RELAXED" if relaxed else "STRICT",
+                 len(objective_terms), request.maxSolveTimeSeconds)
+        status_code = solver.Solve(model)
+        status_str = STATUS_MAP.get(status_code, "UNKNOWN")
+        log.info("Solve (%s) done: status=%s, objective=%.0f",
+                 "RELAXED" if relaxed else "STRICT",
+                 status_str,
+                 solver.ObjectiveValue() if status_code in (cp_model.OPTIMAL, cp_model.FEASIBLE) else 0)
+        return solver, model, shift, works_day, station_assign, objective_terms, status_code, status_str
+
+    # Phase 1 — strict
+    solver, model, shift, works_day, station_assign, objective_terms, status_code, status_str = attempt(False)
+
+    if status_str == "NO_VARS":
         return SolveResponse(
-            status=status_str,
+            status="INFEASIBLE",
+            solveTimeMs=round((time.perf_counter() - wall_start) * 1000, 1),
+            reason="Keine gültigen Zuweisungsmöglichkeiten (keine Variablen erstellt).",
+        )
+
+    # Phase 2 — relaxed fallback
+    if status_str in ("INFEASIBLE", "UNKNOWN"):
+        log.info("Phase 1 returned %s — retrying with relaxed constraints", status_str)
+        solver, model, shift, works_day, station_assign, objective_terms, status_code, status_str = attempt(True)
+
+    wall_ms = (time.perf_counter() - wall_start) * 1000
+
+    if status_str in ("INFEASIBLE", "UNKNOWN", "NO_VARS"):
+        return SolveResponse(
+            status="INFEASIBLE",
             solveTimeMs=round(wall_ms, 1),
-            reason="Keine zulässige Lösung gefunden. Prüfen Sie Personalbesetzung und Regeln.",
+            reason=(
+                "Auch mit gelockerten Regeln konnte kein Plan erstellt werden. "
+                "Bitte prüfen Sie, ob sich manuelle Vorgaben oder Abwesenheiten widersprechen."
+            ),
         )
 
     # ── Extract assignments ─────────────────────────────────────────────
@@ -546,80 +597,82 @@ def solve_streaming(request: SolveRequest) -> Generator[str, None, None]:
         "label": "Füge Constraints hinzu...", "pct": 12,
     }) + "\n"
 
-    # ── Hard constraints ──
-    add_one_shift_per_day(model, shift, works_day, request)
-    add_unavailability(model, shift, request)
-    add_staffing_maximum(model, shift, request, station_assign)
-    add_min_rest(model, shift, request)
-    add_max_consecutive_nights(model, shift, request)
-    add_max_consecutive_days(model, works_day, request)
-    add_manual_placements(model, shift, request, station_assign)
-    add_mini_job_cap(model, shift, request)
-    add_wbl_bl_max_one_per_week(model, shift, request)
-    add_alternating_weekends(model, works_day, request)
-    add_wbl_weekend_limit(model, works_day, request)
-    add_station_assignment(model, shift, works_day, station_assign, request)
-    add_wbl_bl_weekly(model, shift, request)
-
-    yield json.dumps({
-        "type": "progress", "stage": "adding_objectives",
-        "label": "Optimierungsziele werden gesetzt...", "pct": 18,
-    }) + "\n"
-
-    # ── Soft objectives ──
-    objective_terms: list[tuple[cp_model.IntVar, int]] = []
-    objective_terms.extend(add_staffing_minimum_soft(model, shift, request, station_assign))
-    objective_terms.extend(add_qualification_coverage_soft(model, shift, request, station_assign))
-    objective_terms.extend(add_wbl_bl_soft(model, shift, request))
-    objective_terms.extend(add_min_utilization_soft(model, shift, request))
-    objective_terms.extend(add_soll_deviation(model, shift, request))
-    objective_terms.extend(add_overtime_penalty(model, shift, request))
-    objective_terms.extend(add_undercut_penalty(model, shift, request))
-    objective_terms.extend(add_wish_fulfillment(model, shift, request))
-    objective_terms.extend(add_fairness(model, shift, request))
-    objective_terms.extend(add_preference_bonus(model, shift, request))
-    objective_terms.extend(add_shift_distribution_soft(model, shift, request))
-    objective_terms.extend(add_alternating_weekends_boundary_soft(model, works_day, request))
-    objective_terms.extend(add_consecutive_days_boundary_soft(model, works_day, request))
-    objective_terms.extend(add_rest_after_streak_boundary_soft(model, works_day, request))
-
-    if objective_terms:
-        model.Minimize(sum(var * weight for var, weight in objective_terms))
+    objective_terms = _build_and_add_all_constraints(
+        model, shift, works_day, station_assign, request, relaxed=False,
+    )
 
     yield json.dumps({
         "type": "progress", "stage": "solving_started",
         "label": "CP-SAT Solver gestartet...", "pct": 22,
     }) + "\n"
 
-    # ── Solve with callback ──
+    import threading
+
+    def _run_and_wait(current_model, current_solver, callback, progress_events):
+        """Run solver in thread, yielding progress events as they come."""
+        result_holder: list[int] = []
+
+        def _run_solver():
+            result_holder.append(current_solver.Solve(current_model, callback))
+
+        solver_thread = threading.Thread(target=_run_solver)
+        solver_thread.start()
+        events: list[str] = []
+        while solver_thread.is_alive():
+            solver_thread.join(timeout=0.5)
+            while progress_events:
+                events.append(progress_events.pop(0) + "\n")
+        while progress_events:
+            events.append(progress_events.pop(0) + "\n")
+        return result_holder[0] if result_holder else cp_model.UNKNOWN, events
+
+    # ── Phase 1: strict solve ──
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = request.maxSolveTimeSeconds
     solver.parameters.num_workers = 4
-
     progress_events: list[str] = []
     callback = ProgressCallback(progress_events, wall_start)
+    status_code, events = _run_and_wait(model, solver, callback, progress_events)
+    for ev in events:
+        yield ev
 
-    import threading
+    status_str = STATUS_MAP.get(status_code, "UNKNOWN")
 
-    result_holder: list[int] = []
+    # ── Phase 2: relaxed fallback ──
+    if status_str in ("INFEASIBLE", "UNKNOWN"):
+        log.info("Streaming Phase 1 returned %s — retrying with relaxed constraints", status_str)
+        yield json.dumps({
+            "type": "progress", "stage": "retry_relaxed",
+            "label": "Strikte Regeln nicht erfüllbar — versuche erneut mit gelockerten Regeln...",
+            "pct": 45,
+        }) + "\n"
 
-    def _run_solver():
-        result_holder.append(solver.Solve(model, callback))
+        model = cp_model.CpModel()
+        shift, works_day, station_assign = _build_variables(model, request)
+        if not shift:
+            yield json.dumps({
+                "type": "result",
+                "data": SolveResponse(
+                    status="INFEASIBLE", solveTimeMs=round((time.perf_counter() - wall_start) * 1000, 1),
+                    reason="Keine gültigen Zuweisungsmöglichkeiten (keine Variablen erstellt).",
+                ).model_dump(),
+            }) + "\n"
+            return
 
-    solver_thread = threading.Thread(target=_run_solver)
-    solver_thread.start()
+        objective_terms = _build_and_add_all_constraints(
+            model, shift, works_day, station_assign, request, relaxed=True,
+        )
 
-    # Poll for progress events while solver runs
-    while solver_thread.is_alive():
-        solver_thread.join(timeout=0.5)
-        while progress_events:
-            yield progress_events.pop(0) + "\n"
+        solver = cp_model.CpSolver()
+        solver.parameters.max_time_in_seconds = request.maxSolveTimeSeconds
+        solver.parameters.num_workers = 4
+        progress_events = []
+        callback = ProgressCallback(progress_events, wall_start)
+        status_code, events = _run_and_wait(model, solver, callback, progress_events)
+        for ev in events:
+            yield ev
+        status_str = STATUS_MAP.get(status_code, "UNKNOWN")
 
-    # Flush remaining events
-    while progress_events:
-        yield progress_events.pop(0) + "\n"
-
-    status_code = result_holder[0] if result_holder else cp_model.UNKNOWN
     wall_ms = (time.perf_counter() - wall_start) * 1000
 
     yield json.dumps({
@@ -627,20 +680,15 @@ def solve_streaming(request: SolveRequest) -> Generator[str, None, None]:
         "label": "Ergebnisse werden extrahiert...", "pct": 88,
     }) + "\n"
 
-    status_map = {
-        cp_model.OPTIMAL: "OPTIMAL",
-        cp_model.FEASIBLE: "FEASIBLE",
-        cp_model.INFEASIBLE: "INFEASIBLE",
-        cp_model.MODEL_INVALID: "INFEASIBLE",
-    }
-    status_str = status_map.get(status_code, "UNKNOWN")
-
     if status_str in ("INFEASIBLE", "UNKNOWN"):
         yield json.dumps({
             "type": "result",
             "data": SolveResponse(
                 status=status_str, solveTimeMs=round(wall_ms, 1),
-                reason="Keine zulässige Lösung gefunden. Prüfen Sie Personalbesetzung und Regeln.",
+                reason=(
+                    "Auch mit gelockerten Regeln konnte kein Plan erstellt werden. "
+                    "Bitte prüfen Sie, ob sich manuelle Vorgaben oder Abwesenheiten widersprechen."
+                ),
             ).model_dump(),
         }) + "\n"
         return
