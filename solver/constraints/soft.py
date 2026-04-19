@@ -31,7 +31,13 @@ W_QUALIFICATION = 5_000_000
 W_STAFFING_MIN = 3_000_000
 # Tier 2 — Employee utilization & contractual obligations
 W_MIN_UTIL = 30_000
-W_WBL_BL = 60_000
+# Almost-hard rule: every WBL employee (non-full-time-BL) should do at least
+# one BL shift in every ISO week they're available. Absence-only weeks are
+# automatically skipped by add_wbl_bl_soft (if the employee has no workable
+# days in the week, the penalty term isn't created). Weight is ~17% of
+# W_STAFFING_MIN, so a bare required staffing slot still wins, but the
+# solver now strongly prefers parking a BL onto each available WBL week.
+W_WBL_BL = 500_000
 # Tier 3 — Hours accuracy (contract-type tiering handled via helper below)
 W_SOLL_DEV = 100
 W_UNDERCUT = 150
@@ -55,37 +61,68 @@ W_OVERTIME_FT = 30          #    3_000 per hour
 W_OVERTIME_PT = 200         #   20_000 per hour
 W_OVERTIME_MINI = 2_000     #  200_000 per hour
 
-# Contract-tiered soll-delta out-of-range penalty. Applied per scaled
-# unit for hours outside the [soll+min_delta, soll+max_delta] band.
-# Much lower than before so the solver is willing to give overtime to
-# cover shifts, but still meaningful so it prefers balanced hours.
-W_SOLL_HARD_FT = 50         #    5_000 per hour out of range
-W_SOLL_HARD_PT = 300        #   30_000 per hour out of range
-W_SOLL_HARD_MINI = 3_000    #  300_000 per hour out of range
+# Legacy soll-delta out-of-range penalty — kept for the UNDER-soll half
+# only (hours below soll + min_delta). The OVER-soll half is now handled
+# by the piecewise-linear ladder below (W_OVER_SOLL_T{1..4}_*), which
+# is monotonically escalating and integrates the fairness cap.
+W_SOLL_HARD_FT = 50         #    5_000 per hour below soll+min_delta
+W_SOLL_HARD_PT = 300        #   30_000 per hour below soll+min_delta
+W_SOLL_HARD_MINI = 3_000    #  300_000 per hour below soll+min_delta
 
-# Contract-tiered OVER-soll preference (within the allowed delta band).
-# Kept small so it's a gentle nudge toward using FT/PT overtime first,
-# but never strong enough to stop the solver from filling a slot by
-# giving extra hours to a MINI_JOB employee if nobody else can cover.
-# Per-employee-per-hour costs chosen so that a single filled slot
-# (W_STAFFING_MIN = 3_000_000) is always cheaper than leaving it empty,
-# even if the only available cover is a mini-jobber pushed many hours
-# over soll. With current FT/PT roster sizes, mini-jobber overtime
-# beyond +15h is essentially never the cheapest coverage option, so
-# the solver reliably redistributes hours onto FT/PT where possible.
-W_OVER_SOLL_PREF_FT = 0        #       0 per hour over soll
-W_OVER_SOLL_PREF_PT = 100      #  10_000 per hour over soll
-W_OVER_SOLL_PREF_MINI = 800    #  80_000 per hour over soll
+# ── Piecewise-linear OVER-soll penalty ladder ─────────────────────────
+# The old setup used two flat terms for hours above soll: a "within
+# range" preference (tiny) and a "beyond max_delta" hard penalty. With
+# heavy absence months, that produced massive concentration on a few FT
+# (+40h on one person costs the same per-hour as +8h on five people —
+# linear penalty has no incentive to spread).
+#
+# New design: 4 monotonically-escalating tiers per contract type. Each
+# additional hour over soll is progressively more expensive, so giving
+# 10 FT employees +2h each is cheaper than giving one FT +20h. Tier
+# edges (4h, 8h, 16h) chosen so:
+#   - 0..4h:  cheapest — normal "absorb a missing shift" territory
+#   - 4..8h:  moderately expensive — noticeable unfairness
+#   - 8..16h: steeply expensive — blowout range
+#   - 16h+:   prohibitive — only accepted if nothing else can cover a slot
+#
+# Weight levels respect contract-type ordering: FT absorbs first, PT next,
+# MJ essentially never (MJ tier 1 alone at ~100k/hour is already more
+# expensive than blowing an FT employee to +16h).
+#
+# All weights are per SCALED unit (SCALE=100), so multiply by 100 for
+# cost-per-hour shown in the trailing comment.
 
+# FT piecewise ladder
+W_OVER_SOLL_T1_FT = 50          #     5_000 per hour (0..+4h)
+W_OVER_SOLL_T2_FT = 150         #    15_000 per hour (+4..+8h)
+W_OVER_SOLL_T3_FT = 400         #    40_000 per hour (+8..+16h)
+W_OVER_SOLL_T4_FT = 1_000       #   100_000 per hour (+16h+)
 
-def over_soll_pref_weight(emp) -> int:
-    """Extra penalty per scaled unit of hours ABOVE soll (within range)."""
-    ct = _contract_type(emp)
-    if ct == "MINI_JOB":
-        return W_OVER_SOLL_PREF_MINI
-    if ct == "PART_TIME":
-        return W_OVER_SOLL_PREF_PT
-    return W_OVER_SOLL_PREF_FT
+# PT piecewise ladder (roughly 3x FT)
+W_OVER_SOLL_T1_PT = 150         #    15_000 per hour (0..+4h)
+W_OVER_SOLL_T2_PT = 400         #    40_000 per hour (+4..+8h)
+W_OVER_SOLL_T3_PT = 1_000       #   100_000 per hour (+8..+16h)
+W_OVER_SOLL_T4_PT = 2_500       #   250_000 per hour (+16h+)
+
+# MJ piecewise ladder (roughly 20x FT — MJ should never take overtime
+# unless it's the only way to avoid an uncovered required slot).
+W_OVER_SOLL_T1_MINI = 1_000     #   100_000 per hour (0..+4h)
+W_OVER_SOLL_T2_MINI = 3_000     #   300_000 per hour (+4..+8h)
+W_OVER_SOLL_T3_MINI = 8_000     #   800_000 per hour (+8..+16h)
+W_OVER_SOLL_T4_MINI = 20_000    # 2_000_000 per hour (+16h+)
+
+# Tier widths in hours (edges at cumulative 4h, 8h, 16h).
+OVER_SOLL_TIER_WIDTHS_H = (4, 4, 8)
+
+# ── Fairness cap: max over-soll across FT / PT ────────────────────────
+# Adds a single IntVar per contract type constrained to be >= every
+# employee's over-soll hours. Penalizing the max (in addition to the
+# per-employee piecewise) pushes the solver to flatten peaks when
+# multiple distributions have similar total piecewise cost. Excludes
+# MJ because the MJ piecewise alone already makes MJ overtime
+# prohibitive.
+W_MAX_OT_FT = 300               #    30_000 per hour of peak FT over-soll
+W_MAX_OT_PT = 1_000             #   100_000 per hour of peak PT over-soll
 
 
 def _contract_type(emp) -> str:
@@ -104,13 +141,60 @@ def overtime_weight(emp) -> int:
 
 
 def soll_hard_weight(emp) -> int:
-    """Return per-scaled-unit penalty for hours outside soll delta range."""
+    """Return per-scaled-unit penalty for hours outside soll delta range.
+
+    NOTE: Only used for the UNDER-soll half (hours below soll+min_delta).
+    Over-soll is now handled by the piecewise ladder in
+    `over_soll_piecewise_weights`.
+    """
     ct = _contract_type(emp)
     if ct == "MINI_JOB":
         return W_SOLL_HARD_MINI
     if ct == "PART_TIME":
         return W_SOLL_HARD_PT
     return W_SOLL_HARD_FT
+
+
+def over_soll_piecewise_weights(emp) -> tuple[int, int, int, int]:
+    """Return the (T1, T2, T3, T4) piecewise weights per scaled unit
+    for over-soll hours, tiered by contract type.
+
+    Tier edges (cumulative hours above soll): T1=[0..4], T2=[4..8],
+    T3=[8..16], T4=[16..∞).
+    """
+    ct = _contract_type(emp)
+    if ct == "MINI_JOB":
+        return (
+            W_OVER_SOLL_T1_MINI,
+            W_OVER_SOLL_T2_MINI,
+            W_OVER_SOLL_T3_MINI,
+            W_OVER_SOLL_T4_MINI,
+        )
+    if ct == "PART_TIME":
+        return (
+            W_OVER_SOLL_T1_PT,
+            W_OVER_SOLL_T2_PT,
+            W_OVER_SOLL_T3_PT,
+            W_OVER_SOLL_T4_PT,
+        )
+    return (
+        W_OVER_SOLL_T1_FT,
+        W_OVER_SOLL_T2_FT,
+        W_OVER_SOLL_T3_FT,
+        W_OVER_SOLL_T4_FT,
+    )
+
+
+def max_ot_cap_weight(emp) -> int:
+    """Per-scaled-unit weight for the fairness max-overtime cap.
+    MJ excluded (piecewise alone is prohibitive).
+    """
+    ct = _contract_type(emp)
+    if ct == "PART_TIME":
+        return W_MAX_OT_PT
+    if ct == "MINI_JOB":
+        return 0
+    return W_MAX_OT_FT
 
 
 # ── Tier -1 — RELAXED-MODE PENALTIES ───────────────────────────────────
@@ -446,15 +530,36 @@ def add_soll_deviation(
     req: SolveRequest,
 ) -> list[tuple[cp_model.IntVar, int]]:
     """Minimize |total_hours[e] - soll[e]| with tiered penalties.
-    
-    Within [sollMinDelta, sollMaxDelta]: normal W_SOLL_DEV weight.
-    Outside that range: very heavy W_SOLL_HARD penalty per extra hour.
+
+    Over-soll hours are penalized via a 4-tier piecewise-linear ladder
+    with monotonically escalating weights (see W_OVER_SOLL_T*_* in this
+    module). Additionally a single per-contract-type max-overtime IntVar
+    is penalized to discourage concentrating all the month's overtime
+    on a few employees — this is the "fairness cap".
+
+    Under-soll hours below soll+min_delta retain the legacy flat
+    soll_hard penalty.
     """
     terms: list[tuple[cp_model.IntVar, int]] = []
     dates = dates_in_range(req.periodStart, req.periodEnd)
     soll_map = req.monthlySollHoursByEmployee or {}
     min_delta = req.rules.sollMinDelta
-    max_delta = req.rules.sollMaxDelta
+
+    # Precompute scaled tier edges (cumulative hours above soll).
+    t1_w, t2_w, t3_w = OVER_SOLL_TIER_WIDTHS_H
+    edge1_scaled = t1_w * SCALE              # end of T1 / start of T2
+    edge2_scaled = (t1_w + t2_w) * SCALE     # end of T2 / start of T3
+    edge3_scaled = (t1_w + t2_w + t3_w) * SCALE  # end of T3 / start of T4
+
+    BIG = 744 * SCALE
+
+    # Max-overtime fairness cap variables (created lazily; only added to
+    # the objective if at least one employee of that contract type is
+    # present).
+    max_ot_ft = model.NewIntVar(0, BIG, "max_ot_ft")
+    max_ot_pt = model.NewIntVar(0, BIG, "max_ot_pt")
+    has_ft = False
+    has_pt = False
 
     for emp in req.employees:
         soll = soll_map.get(emp.id)
@@ -477,38 +582,66 @@ def add_soll_deviation(
             continue
 
         soll_scaled = int(soll * SCALE)
-        total = model.NewIntVar(0, 744 * SCALE, f"total_{emp.id}")
+        total = model.NewIntVar(0, BIG, f"total_{emp.id}")
         model.Add(total == sum(v * h for v, h in hour_vars))
 
-        dev = model.NewIntVar(0, 744 * SCALE, f"dev_{emp.id}")
+        # |total - soll| baseline deviation (keeps the legacy gentle nudge).
+        dev = model.NewIntVar(0, BIG, f"dev_{emp.id}")
         model.Add(dev >= total - soll_scaled)
         model.Add(dev >= soll_scaled - total)
         terms.append((dev, W_SOLL_DEV))
 
-        # Contract-tiered preference for WHERE to park overtime (within
-        # the delta band). Extra cost per hour ABOVE soll, so the solver
-        # prefers shifting overtime onto FT first, PT next, MINI_JOB last.
-        pref_w = over_soll_pref_weight(emp)
-        if pref_w > 0:
-            over_in_range = model.NewIntVar(0, 744 * SCALE, f"over_pref_{emp.id}")
-            model.Add(over_in_range >= total - soll_scaled)
-            terms.append((over_in_range, pref_w))
+        # ── Piecewise-linear OVER-soll penalty (tiers T1..T4) ─────────
+        # over_total = max(0, total - soll).
+        # excess_over_edgeN = max(0, over_total - edgeN).
+        # Cost encoded incrementally:
+        #   weight_used_for_first_hour   = w1
+        #   weight_used_for_hours_past_4 = w2 (so add (w2 - w1) to excess_over_edge1)
+        #   weight_used_for_hours_past_8 = w3 (so add (w3 - w2) to excess_over_edge2)
+        #   weight_used_for_hours_past_16 = w4
+        # This yields a piecewise-linear penalty with slope
+        # w1 / w2 / w3 / w4 in the four tiers.
+        over_total = model.NewIntVar(0, BIG, f"over_total_{emp.id}")
+        model.Add(over_total >= total - soll_scaled)
 
-        # Tier 0 penalty: beyond allowed delta range. Contract-tiered so
-        # the solver is willing to push overtime onto full-timers to cover
-        # shifts, moderately onto part-timers, and only onto mini-jobbers
-        # as an absolute last resort.
-        upper_bound_scaled = int((soll + max_delta) * SCALE)
+        excess_e1 = model.NewIntVar(0, BIG, f"over_e1_{emp.id}")
+        model.Add(excess_e1 >= over_total - edge1_scaled)
+
+        excess_e2 = model.NewIntVar(0, BIG, f"over_e2_{emp.id}")
+        model.Add(excess_e2 >= over_total - edge2_scaled)
+
+        excess_e3 = model.NewIntVar(0, BIG, f"over_e3_{emp.id}")
+        model.Add(excess_e3 >= over_total - edge3_scaled)
+
+        w1, w2, w3, w4 = over_soll_piecewise_weights(emp)
+        # Base tier 1 weight on the full over_total; subsequent tiers
+        # add the *delta* so slopes monotonically escalate.
+        terms.append((over_total, w1))
+        terms.append((excess_e1, max(w2 - w1, 0)))
+        terms.append((excess_e2, max(w3 - w2, 0)))
+        terms.append((excess_e3, max(w4 - w3, 0)))
+
+        # ── Fairness cap: max over_total across FT / PT ───────────────
+        ct = _contract_type(emp)
+        if ct == "FULL_TIME":
+            model.Add(max_ot_ft >= over_total)
+            has_ft = True
+        elif ct == "PART_TIME":
+            model.Add(max_ot_pt >= over_total)
+            has_pt = True
+
+        # ── Legacy UNDER-soll hard penalty (unchanged) ────────────────
         lower_bound_scaled = int((soll + min_delta) * SCALE)
         w_hard = soll_hard_weight(emp)
 
-        over_excess = model.NewIntVar(0, 744 * SCALE, f"soll_over_{emp.id}")
-        model.Add(over_excess >= total - upper_bound_scaled)
-        terms.append((over_excess, w_hard))
-
-        under_excess = model.NewIntVar(0, 744 * SCALE, f"soll_under_{emp.id}")
+        under_excess = model.NewIntVar(0, BIG, f"soll_under_{emp.id}")
         model.Add(under_excess >= lower_bound_scaled - total)
         terms.append((under_excess, w_hard))
+
+    if has_ft:
+        terms.append((max_ot_ft, W_MAX_OT_FT))
+    if has_pt:
+        terms.append((max_ot_pt, W_MAX_OT_PT))
 
     return terms
 

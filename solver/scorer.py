@@ -83,12 +83,21 @@ def _run(data: dict) -> None:
     sh_emp_ids = {e["id"] for e in employees if "SH" in e.get("qualificationTags", [])}
     bl_profile_ids = {p["id"] for p in profiles if p.get("shiftType") == "BL"}
 
-    # Build absence date sets per employee
+    # Build absence date sets per employee (from EmployeeAbsence + blockedDates).
+    # Blocked dates are included so that employees who are fully blocked for the
+    # period (e.g. sickness entered via preGenWishes) are correctly counted as
+    # "on leave" and don't pollute BL/weekend stats as real violations.
     absent_dates: dict[str, set[date]] = collections.defaultdict(set)
     for ab in employee_absences:
         eid = ab["employeeId"]
         for d in _dates_in_range(ab["startDate"], ab["endDate"]):
             absent_dates[eid].add(d)
+    for bd in solver.get("blockedDates") or data.get("blockedDates") or []:
+        try:
+            d = date.fromisoformat(bd["date"])
+        except (KeyError, ValueError):
+            continue
+        absent_dates[bd["employeeId"]].add(d)
 
     # Build previous assignments index
     prev_by_emp: dict[str, list[dict]] = collections.defaultdict(list)
@@ -378,14 +387,34 @@ def _run(data: dict) -> None:
         print(f"  !! BL assigned to non-WBL: {len(non_wbl_bl)}")
         for a in non_wbl_bl[:3]:
             print(f"    {emp_names.get(a['employeeId'], '?')} on {a['date']}")
+    # Group dates by ISO week once for workability analysis.
+    weeks_dates: dict[str, list[date]] = collections.defaultdict(list)
+    for d in dates:
+        weeks_dates[_iso_week(d)].append(d)
+
     for eid in wbl_ids:
         name = emp_names.get(eid, eid[:8])
         total = wbl_bl_counts.get(eid, 0)
-        weeks_with_bl = sum(1 for w, c in wbl_bl_weekly[eid].items() if c >= 1)
-        weeks_total = len(set(_iso_week(d) for d in dates))
+        # Only count weeks where the employee has at least one workable day
+        # (not absent / not blocked). This mirrors add_wbl_bl_soft's skip logic
+        # and keeps the report focused on real misses rather than impossible
+        # weeks (e.g. full-week sickness).
+        emp_absent = absent_dates.get(eid, set())
+        workable_weeks = {
+            w for w, wk_dates in weeks_dates.items()
+            if any(d not in emp_absent for d in wk_dates)
+        }
+        weeks_total = len(workable_weeks)
+        weeks_with_bl = sum(
+            1 for w, c in wbl_bl_weekly[eid].items()
+            if c >= 1 and w in workable_weeks
+        )
+        skipped = len(weeks_dates) - weeks_total
         multi_bl_weeks = [(w, c) for w, c in wbl_bl_weekly[eid].items() if c > 1]
-        status = "OK" if weeks_with_bl == weeks_total and not multi_bl_weeks else "!!"
-        print(f"  {status} {name}: {total} BL total, {weeks_with_bl}/{weeks_total} weeks covered", end="")
+        all_covered = (weeks_total == 0) or (weeks_with_bl == weeks_total)
+        status = "OK" if all_covered and not multi_bl_weeks else "!!"
+        suffix = f" (skipped {skipped} fully-absent weeks)" if skipped else ""
+        print(f"  {status} {name}: {total} BL total, {weeks_with_bl}/{weeks_total} weeks covered{suffix}", end="")
         if multi_bl_weeks:
             print(f" — MULTI-BL weeks: {multi_bl_weeks}", end="")
         print()

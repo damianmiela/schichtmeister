@@ -102,7 +102,7 @@ class SolveRequest(BaseModel):
     scheduleId: str
     periodStart: str
     periodEnd: str
-    maxSolveTimeSeconds: int = 30
+    maxSolveTimeSeconds: int = 120
     employees: list[EmployeeInput]
     shiftProfiles: list[ShiftProfileInput]
     staffingRequirements: list[StaffingRequirementInput] = []
