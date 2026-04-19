@@ -84,6 +84,7 @@ type ScheduleVersionSummary = {
   id: string;
   label: string;
   assignmentCount: number;
+  warningCount: number | null;
   scoreReport: string | null;
   createdAt: string;
 };
@@ -275,6 +276,9 @@ export default function SchedulePage() {
   const [versionsLoading, setVersionsLoading] = useState(false);
   const [versionBusy, setVersionBusy] = useState(false);
   const [currentVersionId, setCurrentVersionId] = useState<string | null>(null);
+  const [renamingVersionId, setRenamingVersionId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const [renameSaving, setRenameSaving] = useState(false);
 
   const daysInMonth = useMemo(() => {
     const { year, month } = viewState;
@@ -1048,6 +1052,49 @@ export default function SchedulePage() {
     } catch {
       setActionAlertSeverity("error");
       setActionMsg("Version löschen fehlgeschlagen.");
+    }
+  };
+
+  const startRenameVersion = (versionId: string, currentLabel: string) => {
+    setRenamingVersionId(versionId);
+    setRenameDraft(currentLabel);
+  };
+
+  const cancelRenameVersion = () => {
+    setRenamingVersionId(null);
+    setRenameDraft("");
+  };
+
+  const commitRenameVersion = async () => {
+    if (!schedule || !renamingVersionId) return;
+    const trimmed = renameDraft.trim();
+    if (!trimmed) return;
+
+    // Short-circuit: nothing changed
+    const existing = versions.find((v) => v.id === renamingVersionId);
+    if (existing && existing.label === trimmed) {
+      cancelRenameVersion();
+      return;
+    }
+
+    setRenameSaving(true);
+    try {
+      await fetchJson(`/api/schedules/${schedule.id}/versions/${renamingVersionId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label: trimmed }),
+      });
+      // Optimistic local update to avoid a flash of the old label
+      setVersions((prev) =>
+        prev.map((v) => (v.id === renamingVersionId ? { ...v, label: trimmed } : v)),
+      );
+      cancelRenameVersion();
+      void loadVersions();
+    } catch {
+      setActionAlertSeverity("error");
+      setActionMsg("Umbenennen fehlgeschlagen.");
+    } finally {
+      setRenameSaving(false);
     }
   };
 
@@ -2541,30 +2588,107 @@ export default function SchedulePage() {
                   }}
                 >
                   <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 0.5 }}>
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                      <Typography variant="subtitle2" sx={{ fontWeight: 600, fontSize: "0.85rem" }}>
-                        {v.label}
-                      </Typography>
-                      {isCurrent && (
-                        <Chip
-                          size="small"
-                          label="Aktuell"
-                          color="primary"
-                          sx={{ fontSize: "0.7rem", height: 20, fontWeight: 600 }}
-                        />
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flex: 1, minWidth: 0 }}>
+                      {renamingVersionId === v.id ? (
+                        <>
+                          <TextField
+                            size="small"
+                            value={renameDraft}
+                            onChange={(e) => setRenameDraft(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                void commitRenameVersion();
+                              } else if (e.key === "Escape") {
+                                e.preventDefault();
+                                cancelRenameVersion();
+                              }
+                            }}
+                            autoFocus
+                            disabled={renameSaving}
+                            inputProps={{ maxLength: 200 }}
+                            sx={{
+                              flex: 1,
+                              "& .MuiInputBase-input": { fontSize: "0.85rem", py: 0.5 },
+                            }}
+                          />
+                          <IconButton
+                            size="small"
+                            color="primary"
+                            disabled={renameSaving || !renameDraft.trim()}
+                            onClick={() => void commitRenameVersion()}
+                          >
+                            {renameSaving ? <CircularProgress size={14} /> : <SaveIcon fontSize="small" />}
+                          </IconButton>
+                          <IconButton
+                            size="small"
+                            disabled={renameSaving}
+                            onClick={cancelRenameVersion}
+                          >
+                            <CloseIcon fontSize="small" />
+                          </IconButton>
+                        </>
+                      ) : (
+                        <>
+                          <Typography
+                            variant="subtitle2"
+                            sx={{
+                              fontWeight: 600,
+                              fontSize: "0.85rem",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                            title={v.label}
+                          >
+                            {v.label}
+                          </Typography>
+                          {isCurrent && (
+                            <Chip
+                              size="small"
+                              label="Aktuell"
+                              color="primary"
+                              sx={{ fontSize: "0.7rem", height: 20, fontWeight: 600 }}
+                            />
+                          )}
+                          <Tooltip title="Umbenennen">
+                            <span>
+                              <IconButton
+                                size="small"
+                                disabled={versionBusy}
+                                onClick={() => startRenameVersion(v.id, v.label)}
+                                sx={{ p: 0.25 }}
+                              >
+                                <EditIcon sx={{ fontSize: "0.9rem" }} />
+                              </IconButton>
+                            </span>
+                          </Tooltip>
+                        </>
                       )}
                     </Box>
-                    <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap", ml: 1 }}>
-                      {dateStr}
-                    </Typography>
+                    {renamingVersionId !== v.id && (
+                      <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap", ml: 1 }}>
+                        {dateStr}
+                      </Typography>
+                    )}
                   </Box>
-                  <Box sx={{ display: "flex", gap: 1, alignItems: "center", mb: 1 }}>
+                  <Box sx={{ display: "flex", gap: 1, alignItems: "center", mb: 1, flexWrap: "wrap" }}>
                     <Chip
                       size="small"
                       label={`${v.assignmentCount} Zuweisungen`}
                       variant="outlined"
                       sx={{ fontSize: "0.75rem", height: 22 }}
                     />
+                    {v.warningCount != null && (
+                      <Chip
+                        size="small"
+                        label={`${v.warningCount} ${v.warningCount === 1 ? "Warnung" : "Warnungen"}`}
+                        color={v.warningCount === 0 ? "success" : v.warningCount < 5 ? "warning" : "error"}
+                        variant="outlined"
+                        icon={<WarningAmberIcon sx={{ fontSize: "0.9rem !important" }} />}
+                        sx={{ fontSize: "0.75rem", height: 22 }}
+                      />
+                    )}
                     {scoreSummary && (
                       <Chip
                         size="small"
@@ -2580,7 +2704,7 @@ export default function SchedulePage() {
                       size="small"
                       variant="outlined"
                       startIcon={<RestoreIcon />}
-                      disabled={versionBusy || isCurrent}
+                      disabled={versionBusy || isCurrent || renamingVersionId === v.id}
                       onClick={() => void restoreVersion(v.id)}
                       sx={{ fontSize: "0.75rem", textTransform: "none" }}
                     >
@@ -2589,7 +2713,7 @@ export default function SchedulePage() {
                     <IconButton
                       size="small"
                       color="error"
-                      disabled={versionBusy}
+                      disabled={versionBusy || renamingVersionId === v.id}
                       onClick={() => void deleteVersion(v.id)}
                     >
                       <DeleteOutlineIcon fontSize="small" />

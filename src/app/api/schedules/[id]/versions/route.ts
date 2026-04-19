@@ -28,6 +28,7 @@ export async function GET(_request: Request, context: RouteCtx) {
       id: true,
       label: true,
       assignmentCount: true,
+      warningCount: true,
       scoreReport: true,
       createdAt: true,
     },

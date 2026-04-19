@@ -82,8 +82,19 @@ export async function snapshotCurrentVersion(
   // Load schedule metadata
   const schedule = await db.schedule.findUniqueOrThrow({
     where: { id: scheduleId },
-    select: { scoreReport: true, generationLog: true },
+    select: { scoreReport: true, generationLog: true, warningsJson: true },
   });
+
+  // Derive warning count from the schedule's current warningsJson.
+  // We always persist a number (0 for no warnings) so new snapshots can be
+  // distinguished from legacy ones (where the column is still null).
+  let warningCount = 0;
+  if (schedule.warningsJson) {
+    try {
+      const parsed = JSON.parse(schedule.warningsJson);
+      if (Array.isArray(parsed)) warningCount = parsed.length;
+    } catch { /* ignore malformed JSON — treat as 0 */ }
+  }
 
   const version = await db.scheduleVersion.create({
     data: {
@@ -91,6 +102,7 @@ export async function snapshotCurrentVersion(
       label,
       assignmentsJson: JSON.stringify(serialized),
       assignmentCount: assignments.length,
+      warningCount,
       contentHash: hash,
       scoreReport: schedule.scoreReport,
       generationLog: schedule.generationLog,

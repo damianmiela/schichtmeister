@@ -294,6 +294,7 @@ model ScheduleVersion {
   label           String   // e.g. "Vor Neugenerierung", "Manuell gesichert"
   assignmentsJson String   @db.Text // Full assignment array as JSON
   assignmentCount Int
+  warningCount    Int?     // Number of validation warnings at snapshot time (null for versions created before this field existed)
   contentHash     String   // SHA-256 of sorted assignments for dedup
   scoreReport     String?
   generationLog   String?
