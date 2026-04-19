@@ -639,13 +639,11 @@ def solve_streaming(request: SolveRequest) -> Generator[str, None, None]:
     status_str = STATUS_MAP.get(status_code, "UNKNOWN")
 
     # ── Phase 2: relaxed fallback ──
+    # Silent retry — we intentionally do NOT yield a new progress label here,
+    # so the UI keeps showing the original "Suche beste Lösung… Aktueller Wert"
+    # updates from the solver callback without a distracting banner.
     if status_str in ("INFEASIBLE", "UNKNOWN"):
         log.info("Streaming Phase 1 returned %s — retrying with relaxed constraints", status_str)
-        yield json.dumps({
-            "type": "progress", "stage": "retry_relaxed",
-            "label": "Strikte Regeln nicht erfüllbar — versuche erneut mit gelockerten Regeln...",
-            "pct": 45,
-        }) + "\n"
 
         model = cp_model.CpModel()
         shift, works_day, station_assign = _build_variables(model, request)
