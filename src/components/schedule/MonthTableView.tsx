@@ -6,9 +6,6 @@ import {
   Box,
   Chip,
   Divider,
-  ListItemIcon,
-  ListItemText,
-  ListSubheader,
   Menu,
   MenuItem,
   Paper,
@@ -24,7 +21,6 @@ import {
 } from "@mui/material";
 import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
-import LocationOnIcon from "@mui/icons-material/LocationOn";
 import { localIsoFromParts } from "@/lib/schedule/monthSchedule";
 import type { AssignmentJson, EmployeeJson, ShiftProfileJson, StaffingJson } from "@/lib/schedule/scheduleTypes";
 import QualificationPills from "@/components/schedule/QualificationPills";
@@ -338,9 +334,6 @@ export default function MonthTableView({
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const NAME_COL_WIDTH = isMobile ? NAME_COL_WIDTH_MOBILE : NAME_COL_WIDTH_DESKTOP;
 
-  const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
-  const [menuCell, setMenuCell] = useState<{ empId: string; iso: string } | null>(null);
-  const [menuRow, setMenuRow] = useState<1 | 2 | 3>(1);
   const [ctxAnchor, setCtxAnchor] = useState<{
     el: HTMLElement;
     empId: string;
@@ -353,7 +346,6 @@ export default function MonthTableView({
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const workDays = workingDaysInMonth(year, monthIndex);
 
@@ -521,16 +513,15 @@ export default function MonthTableView({
     if (!editMode) return;
     const key = `${empId}|${iso}`;
 
-    // Modifier keys fire immediately (no double-click ambiguity)
+    // Shift-click: extend range from last clicked cell
     if (ev.shiftKey && lastClickedCell) {
-      if (clickTimerRef.current) { clearTimeout(clickTimerRef.current); clickTimerRef.current = null; }
       const range = getCellsBetween(lastClickedCell, key);
       setSelectedCells(new Set(range));
       return;
     }
 
+    // Ctrl/Cmd-click: toggle individual cell in selection
     if (ev.ctrlKey || ev.metaKey) {
-      if (clickTimerRef.current) { clearTimeout(clickTimerRef.current); clickTimerRef.current = null; }
       setSelectedCells(prev => {
         const next = new Set(prev);
         if (next.has(key)) next.delete(key); else next.add(key);
@@ -540,18 +531,15 @@ export default function MonthTableView({
       return;
     }
 
-    // Plain click: debounce to distinguish from double-click
-    if (clickTimerRef.current) { clearTimeout(clickTimerRef.current); clickTimerRef.current = null; }
-    clickTimerRef.current = setTimeout(() => {
-      clickTimerRef.current = null;
-      if (selectedCells.size === 1 && selectedCells.has(key)) {
-        setSelectedCells(new Set());
-        setLastClickedCell(null);
-      } else {
-        setSelectedCells(new Set([key]));
-        setLastClickedCell(key);
-      }
-    }, 200);
+    // Plain click: select instantly. If this cell is the only one currently
+    // selected, clicking it again deselects (toggle).
+    if (selectedCells.size === 1 && selectedCells.has(key)) {
+      setSelectedCells(new Set());
+      setLastClickedCell(null);
+    } else {
+      setSelectedCells(new Set([key]));
+      setLastClickedCell(key);
+    }
   }, [editMode, lastClickedCell, selectedCells, getCellsBetween]);
 
   const handleCellMouseDown = useCallback((empId: string, iso: string, ev: React.MouseEvent) => {
@@ -602,10 +590,6 @@ export default function MonthTableView({
 
   /* ──── menu helpers ──── */
 
-  const closeMenu = () => {
-    setMenuAnchor(null);
-    setMenuCell(null);
-  };
   const closeCtx = () => setCtxAnchor(null);
 
   /* ──── section renderer ──── */
@@ -1041,18 +1025,6 @@ export default function MonthTableView({
                               handleCellClick(emp.id, iso, ev);
                             }
                           }}
-                          onDoubleClick={(ev) => {
-                            if (!editMode) return;
-                            ev.stopPropagation();
-                            // Cancel pending single-click selection
-                            if (clickTimerRef.current) { clearTimeout(clickTimerRef.current); clickTimerRef.current = null; }
-                            // Double-click = open single-cell detail menu
-                            setSelectedCells(new Set());
-                            setLastClickedCell(null);
-                            setMenuCell({ empId: emp.id, iso });
-                            setMenuRow(1);
-                            setMenuAnchor(ev.currentTarget as HTMLElement);
-                          }}
                           onMouseDown={(ev) => handleCellMouseDown(emp.id, iso, ev)}
                           onMouseEnter={() => handleCellMouseEnter(emp.id, iso)}
                           onContextMenu={(ev) => {
@@ -1437,201 +1409,6 @@ export default function MonthTableView({
           {renderUnassignedSection()}
         </>
       )}
-
-      {/* ── Left-click menu (Row 1: profiles + status | Row 2/3: markings) ── */}
-      <Menu
-        anchorEl={menuAnchor}
-        open={Boolean(menuAnchor) && Boolean(menuCell)}
-        onClose={closeMenu}
-        slotProps={{ paper: { sx: { maxHeight: 400 } } }}
-      >
-        {menuRow === 1
-          ? [
-              <ListSubheader key="hdr-profiles" sx={{ lineHeight: "32px" }}>
-                Schichtprofile
-              </ListSubheader>,
-
-              ...SHIFT_TYPE_ORDER.flatMap((type) => {
-                const profiles = profilesByType.get(type);
-                if (!profiles?.length) return [];
-                return [
-                  <ListSubheader
-                    key={`type-${type}`}
-                    sx={{ lineHeight: "28px", fontSize: 12 }}
-                  >
-                    {SHIFT_TYPE_LABELS[type] ?? type}
-                  </ListSubheader>,
-                  ...profiles.map((p) => (
-                    <MenuItem
-                      key={p.id}
-                      dense
-                      sx={{ pl: 4 }}
-                      onClick={() => {
-                        if (menuCell && onCellChange)
-                          onCellChange(menuCell.empId, menuCell.iso, {
-                            shiftProfileId: p.id,
-                            dayStatus: null,
-                          });
-                        closeMenu();
-                      }}
-                    >
-                      {p.name}
-                    </MenuItem>
-                  )),
-                ];
-              }),
-
-              <Divider key="div-status" />,
-
-              <ListSubheader key="hdr-status" sx={{ lineHeight: "32px" }}>
-                Status
-              </ListSubheader>,
-
-              ...STATUS_CODES.map(({ code, label }) => (
-                <MenuItem
-                  key={`st-${code}`}
-                  dense
-                  onClick={() => {
-                    if (menuCell && onCellChange)
-                      onCellChange(menuCell.empId, menuCell.iso, {
-                        dayStatus: code,
-                      });
-                    closeMenu();
-                  }}
-                >
-                  <Box
-                    component="span"
-                    sx={{
-                      display: "inline-block",
-                      width: 28,
-                      height: 20,
-                      lineHeight: "20px",
-                      textAlign: "center",
-                      borderRadius: 0.5,
-                      fontSize: 11,
-                      fontWeight: 700,
-                      mr: 1,
-                      bgcolor: STATUS_COLORS[code]?.bg,
-                      color: STATUS_COLORS[code]?.color,
-                    }}
-                  >
-                    {code}
-                  </Box>
-                  {label}
-                </MenuItem>
-              )),
-
-              <Divider key="div-station" />,
-
-              <ListSubheader key="hdr-station" sx={{ lineHeight: "32px" }}>
-                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                  <LocationOnIcon sx={{ fontSize: 16 }} />
-                  Station zuweisen
-                </Box>
-              </ListSubheader>,
-
-              ...[1, 2, 3].map((sNum) => (
-                <MenuItem
-                  key={`station-${sNum}`}
-                  dense
-                  sx={{ pl: 4 }}
-                  onClick={() => {
-                    if (menuCell && onCellChange)
-                      onCellChange(menuCell.empId, menuCell.iso, {
-                        stationNumber: sNum,
-                      });
-                    closeMenu();
-                  }}
-                >
-                  <Box
-                    component="span"
-                    sx={{
-                      width: 20, height: 20, borderRadius: "50%",
-                      bgcolor: STATION_COLORS[sNum]?.light, color: STATION_COLORS[sNum]?.main,
-                      border: `1.5px solid ${STATION_COLORS[sNum]?.main}`,
-                      display: "inline-flex", alignItems: "center", justifyContent: "center",
-                      fontSize: 11, fontWeight: 700, mr: 1,
-                    }}
-                  >{sNum}</Box>
-                  Station {sNum}
-                </MenuItem>
-              )),
-
-              <MenuItem
-                key="station-clear"
-                dense
-                sx={{ pl: 4 }}
-                onClick={() => {
-                  if (menuCell && onCellChange)
-                    onCellChange(menuCell.empId, menuCell.iso, {
-                      stationNumber: null,
-                    });
-                  closeMenu();
-                }}
-              >
-                <Typography variant="body2" color="text.secondary" sx={{ fontSize: 13 }}>
-                  Hauptstation verwenden
-                </Typography>
-              </MenuItem>,
-
-              <Divider key="div-remove" />,
-
-              <MenuItem
-                key="remove"
-                dense
-                onClick={() => {
-                  if (menuCell && onCellChange)
-                    onCellChange(menuCell.empId, menuCell.iso, {
-                      shiftProfileId: null,
-                      dayStatus: null,
-                    });
-                  closeMenu();
-                }}
-              >
-                <ListItemIcon>
-                  <RemoveCircleOutlineIcon fontSize="small" color="error" />
-                </ListItemIcon>
-                <ListItemText>Entfernen</ListItemText>
-              </MenuItem>,
-            ]
-          : [
-              ...shiftMarkings.map((m) => (
-                <MenuItem
-                  key={m.code}
-                  dense
-                  onClick={() => {
-                    if (menuCell && onCellChange)
-                      onCellChange(menuCell.empId, menuCell.iso, {
-                        [menuRow === 2 ? "markingRow2" : "markingRow3"]: m.code,
-                      });
-                    closeMenu();
-                  }}
-                >
-                  <Box component="span" sx={{ color: m.color, fontWeight: 700, mr: 1 }}>{m.code}</Box>
-                  {m.label}
-                </MenuItem>
-              )),
-
-              <Divider key="div-rm" />,
-
-              <MenuItem
-                key="remove-marking"
-                dense
-                onClick={() => {
-                  if (menuCell && onCellChange)
-                    onCellChange(menuCell.empId, menuCell.iso, {
-                      [menuRow === 2 ? "markingRow2" : "markingRow3"]: null,
-                    });
-                  closeMenu();
-                }}
-              >
-                <ListItemIcon>
-                  <RemoveCircleOutlineIcon fontSize="small" color="error" />
-                </ListItemIcon>
-                <ListItemText>Entfernen</ListItemText>
-              </MenuItem>,
-            ]}
-      </Menu>
 
       {/* ── Right-click context menu (wish toggling) ── */}
       <Menu
