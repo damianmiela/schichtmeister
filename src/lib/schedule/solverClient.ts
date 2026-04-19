@@ -99,6 +99,11 @@ export interface SolverPayload {
   periodStart: string;
   periodEnd: string;
   maxSolveTimeSeconds: number;
+  // Optional CP-SAT tuning knobs used by Vergleichsmodus (comparison mode).
+  // `randomSeed` lets callers race multiple runs with different seeds;
+  // `numWorkers` lets those parallel runs use smaller per-process portfolios.
+  randomSeed?: number;
+  numWorkers?: number;
   employees: SolverEmployee[];
   shiftProfiles: SolverShiftProfile[];
   staffingRequirements: SolverStaffingRequirement[];

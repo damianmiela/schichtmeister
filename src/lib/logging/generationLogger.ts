@@ -1,5 +1,11 @@
 import { writeLog } from "./serverLogger";
-import type { GenerationStartEvent, GenerationCompleteEvent, GenerationErrorEvent } from "./logTypes";
+import type {
+  GenerationStartEvent,
+  GenerationCompleteEvent,
+  GenerationErrorEvent,
+  GenerationQualityMetrics,
+  GenerationVariant,
+} from "./logTypes";
 
 /**
  * Log the start of a schedule generation.
@@ -47,6 +53,13 @@ export function logGenerationComplete(params: {
   unmetStaffingCount: number;
   unfulfilledWishCount: number;
   objectiveValue?: number;
+  // ── Vergleichsmodus fields (optional, only set in comparison mode) ──
+  variant?: GenerationVariant;
+  comparisonId?: string;
+  winner?: boolean;
+  qualityMetrics?: GenerationQualityMetrics;
+  randomSeed?: number;
+  numWorkers?: number;
 }): void {
   const event: GenerationCompleteEvent = {
     ts: new Date().toISOString(),
@@ -62,6 +75,12 @@ export function logGenerationComplete(params: {
       unmetStaffingCount: params.unmetStaffingCount,
       unfulfilledWishCount: params.unfulfilledWishCount,
       objectiveValue: params.objectiveValue,
+      variant: params.variant,
+      comparisonId: params.comparisonId,
+      winner: params.winner,
+      qualityMetrics: params.qualityMetrics,
+      randomSeed: params.randomSeed,
+      numWorkers: params.numWorkers,
     },
   };
   writeLog("system", event);

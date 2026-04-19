@@ -88,6 +88,20 @@ export interface GenerationStartEvent extends BaseLogEntry {
   };
 }
 
+/** Headline quality metrics computed by the solver (see solver/models.py). */
+export interface GenerationQualityMetrics {
+  maxOverSollH: number;
+  avgAbsDeviationH: number;
+  blWeekViolations: number;
+  peakEmployeeId?: string | null;
+  peakEmployeeDeltaH: number;
+  employeesOutsideRange: number;
+}
+
+/** Comparison-mode variant label. "baseline" = current engine settings,
+ * "race" = parallel-seed race mode.  Omitted on single-run generations. */
+export type GenerationVariant = "baseline" | "race";
+
 export interface GenerationCompleteEvent extends BaseLogEntry {
   type: "generation_complete";
   data: {
@@ -99,6 +113,13 @@ export interface GenerationCompleteEvent extends BaseLogEntry {
     unmetStaffingCount: number;
     unfulfilledWishCount: number;
     objectiveValue?: number;
+    // ── Vergleichsmodus fields (only set when comparison mode is active) ──
+    variant?: GenerationVariant;           // "baseline" | "race"
+    comparisonId?: string;                 // groups the runs of one comparison
+    winner?: boolean;                      // true if this run was selected
+    qualityMetrics?: GenerationQualityMetrics;
+    randomSeed?: number;                   // seed used (race runs only)
+    numWorkers?: number;                   // CP-SAT num_workers used
   };
 }
 

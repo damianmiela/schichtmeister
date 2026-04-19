@@ -130,6 +130,75 @@ function sseEvent(data: Record<string, unknown>): string {
   return `data: ${JSON.stringify(data)}\n\n`;
 }
 
+/**
+ * Run a single /solve-stream call against the Python solver, forwarding
+ * progress events (optionally tagged with `variant`) and returning the final
+ * result payload.  Thin wrapper shared by the single-run and Vergleichsmodus
+ * paths.
+ */
+async function runSolverStream(args: {
+  payload: SolverPayload;
+  variant: string | null;           // e.g. "baseline" | "A" | "B" | null
+  send: (data: Record<string, unknown>) => void;
+  timeoutMs: number;
+}): Promise<{
+  result: Record<string, unknown> | null;
+  httpStatus: number;
+  errorText?: string;
+}> {
+  const { payload, variant, send, timeoutMs } = args;
+  const tagged = (ev: Record<string, unknown>) =>
+    variant ? { ...ev, variant } : ev;
+  const solverResp = await fetch(`${SOLVER_URL}/solve-stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!solverResp.ok || !solverResp.body) {
+    const errBody = await solverResp.text().catch(() => "");
+    return { result: null, httpStatus: solverResp.status, errorText: errBody };
+  }
+  const reader = solverResp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let result: Record<string, unknown> | null = null;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        const event = JSON.parse(trimmed);
+        if (event.type === "result") {
+          result = event.data as Record<string, unknown>;
+        } else {
+          send(tagged(event));
+        }
+      } catch {
+        // skip malformed
+      }
+    }
+  }
+  if (buffer.trim()) {
+    try {
+      const event = JSON.parse(buffer.trim());
+      if (event.type === "result") {
+        result = event.data as Record<string, unknown>;
+      } else {
+        send(tagged(event));
+      }
+    } catch {
+      // skip
+    }
+  }
+  return { result, httpStatus: solverResp.status };
+}
+
 export async function POST(request: Request, context: RouteCtx) {
   const { session, error } = await requirePlanner();
   if (error === "UNAUTHORIZED") return plannerJsonErrors.unauthorized();
@@ -146,6 +215,9 @@ export async function POST(request: Request, context: RouteCtx) {
   const clientMaxSolveTime = typeof body?.maxSolveTimeSeconds === "number"
     ? Math.max(30, Math.min(3600, body.maxSolveTimeSeconds))
     : null;
+  // Vergleichsmodus (Testphase): run baseline + 2 race variants, pick winner.
+  // Triggered by the checkbox on the pre-generation modal.
+  const comparisonMode = body?.comparisonMode === true;
 
   const schedule = await prisma.schedule.findFirst({
     where: { id: scheduleId, facilityId },
@@ -253,83 +325,198 @@ export async function POST(request: Request, context: RouteCtx) {
         });
 
         // Call solver streaming endpoint
-        // Timeout = configured solve time + 60s buffer for model build + result extraction
-        const solverTimeoutMs = ((payload.maxSolveTimeSeconds ?? 120) + 60) * 1000;
-        console.log(`[generate-stream] Calling solver at ${SOLVER_URL}/solve-stream, timeout=${solverTimeoutMs}ms, previousAssignments=${payload.previousAssignments?.length ?? 0}`);
-        const solverResp = await fetch(`${SOLVER_URL}/solve-stream`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-          signal: AbortSignal.timeout(solverTimeoutMs),
-        });
-        console.log(`[generate-stream] Solver response status: ${solverResp.status}, hasBody: ${!!solverResp.body}`);
+        // Timeout = configured solve time + 60s buffer for model build + result extraction.
+        // In Vergleichsmodus we run baseline + race sequentially, so double it.
+        const perPhaseTimeoutMs = ((payload.maxSolveTimeSeconds ?? 120) + 60) * 1000;
+        const solverTimeoutMs = comparisonMode ? perPhaseTimeoutMs * 2 : perPhaseTimeoutMs;
+        console.log(
+          `[generate-stream] Calling solver at ${SOLVER_URL}/solve-stream, ` +
+          `comparisonMode=${comparisonMode}, perPhaseTimeout=${perPhaseTimeoutMs}ms, ` +
+          `previousAssignments=${payload.previousAssignments?.length ?? 0}`,
+        );
 
-        if (!solverResp.ok || !solverResp.body) {
-          const errBody = await solverResp.text().catch(() => "");
-          console.error(`[generate-stream] Solver error: ${solverResp.status} — ${errBody.slice(0, 500)}`);
+        // ── Collected results from all runs (baseline + optional race A/B) ──
+        type RunRecord = {
+          variant: "baseline" | "A" | "B";
+          label: string;            // user-visible label, e.g. "Basis" / "VGL A"
+          result: Record<string, unknown>;
+          randomSeed?: number;
+          numWorkers: number;
+        };
+        const runs: RunRecord[] = [];
+
+        // ── Phase 1: baseline (current engine settings) ──
+        if (comparisonMode) {
+          send({
+            type: "progress",
+            stage: "phase_1_baseline",
+            label: "Phase 1/2: Basis-Lauf…",
+            pct: 5,
+          });
+        }
+        const baselineAttempt = await runSolverStream({
+          payload,                        // numWorkers/randomSeed unset → solver uses defaults (4, none)
+          variant: comparisonMode ? "baseline" : null,
+          send,
+          timeoutMs: perPhaseTimeoutMs,
+        });
+        if (baselineAttempt.httpStatus !== 200 || !baselineAttempt.result) {
+          console.error(
+            `[generate-stream] Solver baseline error: ${baselineAttempt.httpStatus} — ` +
+            `${(baselineAttempt.errorText ?? "").slice(0, 500)}`,
+          );
           send({
             type: "error",
-            error: `Solver returned ${solverResp.status}: ${errBody.slice(0, 200)}`,
+            error:
+              `Solver returned ${baselineAttempt.httpStatus}: ` +
+              `${(baselineAttempt.errorText ?? "").slice(0, 200)}`,
           });
           controller.close();
           return;
         }
+        runs.push({
+          variant: "baseline",
+          label: comparisonMode ? "Basis" : "Einzellauf",
+          result: baselineAttempt.result,
+          numWorkers: 4,
+        });
 
-        // Read NDJSON from solver and forward as SSE
-        const reader = solverResp.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        let solverResult: Record<string, unknown> | null = null;
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-
-          const lines = buffer.split("\n");
-          buffer = lines.pop() ?? "";
-
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed) continue;
-            try {
-              const event = JSON.parse(trimmed);
-              if (event.type === "result") {
-                solverResult = event.data;
-                send({
-                  type: "progress",
-                  stage: "saving",
-                  label: "Speichere Ergebnisse...",
-                  pct: 90,
-                });
-              } else {
-                send(event);
-              }
-            } catch {
-              // skip malformed lines
-            }
+        // ── Phase 2: race (two parallel runs with distinct seeds) ──
+        if (comparisonMode) {
+          send({
+            type: "progress",
+            stage: "phase_2_racing",
+            label: "Phase 2/2: Parallel-Rennen (2 Läufe)…",
+            pct: 50,
+          });
+          // Timestamp-derived seeds ensure each run is different AND different
+          // across invocations — so we really sample the objective landscape.
+          const seedBase = Date.now();
+          const seedA = seedBase & 0x7fffffff;
+          const seedB = (seedBase + 97) & 0x7fffffff;
+          const racePayloadA: SolverPayload = {
+            ...payload,
+            randomSeed: seedA,
+            numWorkers: 2,
+          };
+          const racePayloadB: SolverPayload = {
+            ...payload,
+            randomSeed: seedB,
+            numWorkers: 2,
+          };
+          console.log(
+            `[generate-stream] Race starting: seedA=${seedA}, seedB=${seedB}`,
+          );
+          const [raceA, raceB] = await Promise.all([
+            runSolverStream({
+              payload: racePayloadA,
+              variant: "A",
+              send,
+              timeoutMs: perPhaseTimeoutMs,
+            }),
+            runSolverStream({
+              payload: racePayloadB,
+              variant: "B",
+              send,
+              timeoutMs: perPhaseTimeoutMs,
+            }),
+          ]);
+          if (raceA.httpStatus === 200 && raceA.result) {
+            runs.push({
+              variant: "A",
+              label: "VGL A",
+              result: raceA.result,
+              randomSeed: seedA,
+              numWorkers: 2,
+            });
+          } else {
+            console.error(
+              `[generate-stream] Race A failed: status=${raceA.httpStatus} ` +
+              `err=${(raceA.errorText ?? "").slice(0, 200)}`,
+            );
+          }
+          if (raceB.httpStatus === 200 && raceB.result) {
+            runs.push({
+              variant: "B",
+              label: "VGL B",
+              result: raceB.result,
+              randomSeed: seedB,
+              numWorkers: 2,
+            });
+          } else {
+            console.error(
+              `[generate-stream] Race B failed: status=${raceB.httpStatus} ` +
+              `err=${(raceB.errorText ?? "").slice(0, 200)}`,
+            );
           }
         }
-        // process any remaining buffer
-        if (buffer.trim()) {
-          try {
-            const event = JSON.parse(buffer.trim());
-            if (event.type === "result") {
-              solverResult = event.data;
-            } else {
-              send(event);
-            }
-          } catch {
-            // skip
-          }
+
+        // ── Pick the winning run ──
+        // Criterion: lowest finite objectiveValue among feasible runs
+        // (CP-SAT minimizes). Ties broken by higher assignmentCount, then
+        // by baseline (stability). If every run is INFEASIBLE/UNKNOWN, keep
+        // baseline so the existing error-path still surfaces a reason to the UI.
+        const isFeasible = (r: RunRecord) =>
+          r.result.status === "OPTIMAL" || r.result.status === "FEASIBLE";
+        const feasibleRuns = runs.filter(isFeasible);
+        const pickFrom = feasibleRuns.length > 0 ? feasibleRuns : runs;
+        pickFrom.sort((a, b) => {
+          const oa = typeof a.result.objectiveValue === "number"
+            ? (a.result.objectiveValue as number)
+            : Number.POSITIVE_INFINITY;
+          const ob = typeof b.result.objectiveValue === "number"
+            ? (b.result.objectiveValue as number)
+            : Number.POSITIVE_INFINITY;
+          if (oa !== ob) return oa - ob;
+          const aa = Array.isArray(a.result.assignments)
+            ? (a.result.assignments as unknown[]).length
+            : 0;
+          const ab = Array.isArray(b.result.assignments)
+            ? (b.result.assignments as unknown[]).length
+            : 0;
+          if (aa !== ab) return ab - aa;
+          // Prefer baseline on full tie for determinism
+          if (a.variant === "baseline" && b.variant !== "baseline") return -1;
+          if (b.variant === "baseline" && a.variant !== "baseline") return 1;
+          return 0;
+        });
+        const winnerRun = pickFrom[0]!;
+        const solverResult = winnerRun.result;
+
+        if (comparisonMode) {
+          // Let the UI show which run won and with what objective
+          const summaryRows = runs.map((r) => ({
+            variant: r.variant,
+            label: r.label,
+            status: r.result.status,
+            objectiveValue:
+              typeof r.result.objectiveValue === "number"
+                ? (r.result.objectiveValue as number)
+                : null,
+            qualityMetrics: r.result.qualityMetrics ?? null,
+          }));
+          send({
+            type: "progress",
+            stage: "comparison_picked",
+            label: `Gewinner: ${winnerRun.label} (obj=${
+              typeof solverResult.objectiveValue === "number"
+                ? Math.round(solverResult.objectiveValue as number).toLocaleString("de-DE")
+                : "N/A"
+            })`,
+            pct: 85,
+            comparison: {
+              winnerVariant: winnerRun.variant,
+              runs: summaryRows,
+            },
+          });
         }
 
-        if (!solverResult) {
-          console.error("[generate-stream] No solver result received from stream");
-          send({ type: "error", error: "Solver lieferte kein Ergebnis." });
-          controller.close();
-          return;
-        }
+        send({
+          type: "progress",
+          stage: "saving",
+          label: "Speichere Ergebnisse...",
+          pct: 90,
+        });
 
         const solverStatus = solverResult.status as string;
         const solverAssignments =
@@ -644,17 +831,79 @@ export async function POST(request: Request, context: RouteCtx) {
         await snapshotCurrentVersion(scheduleId, "Automatisch generiert", undefined, true);
 
         // ── System log: generation complete ──
-        logGenerationComplete({
-          userId,
-          scheduleId,
-          status: solverStatus,
-          solveTimeMs: Date.now() - genStartTime,
-          assignmentCount: solverAssignments.length,
-          warningCount: allWarnings.length,
-          unmetStaffingCount: 0,
-          unfulfilledWishCount: ((solverResult.unfulfilledWishes as string[]) ?? []).length,
-          objectiveValue: typeof solverResult.objectiveValue === "number" ? solverResult.objectiveValue : undefined,
-        });
+        // In Vergleichsmodus we log ONE event per run (baseline + race A + race B),
+        // tagged with a shared comparisonId so the Generator-Protokoll can pair
+        // them up, and a `winner: true` flag on whichever run was picked.
+        const comparisonId = comparisonMode
+          ? `${scheduleId}:${genStartTime}`
+          : undefined;
+
+        for (const r of runs) {
+          const isWinner = r === winnerRun;
+          const objVal =
+            typeof r.result.objectiveValue === "number"
+              ? (r.result.objectiveValue as number)
+              : undefined;
+          const qm = r.result.qualityMetrics as
+            | {
+                maxOverSollH?: number;
+                avgAbsDeviationH?: number;
+                blWeekViolations?: number;
+                peakEmployeeId?: string | null;
+                peakEmployeeDeltaH?: number;
+                employeesOutsideRange?: number;
+              }
+            | null
+            | undefined;
+          const qualityMetrics = qm && typeof qm === "object"
+            ? {
+                maxOverSollH: qm.maxOverSollH ?? 0,
+                avgAbsDeviationH: qm.avgAbsDeviationH ?? 0,
+                blWeekViolations: qm.blWeekViolations ?? 0,
+                peakEmployeeId: qm.peakEmployeeId ?? null,
+                peakEmployeeDeltaH: qm.peakEmployeeDeltaH ?? 0,
+                employeesOutsideRange: qm.employeesOutsideRange ?? 0,
+              }
+            : undefined;
+
+          const runAssignments = Array.isArray(r.result.assignments)
+            ? (r.result.assignments as unknown[])
+            : [];
+          const runUnfulfilled = Array.isArray(r.result.unfulfilledWishes)
+            ? (r.result.unfulfilledWishes as string[])
+            : [];
+
+          logGenerationComplete({
+            userId,
+            scheduleId,
+            status: r.result.status as string,
+            // Only the winner reflects the end-to-end (persist + validate + score)
+            // wall time; losers just report the raw solve time reported by Python.
+            solveTimeMs: isWinner
+              ? Date.now() - genStartTime
+              : typeof r.result.solveTimeMs === "number"
+                ? (r.result.solveTimeMs as number)
+                : 0,
+            assignmentCount: isWinner
+              ? solverAssignments.length
+              : runAssignments.length,
+            warningCount: isWinner ? allWarnings.length : 0,
+            unmetStaffingCount: 0,
+            unfulfilledWishCount: runUnfulfilled.length,
+            objectiveValue: objVal,
+            // Comparison-mode fields (undefined when comparisonMode === false)
+            variant: comparisonMode
+              ? r.variant === "baseline"
+                ? "baseline"
+                : "race"
+              : undefined,
+            comparisonId,
+            winner: comparisonMode ? isWinner : undefined,
+            qualityMetrics,
+            randomSeed: r.randomSeed,
+            numWorkers: r.numWorkers,
+          });
+        }
 
         send({
           type: "complete",
@@ -665,6 +914,24 @@ export async function POST(request: Request, context: RouteCtx) {
             unfulfilledWishes:
               (solverResult.unfulfilledWishes as string[]) ?? [],
             warnings: allWarnings,
+            // Expose comparison summary so the UI can confirm which run won
+            comparison: comparisonMode
+              ? {
+                  winnerVariant: winnerRun.variant,
+                  runs: runs.map((r) => ({
+                    variant: r.variant,
+                    label: r.label,
+                    status: r.result.status,
+                    objectiveValue:
+                      typeof r.result.objectiveValue === "number"
+                        ? (r.result.objectiveValue as number)
+                        : null,
+                    qualityMetrics: r.result.qualityMetrics ?? null,
+                    randomSeed: r.randomSeed ?? null,
+                    numWorkers: r.numWorkers,
+                  })),
+                }
+              : undefined,
           },
         });
       } catch (e) {

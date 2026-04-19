@@ -36,6 +36,7 @@ import {
   Divider,
   Autocomplete,
   TextField,
+  Checkbox,
   ListItemIcon,
   ListItemText,
 } from "@mui/material";
@@ -265,6 +266,13 @@ export default function SchedulePage() {
   const [preGenEntries, setPreGenEntries] = useState<PreGenEntry[]>([]);
   const [preGenSaving, setPreGenSaving] = useState(false);
   const [solveTimeDraft, setSolveTimeDraft] = useState("120");
+  // Vergleichsmodus (Testphase): when on, the API runs baseline + parallel race
+  // and picks the better plan. Roughly 2× generation time.
+  const [comparisonMode, setComparisonMode] = useState(false);
+  // Phase label shown in the progress modal when comparisonMode is active.
+  const [genPhaseLabel, setGenPhaseLabel] = useState<string | null>(null);
+  // Live objective value reported by the solver (lower is better).
+  const [genObjective, setGenObjective] = useState<number | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [editedCells, setEditedCells] = useState<Map<string, CellEdit>>(new Map());
   const [editedShiftWishSet, setEditedShiftWishSet] = useState<Set<string>>(new Set());
@@ -784,11 +792,17 @@ export default function SchedulePage() {
       blockedDates?: { employeeId: string; date: string }[];
       absences?: { employeeId: string; type: string; startDate: string; endDate: string }[];
       maxSolveTimeSeconds?: number;
+      comparisonMode?: boolean;
     } = {};
     if (manualPlacements.length > 0) body.manualPlacements = manualPlacements;
     if (blockedDates.length > 0) body.blockedDates = blockedDates;
     if (absences.length > 0) body.absences = absences;
     if (solveTimeVal >= 30 && solveTimeVal <= 3600) body.maxSolveTimeSeconds = solveTimeVal;
+    if (comparisonMode) body.comparisonMode = true;
+
+    // Reset Vergleichsmodus progress indicators for this run
+    setGenPhaseLabel(comparisonMode ? "Phase 1/2: Basis-Lauf…" : null);
+    setGenObjective(null);
 
     try {
       const resp = await fetch(`/api/schedules/${schedule.id}/generate-stream`, {
@@ -820,6 +834,18 @@ export default function SchedulePage() {
           try {
             const event = JSON.parse(trimmed.slice(6));
             if (event.type === "progress") {
+              // Vergleichsmodus phase markers come from the API route
+              if (event.stage === "phase_1_baseline") {
+                setGenPhaseLabel("Phase 1/2: Basis-Lauf…");
+              } else if (event.stage === "phase_2_racing") {
+                setGenPhaseLabel("Phase 2/2: Parallel-Rennen (2 Läufe)…");
+              } else if (event.stage === "comparison_picked") {
+                setGenPhaseLabel(event.label ?? "Gewinner gewählt");
+              }
+              // Track the live objective value (lower = better for CP-SAT)
+              if (typeof event.objective === "number") {
+                setGenObjective(event.objective);
+              }
               setGenProgress({
                 label: event.label ?? "",
                 solutions: event.solutions,
@@ -2416,6 +2442,27 @@ export default function SchedulePage() {
               }}
             />
           </Box>
+
+          {/* Vergleichsmodus (Testphase) */}
+          <Box sx={{ mt: 2, display: "flex", alignItems: "flex-start", gap: 1 }}>
+            <Checkbox
+              size="small"
+              checked={comparisonMode}
+              onChange={(e) => setComparisonMode(e.target.checked)}
+              sx={{ mt: -0.5 }}
+            />
+            <Box sx={{ flex: 1 }}>
+              <Typography variant="subtitle2" sx={{ mb: 0.25 }}>
+                Vergleichsmodus (Testphase)
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Führt zuerst den Standard-Lauf aus und dann zwei Parallel-Läufe
+                mit anderen Zufallswerten. Der beste Plan wird übernommen.
+                Dauert ca. 2× so lange wie eine normale Generierung. Alle
+                Läufe erscheinen im Generator-Protokoll.
+              </Typography>
+            </Box>
+          </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setPreGenOpen(false)}>Abbrechen</Button>
@@ -2432,7 +2479,17 @@ export default function SchedulePage() {
 
       {/* Generation progress modal */}
       <Dialog open={genModalOpen} maxWidth="sm" fullWidth>
-        <DialogTitle>Dienstplan wird generiert</DialogTitle>
+        <DialogTitle>
+          Dienstplan wird generiert
+          {comparisonMode ? (
+            <Chip
+              label="Vergleichsmodus"
+              size="small"
+              color="info"
+              sx={{ ml: 1, verticalAlign: "middle" }}
+            />
+          ) : null}
+        </DialogTitle>
         <DialogContent>
           <Box sx={{ mb: 2 }}>
             <LinearProgress
@@ -2440,6 +2497,15 @@ export default function SchedulePage() {
               value={genProgress.done ? 100 : undefined}
               sx={{ height: 6, borderRadius: 1, mb: 2 }}
             />
+            {comparisonMode && genPhaseLabel ? (
+              <Typography
+                variant="body2"
+                color="info.main"
+                sx={{ fontWeight: 500, mb: 0.5 }}
+              >
+                {genPhaseLabel}
+              </Typography>
+            ) : null}
             <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
               <Typography variant="body2" color="text.secondary">
                 {genProgress.solutions != null && genProgress.solutions > 0
@@ -2447,9 +2513,19 @@ export default function SchedulePage() {
                   : genProgress.label}
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ fontVariantNumeric: "tabular-nums", ml: 2, whiteSpace: "nowrap" }}>
-                {genElapsed}/{solveTimeDraft}s
+                {genElapsed}/{comparisonMode ? Number(solveTimeDraft) * 2 : solveTimeDraft}s
               </Typography>
             </Box>
+            {comparisonMode && genObjective != null ? (
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ display: "block", mt: 0.5 }}
+              >
+                Live-Gewicht (niedriger = besser):{" "}
+                <strong>{genObjective.toFixed(0)}</strong>
+              </Typography>
+            ) : null}
           </Box>
         </DialogContent>
       </Dialog>

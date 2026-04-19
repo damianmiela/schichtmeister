@@ -30,6 +30,8 @@ import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import SettingsIcon from "@mui/icons-material/Settings";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
+import CompareArrowsIcon from "@mui/icons-material/CompareArrows";
 import type { LogEntry } from "@/lib/logging/logTypes";
 
 /* ═══════════════════════════ types ═══════════════════════════ */
@@ -123,8 +125,38 @@ function getEventDetail(entry: LogEntry): string {
       return `Dauer: ${formatDuration(d.durationMs as number)}`;
     case "generation_start":
       return `Plan ${(d.month as string)} · ${d.employeeCount} MA · ${d.profileCount} Profile · Max ${d.maxSolveTimeSeconds}s`;
-    case "generation_complete":
-      return `${d.status} · ${d.assignmentCount} Zuweisungen · ${d.warningCount} Warnungen · ${formatDuration(d.solveTimeMs as number)}`;
+    case "generation_complete": {
+      const parts: string[] = [
+        `${d.status}`,
+        `${d.assignmentCount} Zuweisungen`,
+        `${d.warningCount} Warnungen`,
+        formatDuration(d.solveTimeMs as number),
+      ];
+      if (typeof d.objectiveValue === "number") {
+        parts.push(`obj=${Math.round(d.objectiveValue as number).toLocaleString("de-DE")}`);
+      }
+      const qm = d.qualityMetrics as
+        | {
+            maxOverSollH?: number;
+            avgAbsDeviationH?: number;
+            blWeekViolations?: number;
+          }
+        | undefined;
+      if (qm && typeof qm === "object") {
+        const qParts: string[] = [];
+        if (typeof qm.maxOverSollH === "number")
+          qParts.push(`max+${qm.maxOverSollH.toFixed(1)}h`);
+        if (typeof qm.avgAbsDeviationH === "number")
+          qParts.push(`Ø|Δ|${qm.avgAbsDeviationH.toFixed(1)}h`);
+        if (typeof qm.blWeekViolations === "number" && qm.blWeekViolations > 0)
+          qParts.push(`BL-Lücken ${qm.blWeekViolations}`);
+        if (qParts.length > 0) parts.push(qParts.join(" · "));
+      }
+      if (typeof d.randomSeed === "number") {
+        parts.push(`seed=${d.randomSeed}`);
+      }
+      return parts.join(" · ");
+    }
     case "generation_error":
       return `${d.error}${d.status ? ` (${d.status})` : ""}`;
     case "login":
@@ -417,6 +449,21 @@ export default function ActivityLogTab() {
             {entries.map((entry, i) => {
               const meta = getEventMeta(entry.type);
               const detail = getEventDetail(entry);
+              // Vergleichsmodus extras (only present on generation_complete
+              // events emitted when comparisonMode was active).
+              const data = entry.data as Record<string, unknown>;
+              const variant = data.variant as "baseline" | "race" | undefined;
+              const isWinner = data.winner === true;
+              const comparisonId = data.comparisonId as string | undefined;
+              const randomSeed =
+                typeof data.randomSeed === "number"
+                  ? (data.randomSeed as number)
+                  : null;
+              const vglBadgeLabel = variant
+                ? variant === "baseline"
+                  ? "VGL · Basis"
+                  : `VGL · ${randomSeed != null ? `Seed ${randomSeed}` : "Race"}`
+                : null;
               return (
                 <Box
                   key={`${entry.ts}-${i}`}
@@ -492,6 +539,55 @@ export default function ActivityLogTab() {
                         "& .MuiChip-icon": { color: meta.color },
                       }}
                     />
+
+                    {/* Vergleichsmodus variant badge */}
+                    {vglBadgeLabel ? (
+                      <Tooltip
+                        title={
+                          comparisonId
+                            ? `Vergleichs-ID: ${comparisonId}`
+                            : "Vergleichsmodus"
+                        }
+                      >
+                        <Chip
+                          icon={
+                            <CompareArrowsIcon sx={{ fontSize: 14 }} />
+                          }
+                          label={vglBadgeLabel}
+                          size="small"
+                          variant="outlined"
+                          sx={{
+                            borderColor: "#0288d1",
+                            color: "#0288d1",
+                            fontWeight: 600,
+                            fontSize: 10,
+                            height: 22,
+                            flexShrink: 0,
+                            "& .MuiChip-icon": { color: "#0288d1" },
+                          }}
+                        />
+                      </Tooltip>
+                    ) : null}
+
+                    {/* Winner trophy */}
+                    {isWinner ? (
+                      <Tooltip title="Gewinner-Lauf — dieser Plan wurde übernommen">
+                        <Chip
+                          icon={<EmojiEventsIcon sx={{ fontSize: 14 }} />}
+                          label="Gewinner"
+                          size="small"
+                          sx={{
+                            bgcolor: "#fff8e1",
+                            color: "#ef6c00",
+                            fontWeight: 700,
+                            fontSize: 10,
+                            height: 22,
+                            flexShrink: 0,
+                            "& .MuiChip-icon": { color: "#ef6c00" },
+                          }}
+                        />
+                      </Tooltip>
+                    ) : null}
 
                     {/* Detail */}
                     <Typography
