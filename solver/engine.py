@@ -608,23 +608,25 @@ def solve_streaming(request: SolveRequest) -> Generator[str, None, None]:
 
     import threading
 
-    def _run_and_wait(current_model, current_solver, callback, progress_events):
-        """Run solver in thread, yielding progress events as they come."""
-        result_holder: list[int] = []
+    def _stream_solve(current_model, current_solver, callback, progress_events, result_holder):
+        """Generator — runs solver in thread and yields progress events live.
 
+        Status code is stored in ``result_holder[0]`` once the solver finishes.
+        Caller uses ``yield from _stream_solve(...)`` so every event reaches the
+        SSE stream as soon as the CP-SAT callback pushes it to the shared list.
+        """
         def _run_solver():
             result_holder.append(current_solver.Solve(current_model, callback))
 
         solver_thread = threading.Thread(target=_run_solver)
         solver_thread.start()
-        events: list[str] = []
         while solver_thread.is_alive():
             solver_thread.join(timeout=0.5)
             while progress_events:
-                events.append(progress_events.pop(0) + "\n")
+                yield progress_events.pop(0) + "\n"
+        # Drain any events added between the last check and thread exit
         while progress_events:
-            events.append(progress_events.pop(0) + "\n")
-        return result_holder[0] if result_holder else cp_model.UNKNOWN, events
+            yield progress_events.pop(0) + "\n"
 
     # ── Phase 1: strict solve ──
     solver = cp_model.CpSolver()
@@ -632,9 +634,9 @@ def solve_streaming(request: SolveRequest) -> Generator[str, None, None]:
     solver.parameters.num_workers = 4
     progress_events: list[str] = []
     callback = ProgressCallback(progress_events, wall_start)
-    status_code, events = _run_and_wait(model, solver, callback, progress_events)
-    for ev in events:
-        yield ev
+    result_holder: list[int] = []
+    yield from _stream_solve(model, solver, callback, progress_events, result_holder)
+    status_code = result_holder[0] if result_holder else cp_model.UNKNOWN
 
     status_str = STATUS_MAP.get(status_code, "UNKNOWN")
 
@@ -666,9 +668,9 @@ def solve_streaming(request: SolveRequest) -> Generator[str, None, None]:
         solver.parameters.num_workers = 4
         progress_events = []
         callback = ProgressCallback(progress_events, wall_start)
-        status_code, events = _run_and_wait(model, solver, callback, progress_events)
-        for ev in events:
-            yield ev
+        result_holder = []
+        yield from _stream_solve(model, solver, callback, progress_events, result_holder)
+        status_code = result_holder[0] if result_holder else cp_model.UNKNOWN
         status_str = STATUS_MAP.get(status_code, "UNKNOWN")
 
     wall_ms = (time.perf_counter() - wall_start) * 1000
