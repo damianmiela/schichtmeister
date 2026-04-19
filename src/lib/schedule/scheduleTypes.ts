@@ -15,12 +15,15 @@ export type PreGenWishesJson = {
   savedEntries?: PreGenEntryJson[];
 };
 
+export type VirtualPlacement = "1" | "2" | "3" | "NIGHT";
+
 export type ScheduleJson = {
   id: string;
   periodStart: string;
   periodEnd: string;
   warnings?: string[];
   preGenWishes?: PreGenWishesJson | null;
+  virtualPlacements?: Record<string, VirtualPlacement>;
   currentVersionId?: string | null;
 };
 

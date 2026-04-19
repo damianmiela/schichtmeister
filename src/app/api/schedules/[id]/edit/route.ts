@@ -25,6 +25,20 @@ type IncomingWishes = {
   freiDates?: { employeeId: string; date: string }[];
 };
 
+type VirtualPlacement = "1" | "2" | "3" | "NIGHT";
+
+function parseVirtualPlacements(raw: unknown): Record<string, VirtualPlacement> | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === null || typeof raw !== "object") return {};
+  const out: Record<string, VirtualPlacement> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof k === "string" && (v === "1" || v === "2" || v === "3" || v === "NIGHT")) {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
 function parseAssignments(raw: unknown): IncomingAssignment[] {
   if (!Array.isArray(raw)) return [];
   const out: IncomingAssignment[] = [];
@@ -70,6 +84,7 @@ export async function POST(request: Request, context: RouteCtx) {
   const body = await request.json().catch(() => ({}));
   const incoming = parseAssignments(body?.assignments);
   const wishes: IncomingWishes = body?.preGenWishes ?? {};
+  const virtualPlacements = parseVirtualPlacements(body?.virtualPlacements);
 
   const existing = await prisma.assignment.findMany({
     where: { scheduleId },
@@ -176,9 +191,17 @@ export async function POST(request: Request, context: RouteCtx) {
         ? JSON.stringify(preGenObj)
         : null;
 
+    const scheduleUpdateData: { preGenWishesJson: string | null; virtualPlacementsJson?: string | null } = {
+      preGenWishesJson,
+    };
+    if (virtualPlacements !== undefined) {
+      scheduleUpdateData.virtualPlacementsJson =
+        Object.keys(virtualPlacements).length > 0 ? JSON.stringify(virtualPlacements) : null;
+    }
+
     await tx.schedule.update({
       where: { id: scheduleId },
-      data: { preGenWishesJson },
+      data: scheduleUpdateData,
     });
   });
 

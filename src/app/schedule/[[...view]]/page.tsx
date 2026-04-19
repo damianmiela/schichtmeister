@@ -262,6 +262,7 @@ export default function SchedulePage() {
   const [editedCells, setEditedCells] = useState<Map<string, CellEdit>>(new Map());
   const [editedShiftWishSet, setEditedShiftWishSet] = useState<Set<string>>(new Set());
   const [editedFreiWishSet, setEditedFreiWishSet] = useState<Set<string>>(new Set());
+  const [editedVirtualPlacements, setEditedVirtualPlacements] = useState<Record<string, "1" | "2" | "3" | "NIGHT">>({});
   const [editSaving, setEditSaving] = useState(false);
   const [logDialogOpen, setLogDialogOpen] = useState(false);
   const [logContent, setLogContent] = useState<string | null>(null);
@@ -1102,12 +1103,26 @@ export default function SchedulePage() {
     setEditedCells(new Map());
     setEditedShiftWishSet(new Set(shiftWishSet));
     setEditedFreiWishSet(new Set(freiWishSet));
+    setEditedVirtualPlacements({ ...(schedule?.virtualPlacements ?? {}) });
     setEditMode(true);
   };
 
   const cancelEditMode = () => {
     setEditMode(false);
     setEditedCells(new Map());
+    setEditedVirtualPlacements({});
+  };
+
+  const handleVirtualPlacementChange = (employeeId: string, placement: "1" | "2" | "3" | "NIGHT" | null) => {
+    setEditedVirtualPlacements((prev) => {
+      const next = { ...prev };
+      if (placement === null) {
+        delete next[employeeId];
+      } else {
+        next[employeeId] = placement;
+      }
+      return next;
+    });
   };
 
   const handleCellChange = (employeeId: string, date: string, edit: Partial<CellEdit>) => {
@@ -1205,12 +1220,13 @@ export default function SchedulePage() {
         `/api/schedules/${schedule.id}/edit`,
         {
           method: "POST",
-          body: JSON.stringify({ assignments: merged, preGenWishes }),
+          body: JSON.stringify({ assignments: merged, preGenWishes, virtualPlacements: editedVirtualPlacements }),
         },
       );
       await loadBundle({ preserveActionMessage: true });
       setEditMode(false);
       setEditedCells(new Map());
+      setEditedVirtualPlacements({});
       const warnCount = res.warnings?.length ?? 0;
       if (warnCount > 0) {
         setActionAlertSeverity("warning");
@@ -1897,6 +1913,9 @@ export default function SchedulePage() {
               warningsByDay={warningsByDay}
               staffingRequirements={staffing}
               shiftMarkings={shiftMarkings}
+              virtualPlacements={schedule?.virtualPlacements ?? {}}
+              editedVirtualPlacements={editedVirtualPlacements}
+              onVirtualPlacementChange={handleVirtualPlacementChange}
             />
           )}
 

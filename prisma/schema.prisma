@@ -274,6 +274,7 @@ model Schedule {
   publishedAt      DateTime?
   warningsJson     String?
   preGenWishesJson String?
+  virtualPlacementsJson String?
   generationLog    String?
   scoreReport      String?
   createdAt        DateTime         @default(now())

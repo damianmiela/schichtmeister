@@ -21,6 +21,9 @@ import {
 } from "@mui/material";
 import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
+import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
+import CancelIcon from "@mui/icons-material/Cancel";
+import IconButton from "@mui/material/IconButton";
 import { localIsoFromParts } from "@/lib/schedule/monthSchedule";
 import type { AssignmentJson, EmployeeJson, ShiftProfileJson, StaffingJson } from "@/lib/schedule/scheduleTypes";
 import QualificationPills from "@/components/schedule/QualificationPills";
@@ -57,6 +60,15 @@ interface MonthTableViewProps {
   warningsByDay?: Record<string, string[]>;
   staffingRequirements?: StaffingJson[];
   shiftMarkings?: { id: string; code: string; label: string; color: string }[];
+  /** Persisted virtual placements from the Schedule (employeeId -> section). */
+  virtualPlacements?: Record<string, "1" | "2" | "3" | "NIGHT">;
+  /** Buffered edits to virtual placements (active in edit mode). */
+  editedVirtualPlacements?: Record<string, "1" | "2" | "3" | "NIGHT">;
+  /** Called when user adds/removes a virtual placement in edit mode. */
+  onVirtualPlacementChange?: (
+    employeeId: string,
+    placement: "1" | "2" | "3" | "NIGHT" | null,
+  ) => void;
 }
 
 /* ──────────────────────── helpers ──────────────────────── */
@@ -329,6 +341,9 @@ export default function MonthTableView({
   warningsByDay,
   staffingRequirements,
   shiftMarkings = [],
+  virtualPlacements = {},
+  editedVirtualPlacements,
+  onVirtualPlacementChange,
 }: MonthTableViewProps) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
@@ -338,6 +353,12 @@ export default function MonthTableView({
     el: HTMLElement;
     empId: string;
     iso: string;
+  } | null>(null);
+
+  /* ── Add-to-section (virtual placement) popup state ── */
+  const [addAnchor, setAddAnchor] = useState<{
+    el: HTMLElement;
+    section: "1" | "2" | "3" | "NIGHT";
   } | null>(null);
 
   /* ── Multi-cell selection state ── */
@@ -367,15 +388,47 @@ export default function MonthTableView({
     [employees],
   );
 
-  const stationGroups = useMemo(
-    () => groupEmployeesByStation(employees, assignments),
-    [employees, assignments],
+  /**
+   * Effective virtual placements: in edit mode we use the buffered edits
+   * (seeded from schedule.virtualPlacements when entering edit mode); outside
+   * edit mode we use the saved placements directly.
+   */
+  const effectivePlacements = useMemo<Record<string, "1" | "2" | "3" | "NIGHT">>(
+    () => (editMode && editedVirtualPlacements ? editedVirtualPlacements : virtualPlacements),
+    [editMode, editedVirtualPlacements, virtualPlacements],
   );
 
-  const nightEmployees = useMemo(
-    () => getNightEmployees(employees, assignments, profilesById),
-    [employees, assignments, profilesById],
-  );
+  const stationGroups = useMemo(() => {
+    const base = groupEmployeesByStation(employees, assignments);
+    // Fold in virtual placements: include employees in the chosen station
+    // if they are not already there (e.g. no mainStation or different station).
+    for (const [empId, placement] of Object.entries(effectivePlacements)) {
+      if (placement === "NIGHT") continue;
+      const stn = Number(placement) as 1 | 2 | 3;
+      const emp = employeesById[empId];
+      if (!emp) continue;
+      if (emp.contractType === "AUSBILDUNG") continue; // Ausbildung stays in its own section
+      const arr = base[stn]!;
+      if (!arr.some((e) => e.id === empId)) arr.push(emp);
+    }
+    return base;
+  }, [employees, assignments, effectivePlacements, employeesById]);
+
+  const nightEmployees = useMemo(() => {
+    const base = getNightEmployees(employees, assignments, profilesById);
+    const have = new Set(base.map((e) => e.id));
+    for (const [empId, placement] of Object.entries(effectivePlacements)) {
+      if (placement !== "NIGHT") continue;
+      const emp = employeesById[empId];
+      if (!emp) continue;
+      if (emp.contractType === "AUSBILDUNG") continue;
+      if (!have.has(empId)) {
+        base.push(emp);
+        have.add(empId);
+      }
+    }
+    return base;
+  }, [employees, assignments, profilesById, effectivePlacements, employeesById]);
 
   const ausbildungEmployees = useMemo(
     () => employees.filter((e) => e.contractType === "AUSBILDUNG"),
@@ -607,9 +660,16 @@ export default function MonthTableView({
     const assignedEmpIds = new Set(assignments.map((a) => a.employeeId));
     const hasEdits = editMode && editedCells && editedCells.size > 0;
     if (typeof filter === "object" && "station" in filter) {
-      // In edit mode, show all employees in their station (even without assignments yet)
+      // In edit mode, show all employees in their station (even without assignments yet).
+      // Outside edit mode, hide employees without assignments UNLESS they have a virtual
+      // placement for this station — those should remain visible so the user sees the
+      // placement they saved.
       if (!editMode) {
-        filtered = sectionEmployees.filter((emp) => assignedEmpIds.has(emp.id));
+        filtered = sectionEmployees.filter(
+          (emp) =>
+            assignedEmpIds.has(emp.id) ||
+            effectivePlacements[emp.id] === String(filter.station),
+        );
       }
     } else if (filter === "night-only") {
       // Already filtered by getNightEmployees
@@ -629,6 +689,14 @@ export default function MonthTableView({
           : typeof filter === "object" && "station" in filter
             ? STATION_COLORS[filter.station]?.light ?? "grey.100"
             : "grey.100";
+
+    // Resolve the virtual-placement section key for "+" button (station/night only).
+    const addSection: "1" | "2" | "3" | "NIGHT" | null =
+      typeof filter === "object" && "station" in filter
+        ? (String(filter.station) as "1" | "2" | "3")
+        : filter === "night-only"
+          ? "NIGHT"
+          : null;
 
     return (
       <Box key={title} sx={{ mb: 2 }}>
@@ -651,7 +719,20 @@ export default function MonthTableView({
                   whiteSpace: "nowrap",
                 }}
               >
-                {title}
+                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, justifyContent: "space-between" }}>
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{title}</span>
+                  {editMode && addSection && onVirtualPlacementChange && (
+                    <Tooltip title="Mitarbeiter zu dieser Tabelle hinzufügen" arrow>
+                      <IconButton
+                        size="small"
+                        onClick={(e) => setAddAnchor({ el: e.currentTarget, section: addSection })}
+                        sx={{ p: 0.25, ml: 0.5 }}
+                      >
+                        <AddCircleOutlineIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  )}
+                </Box>
               </TableCell>
               <TableCell
                 align="center"
@@ -849,6 +930,20 @@ export default function MonthTableView({
                         tags={tags}
                         compact
                       />
+                      {editMode && onVirtualPlacementChange && effectivePlacements[emp.id] && (
+                        <Tooltip title="Aus dieser Tabelle entfernen" arrow>
+                          <IconButton
+                            size="small"
+                            onClick={(ev) => {
+                              ev.stopPropagation();
+                              onVirtualPlacementChange(emp.id, null);
+                            }}
+                            sx={{ p: 0.25, ml: "auto" }}
+                          >
+                            <CancelIcon fontSize="small" color="action" />
+                          </IconButton>
+                        </Tooltip>
+                      )}
                     </Box>
                   </TableCell>
 
@@ -1279,6 +1374,8 @@ export default function MonthTableView({
     return employees.filter((e) => {
       // Ausbildung employees have their own section — never show here
       if (ausbildungIds.has(e.id)) return false;
+      // Virtually placed → already shown in the chosen station / night table
+      if (effectivePlacements[e.id]) return false;
       // Has assignments → already in station/night table
       if (assignedIds.has(e.id)) {
         // If no mainStation but only night assignments → in night table, not unassigned
@@ -1295,7 +1392,7 @@ export default function MonthTableView({
       }
       return true;
     });
-  }, [employees, assignments, profilesById]);
+  }, [employees, assignments, profilesById, ausbildungIds, effectivePlacements]);
 
   const renderUnassignedSection = () => {
     if (unassignedEmployees.length === 0) return null;
@@ -1409,6 +1506,38 @@ export default function MonthTableView({
           {renderUnassignedSection()}
         </>
       )}
+
+      {/* ── "+" add-to-table popup (virtual placement) ── */}
+      <Menu
+        anchorEl={addAnchor?.el ?? null}
+        open={Boolean(addAnchor)}
+        onClose={() => setAddAnchor(null)}
+        slotProps={{ paper: { sx: { maxHeight: 420, minWidth: 240 } } }}
+      >
+        {(() => {
+          if (!addAnchor) return null;
+          const candidates = sortEmployees(unassignedEmployees);
+          if (candidates.length === 0) {
+            return (
+              <MenuItem disabled dense>
+                Keine verfügbaren Mitarbeiter
+              </MenuItem>
+            );
+          }
+          return candidates.map((emp) => (
+            <MenuItem
+              key={emp.id}
+              dense
+              onClick={() => {
+                onVirtualPlacementChange?.(emp.id, addAnchor.section);
+                setAddAnchor(null);
+              }}
+            >
+              {emp.lastName}, {emp.firstName}
+            </MenuItem>
+          ));
+        })()}
+      </Menu>
 
       {/* ── Right-click context menu (wish toggling) ── */}
       <Menu

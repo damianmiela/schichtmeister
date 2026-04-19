@@ -37,12 +37,32 @@ function parsePreGenWishes(json: string | null): PreGenWishesPayload | null {
   }
 }
 
+export type VirtualPlacement = "1" | "2" | "3" | "NIGHT";
+
+function parseVirtualPlacements(json: string | null): Record<string, VirtualPlacement> {
+  if (!json) return {};
+  try {
+    const parsed = JSON.parse(json);
+    if (!parsed || typeof parsed !== "object") return {};
+    const out: Record<string, VirtualPlacement> = {};
+    for (const [k, v] of Object.entries(parsed)) {
+      if (typeof k === "string" && (v === "1" || v === "2" || v === "3" || v === "NIGHT")) {
+        out[k] = v;
+      }
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
 function serializeSchedule(s: {
   id: string;
   periodStart: Date;
   periodEnd: Date;
   warningsJson: string | null;
   preGenWishesJson?: string | null;
+  virtualPlacementsJson?: string | null;
   currentVersionId?: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -53,6 +73,7 @@ function serializeSchedule(s: {
     periodEnd: toIsoDateOnly(s.periodEnd),
     warnings: parseWarnings(s.warningsJson),
     preGenWishes: parsePreGenWishes(s.preGenWishesJson ?? null),
+    virtualPlacements: parseVirtualPlacements(s.virtualPlacementsJson ?? null),
     currentVersionId: s.currentVersionId ?? null,
     createdAt: s.createdAt.toISOString(),
     updatedAt: s.updatedAt.toISOString(),
