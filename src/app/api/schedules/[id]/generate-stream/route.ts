@@ -383,11 +383,19 @@ export async function POST(request: Request, context: RouteCtx) {
 
         // ── Phase 2: race (two parallel runs with distinct seeds) ──
         if (comparisonMode) {
+          // Surface the baseline's final objective so the UI can display
+          // it live next to the race progress for real-time comparison.
+          const baselineObjective =
+            typeof baselineAttempt.result.objectiveValue === "number"
+              ? (baselineAttempt.result.objectiveValue as number)
+              : null;
           send({
             type: "progress",
             stage: "phase_2_racing",
             label: "Phase 2/2: Parallel-Rennen (2 Läufe)…",
             pct: 50,
+            baselineObjective,
+            baselineStatus: baselineAttempt.result.status,
           });
           // Timestamp-derived seeds ensure each run is different AND different
           // across invocations — so we really sample the objective landscape.
@@ -540,8 +548,27 @@ export async function POST(request: Request, context: RouteCtx) {
         // Pre-flight diagnostic — detect cheap, obvious conflicts
         const preflightIssues = preflightManualPlacements(payload, employeeNames);
 
-        // Build debug log (infeasibility-aware + preflight issues)
-        const debugLog = buildDebugLog(solverResult, payload, employeeNames, preflightIssues);
+        // Build debug log (infeasibility-aware + preflight issues).
+        // In Vergleichsmodus, pass all runs + winner so the log prepends a
+        // comparison table that lets reviewers see all attempts side-by-side.
+        const debugLog = buildDebugLog(
+          solverResult,
+          payload,
+          employeeNames,
+          preflightIssues,
+          comparisonMode
+            ? {
+                runs: runs.map((r) => ({
+                  variant: r.variant,
+                  label: r.label,
+                  result: r.result,
+                  randomSeed: r.randomSeed,
+                  numWorkers: r.numWorkers,
+                })),
+                winnerVariant: winnerRun.variant,
+              }
+            : null,
+        );
 
         if (
           solverStatus === "INFEASIBLE" ||
@@ -1030,12 +1057,25 @@ function preflightManualPlacements(
   return issues;
 }
 
+/** Per-run record passed to buildDebugLog in Vergleichsmodus. */
+type DebugLogRunRecord = {
+  variant: "baseline" | "A" | "B";
+  label: string;
+  result: Record<string, unknown>;
+  randomSeed?: number;
+  numWorkers: number;
+};
+
 /** Build a debug log string from the solver result. */
 function buildDebugLog(
   response: Record<string, unknown>,
   payload: SolverPayload,
   employeeNames: Map<string, string>,
   preflightIssues: string[],
+  comparison: {
+    runs: DebugLogRunRecord[];
+    winnerVariant: "baseline" | "A" | "B";
+  } | null,
 ): string {
   const profMap = new Map(
     payload.shiftProfiles.map((p) => [p.id, p]),
@@ -1050,8 +1090,125 @@ function buildDebugLog(
   const isInfeasible = response.status === "INFEASIBLE" || response.status === "UNKNOWN";
   const nameFor = (id: string) => employeeNames.get(id) ?? id.slice(0, 8);
 
-  const lines: string[] = [
-    `=== CP-SAT Solver Run ===`,
+  const lines: string[] = [];
+
+  // ── Vergleichsmodus header (only when comparison is active) ──
+  if (comparison && comparison.runs.length > 0) {
+    lines.push("=== Vergleichsmodus (Testphase) ===");
+    const winnerRun = comparison.runs.find(
+      (r) => r.variant === comparison.winnerVariant,
+    );
+    const winnerObj =
+      winnerRun && typeof winnerRun.result.objectiveValue === "number"
+        ? (winnerRun.result.objectiveValue as number)
+        : null;
+    lines.push(
+      `Gewinner: ${winnerRun?.label ?? comparison.winnerVariant}` +
+        (winnerObj != null
+          ? ` (obj=${Math.round(winnerObj).toLocaleString("de-DE")})`
+          : ""),
+    );
+    lines.push(
+      "Kriterium: niedrigstes objectiveValue (CP-SAT minimiert) · Gleichstand → mehr Zuweisungen → Basis bevorzugt.",
+    );
+    lines.push("");
+    // Table: one row per run
+    lines.push(
+      `  ${"Lauf".padEnd(22)}  ${"Status".padEnd(10)}  ${"obj".padStart(14)}  ` +
+        `${"Zuw".padStart(5)}  ${"max+h".padStart(7)}  ${"Ø|Δ|h".padStart(7)}  ` +
+        `${"BL-Gap".padStart(6)}  ${"außerh.".padStart(7)}  Seed/NW`,
+    );
+    lines.push("  " + "-".repeat(100));
+    for (const r of comparison.runs) {
+      const isW = r.variant === comparison.winnerVariant;
+      const marker = isW ? "🏆 " : "   ";
+      const obj =
+        typeof r.result.objectiveValue === "number"
+          ? Math.round(r.result.objectiveValue as number).toLocaleString("de-DE")
+          : "—";
+      const asn = Array.isArray(r.result.assignments)
+        ? (r.result.assignments as unknown[]).length
+        : 0;
+      const qm = r.result.qualityMetrics as
+        | {
+            maxOverSollH?: number;
+            avgAbsDeviationH?: number;
+            blWeekViolations?: number;
+            employeesOutsideRange?: number;
+          }
+        | null
+        | undefined;
+      const maxOver =
+        qm && typeof qm.maxOverSollH === "number"
+          ? qm.maxOverSollH.toFixed(1)
+          : "—";
+      const avgAbs =
+        qm && typeof qm.avgAbsDeviationH === "number"
+          ? qm.avgAbsDeviationH.toFixed(1)
+          : "—";
+      const blGap =
+        qm && typeof qm.blWeekViolations === "number"
+          ? String(qm.blWeekViolations)
+          : "—";
+      const outside =
+        qm && typeof qm.employeesOutsideRange === "number"
+          ? String(qm.employeesOutsideRange)
+          : "—";
+      const seedNw =
+        r.randomSeed != null
+          ? `seed=${r.randomSeed}, nw=${r.numWorkers}`
+          : `nw=${r.numWorkers}`;
+      lines.push(
+        `${marker}${r.label.padEnd(20)}  ${String(r.result.status ?? "—").padEnd(10)}  ` +
+          `${obj.padStart(14)}  ${String(asn).padStart(5)}  ${maxOver.padStart(7)}  ` +
+          `${avgAbs.padStart(7)}  ${blGap.padStart(6)}  ${outside.padStart(7)}  ${seedNw}`,
+      );
+    }
+    // Delta vs baseline for winner, if not baseline
+    const baseline = comparison.runs.find((r) => r.variant === "baseline");
+    if (
+      baseline &&
+      winnerRun &&
+      winnerRun.variant !== "baseline" &&
+      typeof baseline.result.objectiveValue === "number" &&
+      typeof winnerRun.result.objectiveValue === "number"
+    ) {
+      const delta =
+        (winnerRun.result.objectiveValue as number) -
+        (baseline.result.objectiveValue as number);
+      const pct =
+        ((winnerRun.result.objectiveValue as number) /
+          (baseline.result.objectiveValue as number) -
+          1) *
+        100;
+      lines.push("");
+      lines.push(
+        `  Gewinner schlägt Basis um ${Math.abs(delta).toLocaleString("de-DE")} ` +
+          `(${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%).`,
+      );
+    } else if (
+      baseline &&
+      winnerRun &&
+      winnerRun.variant === "baseline"
+    ) {
+      lines.push("");
+      lines.push(
+        "  Basis war nicht schlagbar — kein Race-Lauf lag unter dem Basis-Objektiv.",
+      );
+    }
+    lines.push("");
+    lines.push(
+      "Hinweis: Nur der Gewinner wurde gespeichert; die übrigen Läufe sind nach Ende verworfen.",
+    );
+    lines.push("");
+    lines.push("");
+  }
+
+  // ── Standard CP-SAT run block (unchanged) ──
+  lines.push(
+    `=== CP-SAT Solver Run${
+      comparison ? ` — Gewinner-Lauf (${comparison.winnerVariant})` : ""
+    } ===`,
     `Status: ${response.status}`,
     `Solve time: ${((response.solveTimeMs as number) ?? 0).toFixed(1)}ms`,
     `Objective: ${response.objectiveValue ?? "N/A"}`,
@@ -1060,7 +1217,7 @@ function buildDebugLog(
     `Manual placements: ${payload.manualPlacements.length}`,
     `Blocked dates: ${payload.blockedDates.length}`,
     `Assignments created: ${assignments.length}`,
-  ];
+  );
 
   if (isInfeasible) {
     lines.push("");

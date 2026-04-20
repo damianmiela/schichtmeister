@@ -273,6 +273,9 @@ export default function SchedulePage() {
   const [genPhaseLabel, setGenPhaseLabel] = useState<string | null>(null);
   // Live objective value reported by the solver (lower is better).
   const [genObjective, setGenObjective] = useState<number | null>(null);
+  // Phase 1 baseline objective (locked in once Phase 1 finishes), used to
+  // live-compare during Phase 2.
+  const [genBaselineObjective, setGenBaselineObjective] = useState<number | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [editedCells, setEditedCells] = useState<Map<string, CellEdit>>(new Map());
   const [editedShiftWishSet, setEditedShiftWishSet] = useState<Set<string>>(new Set());
@@ -803,6 +806,7 @@ export default function SchedulePage() {
     // Reset Vergleichsmodus progress indicators for this run
     setGenPhaseLabel(comparisonMode ? "Phase 1/2: Basis-Lauf…" : null);
     setGenObjective(null);
+    setGenBaselineObjective(null);
 
     try {
       const resp = await fetch(`/api/schedules/${schedule.id}/generate-stream`, {
@@ -839,6 +843,13 @@ export default function SchedulePage() {
                 setGenPhaseLabel("Phase 1/2: Basis-Lauf…");
               } else if (event.stage === "phase_2_racing") {
                 setGenPhaseLabel("Phase 2/2: Parallel-Rennen (2 Läufe)…");
+                // Phase 1 is done — lock in its final objective so we can
+                // live-compare against the race below it.
+                if (typeof event.baselineObjective === "number") {
+                  setGenBaselineObjective(event.baselineObjective);
+                }
+                // Reset the "live" value so the race starts from a clean slate
+                setGenObjective(null);
               } else if (event.stage === "comparison_picked") {
                 setGenPhaseLabel(event.label ?? "Gewinner gewählt");
               }
@@ -2516,14 +2527,24 @@ export default function SchedulePage() {
                 {genElapsed}/{comparisonMode ? Number(solveTimeDraft) * 2 : solveTimeDraft}s
               </Typography>
             </Box>
-            {comparisonMode && genObjective != null ? (
+            {/* During Phase 2, show Phase 1's locked-in baseline objective
+                next to the live race value, so the user can eyeball whether
+                the race is beating the baseline yet. */}
+            {comparisonMode && genBaselineObjective != null ? (
               <Typography
                 variant="caption"
                 color="text.secondary"
                 sx={{ display: "block", mt: 0.5 }}
               >
-                Live-Gewicht (niedriger = besser):{" "}
-                <strong>{genObjective.toFixed(0)}</strong>
+                Basis-Gewicht (Phase 1):{" "}
+                <strong>{genBaselineObjective.toLocaleString("de-DE")}</strong>
+                {genObjective != null && genProgress.solutions != null && genProgress.solutions > 0
+                  ? ` · Aktuell (Phase 2): ${genObjective.toLocaleString("de-DE")} ${
+                      genObjective < genBaselineObjective
+                        ? "✓ besser"
+                        : "⤬ noch nicht besser"
+                    }`
+                  : ""}
               </Typography>
             ) : null}
           </Box>
