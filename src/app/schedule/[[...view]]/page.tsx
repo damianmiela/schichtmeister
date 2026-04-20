@@ -276,6 +276,21 @@ export default function SchedulePage() {
   // Phase 1 baseline objective (locked in once Phase 1 finishes), used to
   // live-compare during Phase 2.
   const [genBaselineObjective, setGenBaselineObjective] = useState<number | null>(null);
+  // Number of race variants to run in Vergleichsmodus (2-10). The total
+  // generation time is roughly (1 + raceCount) × maxSolveTimeSeconds because
+  // the races run sequentially.
+  const [raceCountDraft, setRaceCountDraft] = useState("2");
+  // Per-variant live state for the stacked Phase-2 display. One slot per
+  // variant "A", "B", …, populated when the first phase_2_racing event arrives.
+  type RaceSlot = {
+    variant: string;                 // "A", "B", …
+    label: string;                   // "Rennen A", "Rennen B", …
+    objective: number | null;        // latest live (or final) objective
+    solutions: number | null;        // how many feasible solutions solver has
+    status: "pending" | "running" | "done" | "failed";
+    finalObjective: number | null;   // frozen value once the race finishes
+  };
+  const [genRaceSlots, setGenRaceSlots] = useState<RaceSlot[]>([]);
   const [editMode, setEditMode] = useState(false);
   const [editedCells, setEditedCells] = useState<Map<string, CellEdit>>(new Map());
   const [editedShiftWishSet, setEditedShiftWishSet] = useState<Set<string>>(new Set());
@@ -796,17 +811,29 @@ export default function SchedulePage() {
       absences?: { employeeId: string; type: string; startDate: string; endDate: string }[];
       maxSolveTimeSeconds?: number;
       comparisonMode?: boolean;
+      raceCount?: number;
     } = {};
     if (manualPlacements.length > 0) body.manualPlacements = manualPlacements;
     if (blockedDates.length > 0) body.blockedDates = blockedDates;
     if (absences.length > 0) body.absences = absences;
     if (solveTimeVal >= 30 && solveTimeVal <= 3600) body.maxSolveTimeSeconds = solveTimeVal;
-    if (comparisonMode) body.comparisonMode = true;
+    const raceCountVal = (() => {
+      const n = Number(raceCountDraft);
+      if (!Number.isFinite(n)) return 2;
+      return Math.max(2, Math.min(10, Math.floor(n)));
+    })();
+    if (comparisonMode) {
+      body.comparisonMode = true;
+      body.raceCount = raceCountVal;
+    }
 
     // Reset Vergleichsmodus progress indicators for this run
-    setGenPhaseLabel(comparisonMode ? "Phase 1/2: Basis-Lauf…" : null);
+    setGenPhaseLabel(
+      comparisonMode ? `Phase 1/${1 + raceCountVal}: Basis-Lauf…` : null,
+    );
     setGenObjective(null);
     setGenBaselineObjective(null);
+    setGenRaceSlots([]);
 
     try {
       const resp = await fetch(`/api/schedules/${schedule.id}/generate-stream`, {
@@ -840,22 +867,103 @@ export default function SchedulePage() {
             if (event.type === "progress") {
               // Vergleichsmodus phase markers come from the API route
               if (event.stage === "phase_1_baseline") {
-                setGenPhaseLabel("Phase 1/2: Basis-Lauf…");
+                setGenPhaseLabel(
+                  `Phase 1/${1 + raceCountVal}: Basis-Lauf…`,
+                );
               } else if (event.stage === "phase_2_racing") {
-                setGenPhaseLabel("Phase 2/2: Parallel-Rennen (2 Läufe)…");
-                // Phase 1 is done — lock in its final objective so we can
-                // live-compare against the race below it.
+                // Lock in baseline (sent on every phase_2_racing event)
                 if (typeof event.baselineObjective === "number") {
                   setGenBaselineObjective(event.baselineObjective);
                 }
-                // Reset the "live" value so the race starts from a clean slate
+                // Initialize / update per-variant slot list. The server
+                // sends the full `variantLabels` array so we can show all
+                // upcoming runs as "pending" right away.
+                if (Array.isArray(event.variantLabels)) {
+                  const labels = event.variantLabels as string[];
+                  const current = event.currentVariant as string | undefined;
+                  setGenRaceSlots((prev) => {
+                    // First time we see the list → build full slot array.
+                    if (prev.length === 0) {
+                      return labels.map((v) => ({
+                        variant: v,
+                        label: `Rennen ${v}`,
+                        objective: null,
+                        solutions: null,
+                        status: v === current ? "running" : "pending",
+                        finalObjective: null,
+                      }));
+                    }
+                    // Subsequent events → mark the newly-starting variant as
+                    // running; leave earlier "done" / "failed" slots alone.
+                    return prev.map((s) => {
+                      if (s.variant === current) {
+                        return { ...s, status: "running" };
+                      }
+                      return s;
+                    });
+                  });
+                }
+                const vIdx = typeof event.variantIndex === "number" ? event.variantIndex : 1;
+                const vTotal = typeof event.totalVariants === "number" ? event.totalVariants : raceCountVal;
+                const vCur = typeof event.currentVariant === "string" ? event.currentVariant : "?";
+                setGenPhaseLabel(
+                  `Phase ${1 + vIdx}/${1 + vTotal}: Rennen ${vCur}…`,
+                );
+                // Clear the legacy single-value live slot; per-variant slots
+                // take over from here.
                 setGenObjective(null);
+              } else if (event.stage === "phase_2_racing_variant_done") {
+                // Freeze the finished variant's objective and mark it done.
+                const vCur = typeof event.currentVariant === "string" ? event.currentVariant : null;
+                const finalObj =
+                  typeof event.variantFinalObjective === "number"
+                    ? event.variantFinalObjective
+                    : null;
+                const vStatus = event.variantStatus as string | undefined;
+                if (vCur) {
+                  setGenRaceSlots((prev) =>
+                    prev.map((s) =>
+                      s.variant === vCur
+                        ? {
+                            ...s,
+                            status: vStatus === "ERROR" ? "failed" : "done",
+                            finalObjective: finalObj,
+                            objective: finalObj ?? s.objective,
+                          }
+                        : s,
+                    ),
+                  );
+                }
               } else if (event.stage === "comparison_picked") {
                 setGenPhaseLabel(event.label ?? "Gewinner gewählt");
               }
-              // Track the live objective value (lower = better for CP-SAT)
-              if (typeof event.objective === "number") {
-                setGenObjective(event.objective);
+              // Route live objective updates forwarded from the solver.
+              // Events tagged with `variant` belong to a specific run:
+              //   - "baseline"  → update Phase-1 live (genObjective)
+              //   - "A".."J"    → update the matching race slot
+              // Un-tagged events (no `variant`) just update the generic
+              // progress label (used for the indeterminate bar).
+              const evVariant = typeof event.variant === "string" ? event.variant : null;
+              if (evVariant && evVariant !== "baseline") {
+                setGenRaceSlots((prev) =>
+                  prev.map((s) => {
+                    if (s.variant !== evVariant) return s;
+                    // Don't overwrite a frozen "done"/"failed" slot
+                    if (s.status === "done" || s.status === "failed") return s;
+                    return {
+                      ...s,
+                      objective:
+                        typeof event.objective === "number" ? event.objective : s.objective,
+                      solutions:
+                        typeof event.solutions === "number" ? event.solutions : s.solutions,
+                    };
+                  }),
+                );
+              } else {
+                // baseline or untagged → keep the existing Phase-1 live slot
+                if (typeof event.objective === "number") {
+                  setGenObjective(event.objective);
+                }
               }
               setGenProgress({
                 label: event.label ?? "",
@@ -2466,12 +2574,29 @@ export default function SchedulePage() {
               <Typography variant="subtitle2" sx={{ mb: 0.25 }}>
                 Vergleichsmodus (Testphase)
               </Typography>
-              <Typography variant="caption" color="text.secondary">
-                Führt zuerst den Standard-Lauf aus und dann zwei Parallel-Läufe
-                mit anderen Zufallswerten. Der beste Plan wird übernommen.
-                Dauert ca. 2× so lange wie eine normale Generierung. Alle
-                Läufe erscheinen im Generator-Protokoll.
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+                Führt zuerst den Standard-Lauf aus und dann mehrere Renn-Läufe
+                nacheinander mit unterschiedlichen Zufallswerten. Der beste Plan
+                wird übernommen. Alle Läufe erscheinen im Generator-Protokoll.
+                Gesamtdauer ≈ (1 + Anzahl Rennen) × Solver-Zeit.
               </Typography>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                <Typography variant="caption" color="text.secondary">
+                  Anzahl Rennen:
+                </Typography>
+                <TextField
+                  size="small"
+                  type="number"
+                  value={raceCountDraft}
+                  onChange={(e) => setRaceCountDraft(e.target.value)}
+                  disabled={!comparisonMode}
+                  inputProps={{ min: 2, max: 10, step: 1 }}
+                  sx={{ width: 90 }}
+                />
+                <Typography variant="caption" color="text.secondary">
+                  (2–10, zusätzlich zum Basis-Lauf)
+                </Typography>
+              </Box>
             </Box>
           </Box>
         </DialogContent>
@@ -2519,33 +2644,120 @@ export default function SchedulePage() {
             ) : null}
             <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
               <Typography variant="body2" color="text.secondary">
-                {genProgress.solutions != null && genProgress.solutions > 0
-                  ? `Suche beste Lösung…${genProgress.objective != null ? ` Aktueller Wert: ${genProgress.objective.toFixed(0)}` : ""}`
-                  : genProgress.label}
+                {/* In comparisonMode we switch to the stacked per-variant
+                    display below — the single-line "Aktueller Wert" would
+                    otherwise oscillate as different variants report. */}
+                {comparisonMode && genRaceSlots.length > 0
+                  ? ""
+                  : genProgress.solutions != null && genProgress.solutions > 0
+                    ? `Suche beste Lösung…${genProgress.objective != null ? ` Aktueller Wert: ${genProgress.objective.toFixed(0)}` : ""}`
+                    : genProgress.label}
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ fontVariantNumeric: "tabular-nums", ml: 2, whiteSpace: "nowrap" }}>
-                {genElapsed}/{comparisonMode ? Number(solveTimeDraft) * 2 : solveTimeDraft}s
+                {genElapsed}/
+                {comparisonMode
+                  ? Number(solveTimeDraft) *
+                    (1 +
+                      Math.max(
+                        2,
+                        Math.min(10, Math.floor(Number(raceCountDraft) || 2)),
+                      ))
+                  : solveTimeDraft}
+                s
               </Typography>
             </Box>
-            {/* During Phase 2, show Phase 1's locked-in baseline objective
-                next to the live race value, so the user can eyeball whether
-                the race is beating the baseline yet. */}
+            {/* Vergleichsmodus — stacked per-variant live display.
+                Shows Phase-1 baseline + one row per race variant, each with
+                its own live objective, a ✓ / ⤬ marker vs. baseline, and a
+                status chip. Replaces the oscillating single "Aktueller Wert"
+                line that we had when both races pumped into the same slot. */}
             {comparisonMode && genBaselineObjective != null ? (
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                sx={{ display: "block", mt: 0.5 }}
+              <Box
+                sx={{
+                  mt: 1,
+                  p: 1,
+                  borderRadius: 1,
+                  backgroundColor: "grey.50",
+                  fontFamily: "monospace",
+                  fontSize: "0.8rem",
+                }}
               >
-                Basis-Gewicht (Phase 1):{" "}
-                <strong>{genBaselineObjective.toLocaleString("de-DE")}</strong>
-                {genObjective != null && genProgress.solutions != null && genProgress.solutions > 0
-                  ? ` · Aktuell (Phase 2): ${genObjective.toLocaleString("de-DE")} ${
-                      genObjective < genBaselineObjective
-                        ? "✓ besser"
-                        : "⤬ noch nicht besser"
-                    }`
-                  : ""}
-              </Typography>
+                {/* Baseline row — always frozen at its final value */}
+                <Box
+                  sx={{
+                    display: "grid",
+                    gridTemplateColumns: "120px 1fr auto",
+                    alignItems: "baseline",
+                    gap: 1,
+                    py: 0.25,
+                  }}
+                >
+                  <span style={{ fontWeight: 600 }}>Basis (Phase 1):</span>
+                  <span style={{ fontVariantNumeric: "tabular-nums" }}>
+                    {genBaselineObjective.toLocaleString("de-DE")}
+                  </span>
+                  <span style={{ fontSize: "0.72rem", color: "#666" }}>✓ fertig</span>
+                </Box>
+                {genRaceSlots.map((slot) => {
+                  const liveVal = slot.finalObjective ?? slot.objective;
+                  const hasVal = typeof liveVal === "number";
+                  const better = hasVal && liveVal! < genBaselineObjective;
+                  const marker =
+                    slot.status === "pending"
+                      ? "… wartet"
+                      : slot.status === "failed"
+                        ? "⤬ Fehler"
+                        : slot.status === "done"
+                          ? hasVal
+                            ? better
+                              ? "🏆 besser"
+                              : "· schlechter"
+                            : "✓ fertig"
+                          : hasVal
+                            ? better
+                              ? "↓ besser"
+                              : "↑ noch nicht besser"
+                            : "… läuft";
+                  return (
+                    <Box
+                      key={slot.variant}
+                      sx={{
+                        display: "grid",
+                        gridTemplateColumns: "120px 1fr auto",
+                        alignItems: "baseline",
+                        gap: 1,
+                        py: 0.25,
+                        opacity: slot.status === "pending" ? 0.5 : 1,
+                      }}
+                    >
+                      <span style={{ fontWeight: slot.status === "running" ? 600 : 400 }}>
+                        {slot.label}:
+                      </span>
+                      <span style={{ fontVariantNumeric: "tabular-nums" }}>
+                        {hasVal ? liveVal!.toLocaleString("de-DE") : "—"}
+                        {slot.status === "running" &&
+                        slot.solutions != null &&
+                        slot.solutions > 0
+                          ? ` (Lsg. #${slot.solutions})`
+                          : ""}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: "0.72rem",
+                          color:
+                            slot.status === "failed"
+                              ? "#c62828"
+                              : hasVal && better
+                                ? "#2e7d32"
+                                : "#666",
+                        }}
+                      >
+                        {marker}
+                      </span>
+                    </Box>
+                  );
+                })}
+              </Box>
             ) : null}
           </Box>
         </DialogContent>

@@ -215,9 +215,20 @@ export async function POST(request: Request, context: RouteCtx) {
   const clientMaxSolveTime = typeof body?.maxSolveTimeSeconds === "number"
     ? Math.max(30, Math.min(3600, body.maxSolveTimeSeconds))
     : null;
-  // Vergleichsmodus (Testphase): run baseline + 2 race variants, pick winner.
-  // Triggered by the checkbox on the pre-generation modal.
+  // Vergleichsmodus (Testphase): run baseline + N race variants sequentially,
+  // pick the winner. Triggered by the checkbox on the pre-generation modal.
   const comparisonMode = body?.comparisonMode === true;
+  // Number of race variants to run after the baseline. Default 2, clamped 2-10.
+  // The races run SEQUENTIALLY (one after the other, each with full num_workers)
+  // so a user who wants more exploration can just crank this up and leave the
+  // app open longer — total wall-clock ≈ (1 + raceCount) × maxSolveTimeSeconds.
+  const raceCount = (() => {
+    const n =
+      typeof body?.raceCount === "number" && Number.isFinite(body.raceCount)
+        ? Math.floor(body.raceCount)
+        : 2;
+    return Math.max(2, Math.min(10, n));
+  })();
 
   const schedule = await prisma.schedule.findFirst({
     where: { id: scheduleId, facilityId },
@@ -326,19 +337,27 @@ export async function POST(request: Request, context: RouteCtx) {
 
         // Call solver streaming endpoint
         // Timeout = configured solve time + 60s buffer for model build + result extraction.
-        // In Vergleichsmodus we run baseline + race sequentially, so double it.
+        // In Vergleichsmodus we run baseline + N races sequentially, so scale by
+        // (1 + raceCount). Each phase still gets its OWN perPhaseTimeoutMs budget
+        // via the per-fetch AbortSignal.timeout() — the combined value below is
+        // informational only (kept for logging/parity).
         const perPhaseTimeoutMs = ((payload.maxSolveTimeSeconds ?? 120) + 60) * 1000;
-        const solverTimeoutMs = comparisonMode ? perPhaseTimeoutMs * 2 : perPhaseTimeoutMs;
+        const solverTimeoutMs = comparisonMode
+          ? perPhaseTimeoutMs * (1 + raceCount)
+          : perPhaseTimeoutMs;
+        void solverTimeoutMs; // reserved for future aggregate-timeout logic
         console.log(
           `[generate-stream] Calling solver at ${SOLVER_URL}/solve-stream, ` +
-          `comparisonMode=${comparisonMode}, perPhaseTimeout=${perPhaseTimeoutMs}ms, ` +
+          `comparisonMode=${comparisonMode}, raceCount=${raceCount}, ` +
+          `perPhaseTimeout=${perPhaseTimeoutMs}ms, ` +
           `previousAssignments=${payload.previousAssignments?.length ?? 0}`,
         );
 
-        // ── Collected results from all runs (baseline + optional race A/B) ──
+        // ── Collected results from all runs (baseline + optional race variants) ──
+        // variant is "baseline" or a letter label "A", "B", "C", …, "J"
         type RunRecord = {
-          variant: "baseline" | "A" | "B";
-          label: string;            // user-visible label, e.g. "Basis" / "VGL A"
+          variant: string;          // "baseline" | "A".."J"
+          label: string;            // user-visible label, e.g. "Basis" / "Rennen A"
           result: Record<string, unknown>;
           randomSeed?: number;
           numWorkers: number;
@@ -381,7 +400,7 @@ export async function POST(request: Request, context: RouteCtx) {
           numWorkers: 4,
         });
 
-        // ── Phase 2: race (two parallel runs with distinct seeds) ──
+        // ── Phase 2: sequential N-race loop with distinct seeds ──
         if (comparisonMode) {
           // Surface the baseline's final objective so the UI can display
           // it live next to the race progress for real-time comparison.
@@ -389,73 +408,97 @@ export async function POST(request: Request, context: RouteCtx) {
             typeof baselineAttempt.result.objectiveValue === "number"
               ? (baselineAttempt.result.objectiveValue as number)
               : null;
-          send({
-            type: "progress",
-            stage: "phase_2_racing",
-            label: "Phase 2/2: Parallel-Rennen (2 Läufe)…",
-            pct: 50,
-            baselineObjective,
-            baselineStatus: baselineAttempt.result.status,
-          });
-          // Timestamp-derived seeds ensure each run is different AND different
-          // across invocations — so we really sample the objective landscape.
-          const seedBase = Date.now();
-          const seedA = seedBase & 0x7fffffff;
-          const seedB = (seedBase + 97) & 0x7fffffff;
-          const racePayloadA: SolverPayload = {
-            ...payload,
-            randomSeed: seedA,
-            numWorkers: 2,
-          };
-          const racePayloadB: SolverPayload = {
-            ...payload,
-            randomSeed: seedB,
-            numWorkers: 2,
-          };
-          console.log(
-            `[generate-stream] Race starting: seedA=${seedA}, seedB=${seedB}`,
-          );
-          const [raceA, raceB] = await Promise.all([
-            runSolverStream({
-              payload: racePayloadA,
-              variant: "A",
-              send,
-              timeoutMs: perPhaseTimeoutMs,
-            }),
-            runSolverStream({
-              payload: racePayloadB,
-              variant: "B",
-              send,
-              timeoutMs: perPhaseTimeoutMs,
-            }),
-          ]);
-          if (raceA.httpStatus === 200 && raceA.result) {
-            runs.push({
-              variant: "A",
-              label: "VGL A",
-              result: raceA.result,
-              randomSeed: seedA,
-              numWorkers: 2,
-            });
-          } else {
-            console.error(
-              `[generate-stream] Race A failed: status=${raceA.httpStatus} ` +
-              `err=${(raceA.errorText ?? "").slice(0, 200)}`,
-            );
+          // Pre-compute all variant labels (A, B, C, …) so the UI can build
+          // its stacked per-variant display up-front.
+          const variantLabels: string[] = [];
+          for (let i = 0; i < raceCount; i++) {
+            variantLabels.push(String.fromCharCode(65 + i)); // 65 == 'A'
           }
-          if (raceB.httpStatus === 200 && raceB.result) {
-            runs.push({
-              variant: "B",
-              label: "VGL B",
-              result: raceB.result,
-              randomSeed: seedB,
-              numWorkers: 2,
+          // Timestamp-derived seeds ensure each run is distinct AND distinct
+          // across invocations — so we actually sample the objective landscape.
+          const seedBase = Date.now();
+          const seedFor = (idx: number) =>
+            (seedBase + idx * 97) & 0x7fffffff;
+
+          for (let i = 0; i < raceCount; i++) {
+            const variantLabel = variantLabels[i]!;
+            const runLabel = `Rennen ${variantLabel}`;
+            const seed = seedFor(i);
+            // Emit a phase marker BEFORE this race starts so the UI can
+            // mark this variant as "running" and the previous ones as "done".
+            send({
+              type: "progress",
+              stage: "phase_2_racing",
+              label: `Phase 2/${1 + raceCount}: ${runLabel} (seed=${seed})…`,
+              // Rough progress: baseline is 50%, split the remaining 50% evenly
+              // across races. After race i completes, we're at 50 + (i+1)/N * 50.
+              pct: Math.round(50 + (i / raceCount) * 50),
+              baselineObjective,
+              baselineStatus: baselineAttempt.result.status,
+              currentVariant: variantLabel,
+              variantIndex: i + 1,
+              totalVariants: raceCount,
+              variantLabels,
             });
-          } else {
-            console.error(
-              `[generate-stream] Race B failed: status=${raceB.httpStatus} ` +
-              `err=${(raceB.errorText ?? "").slice(0, 200)}`,
+            const racePayload: SolverPayload = {
+              ...payload,
+              randomSeed: seed,
+              numWorkers: 4, // sequential → give each race full CPU
+            };
+            console.log(
+              `[generate-stream] Race ${variantLabel} starting: seed=${seed}`,
             );
+            const raceAttempt = await runSolverStream({
+              payload: racePayload,
+              variant: variantLabel,
+              send,
+              timeoutMs: perPhaseTimeoutMs,
+            });
+            if (raceAttempt.httpStatus === 200 && raceAttempt.result) {
+              runs.push({
+                variant: variantLabel,
+                label: runLabel,
+                result: raceAttempt.result,
+                randomSeed: seed,
+                numWorkers: 4,
+              });
+              // Notify the UI that this variant is done; include its final
+              // objective so the stacked display can freeze it in place.
+              const finalObj =
+                typeof raceAttempt.result.objectiveValue === "number"
+                  ? (raceAttempt.result.objectiveValue as number)
+                  : null;
+              send({
+                type: "progress",
+                stage: "phase_2_racing_variant_done",
+                label: `${runLabel}: fertig`,
+                pct: Math.round(50 + ((i + 1) / raceCount) * 50),
+                currentVariant: variantLabel,
+                variantIndex: i + 1,
+                totalVariants: raceCount,
+                variantFinalObjective: finalObj,
+                variantStatus: raceAttempt.result.status,
+              });
+            } else {
+              console.error(
+                `[generate-stream] Race ${variantLabel} failed: ` +
+                  `status=${raceAttempt.httpStatus} ` +
+                  `err=${(raceAttempt.errorText ?? "").slice(0, 200)}`,
+              );
+              // Mark the variant as failed in the UI so its slot doesn't
+              // stay stuck in the "running" state.
+              send({
+                type: "progress",
+                stage: "phase_2_racing_variant_done",
+                label: `${runLabel}: fehlgeschlagen`,
+                pct: Math.round(50 + ((i + 1) / raceCount) * 50),
+                currentVariant: variantLabel,
+                variantIndex: i + 1,
+                totalVariants: raceCount,
+                variantFinalObjective: null,
+                variantStatus: "ERROR",
+              });
+            }
           }
         }
 
@@ -1059,7 +1102,7 @@ function preflightManualPlacements(
 
 /** Per-run record passed to buildDebugLog in Vergleichsmodus. */
 type DebugLogRunRecord = {
-  variant: "baseline" | "A" | "B";
+  variant: string;            // "baseline" | "A".."J"
   label: string;
   result: Record<string, unknown>;
   randomSeed?: number;
@@ -1074,7 +1117,7 @@ function buildDebugLog(
   preflightIssues: string[],
   comparison: {
     runs: DebugLogRunRecord[];
-    winnerVariant: "baseline" | "A" | "B";
+    winnerVariant: string;   // "baseline" | "A".."J"
   } | null,
 ): string {
   const profMap = new Map(
