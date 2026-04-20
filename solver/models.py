@@ -108,13 +108,6 @@ class SolveRequest(BaseModel):
     # per-process portfolios (e.g. 2 processes × 2 workers on a 4-core VPS).
     randomSeed: int | None = None
     numWorkers: int = 4
-    # Warm-start hint: a complete assignment list from a previous feasible solve
-    # that this run should try first. CP-SAT uses it as a starting point via
-    # model.AddHint(); any non-matching keys (shift profile no longer valid,
-    # employee no longer active, etc.) are silently skipped by the engine.
-    # Together with distinct seeds this implements the "best-so-far" pattern
-    # where each subsequent race tries to improve on the prior winner.
-    solutionHint: list[AssignmentOutput] | None = None
     employees: list[EmployeeInput]
     shiftProfiles: list[ShiftProfileInput]
     staffingRequirements: list[StaffingRequirementInput] = []

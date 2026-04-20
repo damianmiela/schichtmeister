@@ -190,45 +190,6 @@ def _build_variables(
     return shift, works_day, station_assign
 
 
-def _apply_warm_start_hints(
-    model: cp_model.CpModel,
-    shift: dict[tuple[str, str, str], cp_model.IntVar],
-    station_assign: dict[tuple[str, str, int], cp_model.IntVar],
-    request: SolveRequest,
-) -> int:
-    """Seed the CP-SAT model with a prior feasible solution via model.AddHint().
-
-    The hint is advisory: CP-SAT tries it as a starting point, remembers its
-    objective as a known-feasible upper bound, then searches for strictly
-    better solutions. If none is found, it returns the hint itself. This is
-    what makes a multi-race loop monotonically improving — each subsequent
-    race can only match or beat the best prior result.
-
-    Keys in the hint that don't correspond to existing decision variables
-    (e.g. profile removed, employee inactive, date outside period) are
-    silently skipped — hints are best-effort.
-
-    Returns the number of (shift, station) hint bits successfully applied,
-    for logging.
-    """
-    if not request.solutionHint:
-        return 0
-    applied = 0
-    for hint in request.solutionHint:
-        shift_key = (hint.employeeId, hint.date, hint.shiftProfileId)
-        shift_var = shift.get(shift_key)
-        if shift_var is not None:
-            model.AddHint(shift_var, 1)
-            applied += 1
-        if hint.stationNumber is not None:
-            sa_key = (hint.employeeId, hint.date, hint.stationNumber)
-            sa_var = station_assign.get(sa_key)
-            if sa_var is not None:
-                model.AddHint(sa_var, 1)
-                applied += 1
-    return applied
-
-
 def _resolve_stations(
     assignments: list[AssignmentOutput],
     request: SolveRequest,
@@ -476,24 +437,16 @@ def solve(request: SolveRequest) -> SolveResponse:
             model, shift, works_day, station_assign, request, relaxed=relaxed,
         )
 
-        # Warm-start hint: seed with a prior feasible solution so CP-SAT can
-        # improve from there instead of re-discovering basics.
-        hint_count = _apply_warm_start_hints(model, shift, station_assign, request)
-        if hint_count > 0:
-            log.info("Applied %d warm-start hints (%s)",
-                     hint_count, "RELAXED" if relaxed else "STRICT")
-
         solver = cp_model.CpSolver()
         solver.parameters.max_time_in_seconds = request.maxSolveTimeSeconds
         solver.parameters.num_workers = request.numWorkers
         if request.randomSeed is not None:
             solver.parameters.random_seed = request.randomSeed
-        log.info("Solving (%s) with %d objective terms, max_time=%ds, num_workers=%d, random_seed=%s, hints=%d...",
+        log.info("Solving (%s) with %d objective terms, max_time=%ds, num_workers=%d, random_seed=%s...",
                  "RELAXED" if relaxed else "STRICT",
                  len(objective_terms), request.maxSolveTimeSeconds,
                  request.numWorkers,
-                 request.randomSeed if request.randomSeed is not None else "default",
-                 hint_count)
+                 request.randomSeed if request.randomSeed is not None else "default")
         status_code = solver.Solve(model)
         status_str = STATUS_MAP.get(status_code, "UNKNOWN")
         log.info("Solve (%s) done: status=%s, objective=%.0f",
@@ -658,12 +611,6 @@ def solve_streaming(request: SolveRequest) -> Generator[str, None, None]:
         model, shift, works_day, station_assign, request, relaxed=False,
     )
 
-    # Warm-start hint (streaming path) — race 2+ feeds the best-so-far result
-    # here so CP-SAT can improve from that baseline.
-    hint_count = _apply_warm_start_hints(model, shift, station_assign, request)
-    if hint_count > 0:
-        log.info("Stream-solve: applied %d warm-start hints (STRICT)", hint_count)
-
     yield json.dumps({
         "type": "progress", "stage": "solving_started",
         "label": "CP-SAT Solver gestartet...", "pct": 22,
@@ -730,11 +677,6 @@ def solve_streaming(request: SolveRequest) -> Generator[str, None, None]:
         objective_terms = _build_and_add_all_constraints(
             model, shift, works_day, station_assign, request, relaxed=True,
         )
-
-        # Warm-start hint (streaming fallback) — same rationale as above.
-        hint_count = _apply_warm_start_hints(model, shift, station_assign, request)
-        if hint_count > 0:
-            log.info("Stream-solve: applied %d warm-start hints (RELAXED)", hint_count)
 
         solver = cp_model.CpSolver()
         solver.parameters.max_time_in_seconds = request.maxSolveTimeSeconds

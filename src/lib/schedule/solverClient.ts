@@ -99,20 +99,11 @@ export interface SolverPayload {
   periodStart: string;
   periodEnd: string;
   maxSolveTimeSeconds: number;
-  // Optional CP-SAT tuning knobs used by the multi-run (Mehrfach-Lauf) pipeline.
+  // Optional CP-SAT tuning knobs used by Vergleichsmodus (comparison mode).
   // `randomSeed` lets callers race multiple runs with different seeds;
-  // `numWorkers` lets those parallel runs use smaller per-process portfolios;
-  // `solutionHint` feeds a prior feasible solution so CP-SAT can improve from
-  // there instead of re-discovering basics — this is what makes the multi-run
-  // loop produce monotonically improving "best-so-far" results.
+  // `numWorkers` lets those parallel runs use smaller per-process portfolios.
   randomSeed?: number;
   numWorkers?: number;
-  solutionHint?: {
-    employeeId: string;
-    date: string;
-    shiftProfileId: string;
-    stationNumber?: number | null;
-  }[];
   employees: SolverEmployee[];
   shiftProfiles: SolverShiftProfile[];
   staffingRequirements: SolverStaffingRequirement[];
