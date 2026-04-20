@@ -133,12 +133,12 @@ function sseEvent(data: Record<string, unknown>): string {
 /**
  * Run a single /solve-stream call against the Python solver, forwarding
  * progress events (optionally tagged with `variant`) and returning the final
- * result payload.  Thin wrapper shared by the single-run and Vergleichsmodus
- * paths.
+ * result payload.  Thin wrapper shared by the single-run and Mehrfach-Lauf
+ * (warm-start) paths.
  */
 async function runSolverStream(args: {
   payload: SolverPayload;
-  variant: string | null;           // e.g. "baseline" | "A" | "B" | null
+  variant: string | null;           // e.g. "A" | "B" | null (null = single run)
   send: (data: Record<string, unknown>) => void;
   timeoutMs: number;
 }): Promise<{
@@ -215,20 +215,22 @@ export async function POST(request: Request, context: RouteCtx) {
   const clientMaxSolveTime = typeof body?.maxSolveTimeSeconds === "number"
     ? Math.max(30, Math.min(3600, body.maxSolveTimeSeconds))
     : null;
-  // Vergleichsmodus (Testphase): run baseline + N race variants sequentially,
-  // pick the winner. Triggered by the checkbox on the pre-generation modal.
-  const comparisonMode = body?.comparisonMode === true;
-  // Number of race variants to run after the baseline. Default 2, clamped 2-10.
-  // The races run SEQUENTIALLY (one after the other, each with full num_workers)
-  // so a user who wants more exploration can just crank this up and leave the
-  // app open longer — total wall-clock ≈ (1 + raceCount) × maxSolveTimeSeconds.
+  // Mehrfach-Lauf (mit Warm-Start): every generation is now a sequence of N
+  // seeded races. Race 1 runs cold; race 2+ receives the best-so-far solution
+  // as a warm-start hint so CP-SAT can improve from there instead of
+  // re-discovering basics. The running-best (trophy) improves monotonically
+  // across races — it can only stay the same or go down.
+  //
+  // raceCount: default 1 (≈ single run, unchanged wall-clock behaviour),
+  // clamped 1-10. Total wall-clock ≈ raceCount × maxSolveTimeSeconds.
   const raceCount = (() => {
     const n =
       typeof body?.raceCount === "number" && Number.isFinite(body.raceCount)
         ? Math.floor(body.raceCount)
-        : 2;
-    return Math.max(2, Math.min(10, n));
+        : 1;
+    return Math.max(1, Math.min(10, n));
   })();
+  const multiRun = raceCount > 1;
 
   const schedule = await prisma.schedule.findFirst({
     where: { id: scheduleId, facilityId },
@@ -335,206 +337,217 @@ export async function POST(request: Request, context: RouteCtx) {
           pct: 3,
         });
 
-        // Call solver streaming endpoint
-        // Timeout = configured solve time + 60s buffer for model build + result extraction.
-        // In Vergleichsmodus we run baseline + N races sequentially, so scale by
-        // (1 + raceCount). Each phase still gets its OWN perPhaseTimeoutMs budget
-        // via the per-fetch AbortSignal.timeout() — the combined value below is
-        // informational only (kept for logging/parity).
+        // Each race still gets its OWN perPhaseTimeoutMs budget via the per-
+        // fetch AbortSignal.timeout(); the combined ceiling is informational.
         const perPhaseTimeoutMs = ((payload.maxSolveTimeSeconds ?? 120) + 60) * 1000;
-        const solverTimeoutMs = comparisonMode
-          ? perPhaseTimeoutMs * (1 + raceCount)
-          : perPhaseTimeoutMs;
-        void solverTimeoutMs; // reserved for future aggregate-timeout logic
         console.log(
           `[generate-stream] Calling solver at ${SOLVER_URL}/solve-stream, ` +
-          `comparisonMode=${comparisonMode}, raceCount=${raceCount}, ` +
-          `perPhaseTimeout=${perPhaseTimeoutMs}ms, ` +
+          `raceCount=${raceCount}, perPhaseTimeout=${perPhaseTimeoutMs}ms, ` +
           `previousAssignments=${payload.previousAssignments?.length ?? 0}`,
         );
 
-        // ── Collected results from all runs (baseline + optional race variants) ──
-        // variant is "baseline" or a letter label "A", "B", "C", …, "J"
+        // ── Per-race result record ──
         type RunRecord = {
-          variant: string;          // "baseline" | "A".."J"
-          label: string;            // user-visible label, e.g. "Basis" / "Rennen A"
+          variant: string;          // "A".."J" (or "Einzellauf" for N=1)
+          label: string;            // user-visible label, e.g. "Rennen A"
           result: Record<string, unknown>;
           randomSeed?: number;
           numWorkers: number;
         };
         const runs: RunRecord[] = [];
+        // Best feasible run found so far — the warm-start hint for the next
+        // race, and the trophy position shown in the UI.
+        let bestRun: RunRecord | null = null;
 
-        // ── Phase 1: baseline (current engine settings) ──
-        if (comparisonMode) {
-          send({
-            type: "progress",
-            stage: "phase_1_baseline",
-            label: "Phase 1/2: Basis-Lauf…",
-            pct: 5,
-          });
+        // Pre-compute variant labels so the UI can build its slot table up-front.
+        const variantLabels: string[] = [];
+        for (let i = 0; i < raceCount; i++) {
+          variantLabels.push(String.fromCharCode(65 + i)); // A, B, C, …
         }
-        const baselineAttempt = await runSolverStream({
-          payload,                        // numWorkers/randomSeed unset → solver uses defaults (4, none)
-          variant: comparisonMode ? "baseline" : null,
-          send,
-          timeoutMs: perPhaseTimeoutMs,
-        });
-        if (baselineAttempt.httpStatus !== 200 || !baselineAttempt.result) {
-          console.error(
-            `[generate-stream] Solver baseline error: ${baselineAttempt.httpStatus} — ` +
-            `${(baselineAttempt.errorText ?? "").slice(0, 500)}`,
-          );
-          send({
-            type: "error",
-            error:
-              `Solver returned ${baselineAttempt.httpStatus}: ` +
-              `${(baselineAttempt.errorText ?? "").slice(0, 200)}`,
-          });
-          controller.close();
-          return;
-        }
-        runs.push({
-          variant: "baseline",
-          label: comparisonMode ? "Basis" : "Einzellauf",
-          result: baselineAttempt.result,
-          numWorkers: 4,
-        });
+        // Timestamp-derived seeds: each race gets a distinct seed, and
+        // generations started at different ms get completely different seed
+        // spaces. The prime stride (97) decorrelates sibling seeds within a
+        // single generation so CP-SAT explores genuinely different search trees.
+        const seedBase = Date.now();
+        const seedFor = (idx: number) =>
+          (seedBase + idx * 97) & 0x7fffffff;
 
-        // ── Phase 2: sequential N-race loop with distinct seeds ──
-        if (comparisonMode) {
-          // Surface the baseline's final objective so the UI can display
-          // it live next to the race progress for real-time comparison.
-          const baselineObjective =
-            typeof baselineAttempt.result.objectiveValue === "number"
-              ? (baselineAttempt.result.objectiveValue as number)
-              : null;
-          // Pre-compute all variant labels (A, B, C, …) so the UI can build
-          // its stacked per-variant display up-front.
-          const variantLabels: string[] = [];
-          for (let i = 0; i < raceCount; i++) {
-            variantLabels.push(String.fromCharCode(65 + i)); // 65 == 'A'
-          }
-          // Timestamp-derived seeds ensure each run is distinct AND distinct
-          // across invocations — so we actually sample the objective landscape.
-          const seedBase = Date.now();
-          const seedFor = (idx: number) =>
-            (seedBase + idx * 97) & 0x7fffffff;
+        const extractAssignments = (result: Record<string, unknown>) =>
+          Array.isArray(result.assignments)
+            ? (result.assignments as {
+                employeeId: string;
+                date: string;
+                shiftProfileId: string;
+                stationNumber: number | null;
+              }[])
+            : [];
 
-          for (let i = 0; i < raceCount; i++) {
-            const variantLabel = variantLabels[i]!;
-            const runLabel = `Rennen ${variantLabel}`;
-            const seed = seedFor(i);
-            // Emit a phase marker BEFORE this race starts so the UI can
-            // mark this variant as "running" and the previous ones as "done".
+        const isFeasibleRun = (r: RunRecord) =>
+          r.result.status === "OPTIMAL" || r.result.status === "FEASIBLE";
+
+        // ── Main loop: N sequential races with warm-start from best-so-far ──
+        for (let i = 0; i < raceCount; i++) {
+          const variantLabel = multiRun ? variantLabels[i]! : "Einzellauf";
+          const runLabel = multiRun ? `Rennen ${variantLabels[i]}` : "Einzellauf";
+          const seed = seedFor(i);
+          // Build warm-start hint from the best feasible solution so far.
+          // Race 1 has no hint; race 2+ warm-starts from bestRun.
+          const hint =
+            bestRun && isFeasibleRun(bestRun)
+              ? extractAssignments(bestRun.result).map((a) => ({
+                  employeeId: a.employeeId,
+                  date: a.date,
+                  shiftProfileId: a.shiftProfileId,
+                  stationNumber: a.stationNumber,
+                }))
+              : undefined;
+
+          // Emit race-starting marker (only when there's >1 race — otherwise
+          // the normal single-run UI flow applies).
+          if (multiRun) {
             send({
               type: "progress",
-              stage: "phase_2_racing",
-              label: `Phase 2/${1 + raceCount}: ${runLabel} (seed=${seed})…`,
-              // Rough progress: baseline is 50%, split the remaining 50% evenly
-              // across races. After race i completes, we're at 50 + (i+1)/N * 50.
-              pct: Math.round(50 + (i / raceCount) * 50),
-              baselineObjective,
-              baselineStatus: baselineAttempt.result.status,
+              stage: "race_starting",
+              label: `Rennen ${variantLabel} von ${raceCount} (seed=${seed})…`,
+              pct: Math.round((i / raceCount) * 100),
               currentVariant: variantLabel,
               variantIndex: i + 1,
               totalVariants: raceCount,
               variantLabels,
+              // Trophy tracker: tell the UI which variant currently holds the
+              // best-so-far so it can float the 🏆 icon onto the right row.
+              bestSoFarVariant: bestRun?.variant ?? null,
+              bestSoFarObjective:
+                bestRun && typeof bestRun.result.objectiveValue === "number"
+                  ? (bestRun.result.objectiveValue as number)
+                  : null,
+              hintCount: hint?.length ?? 0,
             });
-            const racePayload: SolverPayload = {
-              ...payload,
-              randomSeed: seed,
-              numWorkers: 4, // sequential → give each race full CPU
-            };
-            console.log(
-              `[generate-stream] Race ${variantLabel} starting: seed=${seed}`,
-            );
-            const raceAttempt = await runSolverStream({
-              payload: racePayload,
+          }
+
+          const racePayload: SolverPayload = {
+            ...payload,
+            randomSeed: seed,
+            numWorkers: 4, // sequential → each race gets full CPU
+            solutionHint: hint,
+          };
+          console.log(
+            `[generate-stream] Race ${variantLabel} starting: seed=${seed}, ` +
+              `hintCount=${hint?.length ?? 0}`,
+          );
+          const raceAttempt = await runSolverStream({
+            payload: racePayload,
+            variant: multiRun ? variantLabel : null,
+            send,
+            timeoutMs: perPhaseTimeoutMs,
+          });
+
+          if (raceAttempt.httpStatus === 200 && raceAttempt.result) {
+            const record: RunRecord = {
               variant: variantLabel,
-              send,
-              timeoutMs: perPhaseTimeoutMs,
-            });
-            if (raceAttempt.httpStatus === 200 && raceAttempt.result) {
-              runs.push({
-                variant: variantLabel,
-                label: runLabel,
-                result: raceAttempt.result,
-                randomSeed: seed,
-                numWorkers: 4,
-              });
-              // Notify the UI that this variant is done; include its final
-              // objective so the stacked display can freeze it in place.
+              label: runLabel,
+              result: raceAttempt.result,
+              randomSeed: seed,
+              numWorkers: 4,
+            };
+            runs.push(record);
+
+            // Update best-so-far (strictly lower objective wins; first feasible
+            // always beats nothing). Infeasible runs never become bestRun unless
+            // no feasible run exists yet (we still want SOMETHING to persist).
+            if (isFeasibleRun(record)) {
+              const thisObj =
+                typeof record.result.objectiveValue === "number"
+                  ? (record.result.objectiveValue as number)
+                  : Number.POSITIVE_INFINITY;
+              const bestObj =
+                bestRun && typeof bestRun.result.objectiveValue === "number"
+                  ? (bestRun.result.objectiveValue as number)
+                  : Number.POSITIVE_INFINITY;
+              if (!bestRun || !isFeasibleRun(bestRun) || thisObj < bestObj) {
+                bestRun = record;
+              }
+            } else if (bestRun == null) {
+              bestRun = record; // placeholder so we at least have a result
+            }
+
+            if (multiRun) {
               const finalObj =
-                typeof raceAttempt.result.objectiveValue === "number"
-                  ? (raceAttempt.result.objectiveValue as number)
+                typeof record.result.objectiveValue === "number"
+                  ? (record.result.objectiveValue as number)
                   : null;
               send({
                 type: "progress",
-                stage: "phase_2_racing_variant_done",
+                stage: "race_finished",
                 label: `${runLabel}: fertig`,
-                pct: Math.round(50 + ((i + 1) / raceCount) * 50),
+                pct: Math.round(((i + 1) / raceCount) * 100),
                 currentVariant: variantLabel,
                 variantIndex: i + 1,
                 totalVariants: raceCount,
                 variantFinalObjective: finalObj,
-                variantStatus: raceAttempt.result.status,
+                variantStatus: record.result.status,
+                bestSoFarVariant: bestRun?.variant ?? null,
+                bestSoFarObjective:
+                  bestRun && typeof bestRun.result.objectiveValue === "number"
+                    ? (bestRun.result.objectiveValue as number)
+                    : null,
               });
-            } else {
-              console.error(
-                `[generate-stream] Race ${variantLabel} failed: ` +
-                  `status=${raceAttempt.httpStatus} ` +
-                  `err=${(raceAttempt.errorText ?? "").slice(0, 200)}`,
-              );
-              // Mark the variant as failed in the UI so its slot doesn't
-              // stay stuck in the "running" state.
+            }
+          } else {
+            console.error(
+              `[generate-stream] Race ${variantLabel} failed: ` +
+                `status=${raceAttempt.httpStatus} ` +
+                `err=${(raceAttempt.errorText ?? "").slice(0, 200)}`,
+            );
+            if (multiRun) {
               send({
                 type: "progress",
-                stage: "phase_2_racing_variant_done",
+                stage: "race_finished",
                 label: `${runLabel}: fehlgeschlagen`,
-                pct: Math.round(50 + ((i + 1) / raceCount) * 50),
+                pct: Math.round(((i + 1) / raceCount) * 100),
                 currentVariant: variantLabel,
                 variantIndex: i + 1,
                 totalVariants: raceCount,
                 variantFinalObjective: null,
                 variantStatus: "ERROR",
+                bestSoFarVariant: bestRun?.variant ?? null,
+                bestSoFarObjective:
+                  bestRun && typeof bestRun.result.objectiveValue === "number"
+                    ? (bestRun.result.objectiveValue as number)
+                    : null,
               });
+            } else {
+              // Single-run path: a failed first race is fatal.
+              send({
+                type: "error",
+                error:
+                  `Solver returned ${raceAttempt.httpStatus}: ` +
+                  `${(raceAttempt.errorText ?? "").slice(0, 200)}`,
+              });
+              controller.close();
+              return;
             }
           }
         }
 
-        // ── Pick the winning run ──
-        // Criterion: lowest finite objectiveValue among feasible runs
-        // (CP-SAT minimizes). Ties broken by higher assignmentCount, then
-        // by baseline (stability). If every run is INFEASIBLE/UNKNOWN, keep
-        // baseline so the existing error-path still surfaces a reason to the UI.
-        const isFeasible = (r: RunRecord) =>
-          r.result.status === "OPTIMAL" || r.result.status === "FEASIBLE";
-        const feasibleRuns = runs.filter(isFeasible);
-        const pickFrom = feasibleRuns.length > 0 ? feasibleRuns : runs;
-        pickFrom.sort((a, b) => {
-          const oa = typeof a.result.objectiveValue === "number"
-            ? (a.result.objectiveValue as number)
-            : Number.POSITIVE_INFINITY;
-          const ob = typeof b.result.objectiveValue === "number"
-            ? (b.result.objectiveValue as number)
-            : Number.POSITIVE_INFINITY;
-          if (oa !== ob) return oa - ob;
-          const aa = Array.isArray(a.result.assignments)
-            ? (a.result.assignments as unknown[]).length
-            : 0;
-          const ab = Array.isArray(b.result.assignments)
-            ? (b.result.assignments as unknown[]).length
-            : 0;
-          if (aa !== ab) return ab - aa;
-          // Prefer baseline on full tie for determinism
-          if (a.variant === "baseline" && b.variant !== "baseline") return -1;
-          if (b.variant === "baseline" && a.variant !== "baseline") return 1;
-          return 0;
-        });
-        const winnerRun = pickFrom[0]!;
+        // If every race failed (multi-run with no feasible OR infeasible result),
+        // surface an error so the UI stops gracefully.
+        if (!bestRun) {
+          send({
+            type: "error",
+            error: "Alle Läufe fehlgeschlagen — kein Ergebnis verfügbar.",
+          });
+          controller.close();
+          return;
+        }
+
+        // ── Winner is simply the best-so-far tracked during the loop ──
+        // Warm-starting makes bestRun monotonically improving: each race
+        // either matches or beats the prior best, never regresses.
+        const winnerRun = bestRun;
         const solverResult = winnerRun.result;
 
-        if (comparisonMode) {
+        if (multiRun) {
           // Let the UI show which run won and with what objective
           const summaryRows = runs.map((r) => ({
             variant: r.variant,
@@ -548,14 +561,14 @@ export async function POST(request: Request, context: RouteCtx) {
           }));
           send({
             type: "progress",
-            stage: "comparison_picked",
+            stage: "runs_complete",
             label: `Gewinner: ${winnerRun.label} (obj=${
               typeof solverResult.objectiveValue === "number"
                 ? Math.round(solverResult.objectiveValue as number).toLocaleString("de-DE")
                 : "N/A"
             })`,
-            pct: 85,
-            comparison: {
+            pct: 95,
+            multiRun: {
               winnerVariant: winnerRun.variant,
               runs: summaryRows,
             },
@@ -592,14 +605,14 @@ export async function POST(request: Request, context: RouteCtx) {
         const preflightIssues = preflightManualPlacements(payload, employeeNames);
 
         // Build debug log (infeasibility-aware + preflight issues).
-        // In Vergleichsmodus, pass all runs + winner so the log prepends a
-        // comparison table that lets reviewers see all attempts side-by-side.
+        // In multi-run mode, pass all runs + winner so the log prepends a
+        // Mehrfach-Lauf table that lets reviewers see all attempts side-by-side.
         const debugLog = buildDebugLog(
           solverResult,
           payload,
           employeeNames,
           preflightIssues,
-          comparisonMode
+          multiRun
             ? {
                 runs: runs.map((r) => ({
                   variant: r.variant,
@@ -901,10 +914,12 @@ export async function POST(request: Request, context: RouteCtx) {
         await snapshotCurrentVersion(scheduleId, "Automatisch generiert", undefined, true);
 
         // ── System log: generation complete ──
-        // In Vergleichsmodus we log ONE event per run (baseline + race A + race B),
-        // tagged with a shared comparisonId so the Generator-Protokoll can pair
-        // them up, and a `winner: true` flag on whichever run was picked.
-        const comparisonId = comparisonMode
+        // In multi-run mode we log ONE event per race (A, B, C, …), tagged
+        // with a shared comparisonId so the activity log can pair them up,
+        // and a `winner: true` flag on whichever run was picked (the best-so-far
+        // at loop end). The `comparisonId` field keeps its legacy name for
+        // schema compatibility even though we now call this a "Mehrfach-Lauf".
+        const comparisonId = multiRun
           ? `${scheduleId}:${genStartTime}`
           : undefined;
 
@@ -961,14 +976,10 @@ export async function POST(request: Request, context: RouteCtx) {
             unmetStaffingCount: 0,
             unfulfilledWishCount: runUnfulfilled.length,
             objectiveValue: objVal,
-            // Comparison-mode fields (undefined when comparisonMode === false)
-            variant: comparisonMode
-              ? r.variant === "baseline"
-                ? "baseline"
-                : "race"
-              : undefined,
+            // Multi-run fields (undefined when raceCount === 1)
+            variant: multiRun ? "race" : undefined,
             comparisonId,
-            winner: comparisonMode ? isWinner : undefined,
+            winner: multiRun ? isWinner : undefined,
             qualityMetrics,
             randomSeed: r.randomSeed,
             numWorkers: r.numWorkers,
@@ -984,8 +995,8 @@ export async function POST(request: Request, context: RouteCtx) {
             unfulfilledWishes:
               (solverResult.unfulfilledWishes as string[]) ?? [],
             warnings: allWarnings,
-            // Expose comparison summary so the UI can confirm which run won
-            comparison: comparisonMode
+            // Expose multi-run summary so the UI can confirm which race won
+            multiRun: multiRun
               ? {
                   winnerVariant: winnerRun.variant,
                   runs: runs.map((r) => ({
@@ -1100,10 +1111,10 @@ function preflightManualPlacements(
   return issues;
 }
 
-/** Per-run record passed to buildDebugLog in Vergleichsmodus. */
+/** Per-run record passed to buildDebugLog when a Mehrfach-Lauf happened. */
 type DebugLogRunRecord = {
-  variant: string;            // "baseline" | "A".."J"
-  label: string;
+  variant: string;            // "A".."J"
+  label: string;              // "Rennen A" …
   result: Record<string, unknown>;
   randomSeed?: number;
   numWorkers: number;
@@ -1117,7 +1128,7 @@ function buildDebugLog(
   preflightIssues: string[],
   comparison: {
     runs: DebugLogRunRecord[];
-    winnerVariant: string;   // "baseline" | "A".."J"
+    winnerVariant: string;   // "A".."J" — which race won
   } | null,
 ): string {
   const profMap = new Map(
@@ -1135,9 +1146,9 @@ function buildDebugLog(
 
   const lines: string[] = [];
 
-  // ── Vergleichsmodus header (only when comparison is active) ──
+  // ── Mehrfach-Lauf header (only when >1 race happened) ──
   if (comparison && comparison.runs.length > 0) {
-    lines.push("=== Vergleichsmodus (Testphase) ===");
+    lines.push("=== Mehrfach-Lauf (mit Warm-Start) ===");
     const winnerRun = comparison.runs.find(
       (r) => r.variant === comparison.winnerVariant,
     );
@@ -1146,13 +1157,15 @@ function buildDebugLog(
         ? (winnerRun.result.objectiveValue as number)
         : null;
     lines.push(
-      `Gewinner: ${winnerRun?.label ?? comparison.winnerVariant}` +
+      `Gewinner: ${winnerRun?.label ?? `Rennen ${comparison.winnerVariant}`}` +
         (winnerObj != null
           ? ` (obj=${Math.round(winnerObj).toLocaleString("de-DE")})`
           : ""),
     );
     lines.push(
-      "Kriterium: niedrigstes objectiveValue (CP-SAT minimiert) · Gleichstand → mehr Zuweisungen → Basis bevorzugt.",
+      "Kriterium: bestes (niedrigstes) objectiveValue aus allen Warm-Start-Läufen. " +
+        "Jeder Lauf startet mit der besten bisher gefundenen Lösung als Hinweis (AddHint), " +
+        "sodass der laufende Bestwert nur gleich bleiben oder sinken kann.",
     );
     lines.push("");
     // Table: one row per run
@@ -1207,38 +1220,32 @@ function buildDebugLog(
           `${avgAbs.padStart(7)}  ${blGap.padStart(6)}  ${outside.padStart(7)}  ${seedNw}`,
       );
     }
-    // Delta vs baseline for winner, if not baseline
-    const baseline = comparison.runs.find((r) => r.variant === "baseline");
-    if (
-      baseline &&
-      winnerRun &&
-      winnerRun.variant !== "baseline" &&
-      typeof baseline.result.objectiveValue === "number" &&
-      typeof winnerRun.result.objectiveValue === "number"
-    ) {
-      const delta =
-        (winnerRun.result.objectiveValue as number) -
-        (baseline.result.objectiveValue as number);
-      const pct =
-        ((winnerRun.result.objectiveValue as number) /
-          (baseline.result.objectiveValue as number) -
-          1) *
-        100;
-      lines.push("");
-      lines.push(
-        `  Gewinner schlägt Basis um ${Math.abs(delta).toLocaleString("de-DE")} ` +
-          `(${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%).`,
-      );
-    } else if (
-      baseline &&
-      winnerRun &&
-      winnerRun.variant === "baseline"
-    ) {
-      lines.push("");
-      lines.push(
-        "  Basis war nicht schlagbar — kein Race-Lauf lag unter dem Basis-Objektiv.",
-      );
+    // Best-so-far trajectory: after each race, which run held the trophy and
+    // with what objective. Makes the monotonic improvement visible.
+    lines.push("");
+    lines.push("  Bestwert-Verlauf (nach jedem Rennen):");
+    let bestSoFarObj: number | null = null;
+    let bestSoFarLabel: string | null = null;
+    for (const r of comparison.runs) {
+      const feasible =
+        r.result.status === "OPTIMAL" || r.result.status === "FEASIBLE";
+      const thisObj =
+        typeof r.result.objectiveValue === "number"
+          ? (r.result.objectiveValue as number)
+          : null;
+      if (feasible && thisObj != null) {
+        if (bestSoFarObj == null || thisObj < bestSoFarObj) {
+          bestSoFarObj = thisObj;
+          bestSoFarLabel = r.label;
+        }
+      }
+      const bestStr =
+        bestSoFarObj != null
+          ? `${Math.round(bestSoFarObj).toLocaleString("de-DE")} (${bestSoFarLabel})`
+          : "—";
+      lines.push(`    nach ${r.label.padEnd(12)} → Bestwert: ${bestStr}`);
     }
+
     lines.push("");
     lines.push(
       "Hinweis: Nur der Gewinner wurde gespeichert; die übrigen Läufe sind nach Ende verworfen.",
@@ -1250,7 +1257,7 @@ function buildDebugLog(
   // ── Standard CP-SAT run block (unchanged) ──
   lines.push(
     `=== CP-SAT Solver Run${
-      comparison ? ` — Gewinner-Lauf (${comparison.winnerVariant})` : ""
+      comparison ? ` — Gewinner-Lauf: Rennen ${comparison.winnerVariant}` : ""
     } ===`,
     `Status: ${response.status}`,
     `Solve time: ${((response.solveTimeMs as number) ?? 0).toFixed(1)}ms`,
