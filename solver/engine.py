@@ -57,11 +57,17 @@ from constraints.soft import (
 class ProgressCallback(cp_model.CpSolverSolutionCallback):
     """Tracks solver progress and yields NDJSON events via a shared list."""
 
-    def __init__(self, events: list[str], wall_start: float):
+    def __init__(
+        self,
+        events: list[str],
+        wall_start: float,
+        cancel_check=None,  # callable returning bool, or None
+    ):
         super().__init__()
         self._events = events
         self._wall_start = wall_start
         self._solutions = 0
+        self._cancel_check = cancel_check
 
     def on_solution_callback(self):
         self._solutions += 1
@@ -80,6 +86,10 @@ class ProgressCallback(cp_model.CpSolverSolutionCallback):
             "elapsed": round(elapsed, 1),
         }
         self._events.append(json.dumps(event))
+        # Graceful cancellation: when set, CP-SAT returns the best
+        # feasible solution it has at this moment (status=FEASIBLE).
+        if self._cancel_check and self._cancel_check():
+            self.StopSearch()
 
 
 def _build_variables(
@@ -590,8 +600,18 @@ def solve(request: SolveRequest) -> SolveResponse:
     )
 
 
-def solve_streaming(request: SolveRequest) -> Generator[str, None, None]:
-    """Like solve(), but yields NDJSON progress events during solving."""
+def solve_streaming(
+    request: SolveRequest,
+    cancel_check=None,  # callable returning bool, or None
+) -> Generator[str, None, None]:
+    """Like solve(), but yields NDJSON progress events during solving.
+
+    If ``cancel_check`` is provided and returns True at any point during
+    a feasible-solution callback, CP-SAT's StopSearch() is called and
+    the solver returns the best feasible solution found so far. The
+    yielded "result" event contains those assignments and status
+    "FEASIBLE" (or "INFEASIBLE" if the search was cancelled before any
+    feasible solution was found)."""
     wall_start = time.perf_counter()
 
     yield json.dumps({
@@ -662,7 +682,7 @@ def solve_streaming(request: SolveRequest) -> Generator[str, None, None]:
              request.maxSolveTimeSeconds, request.numWorkers,
              request.randomSeed if request.randomSeed is not None else "default")
     progress_events: list[str] = []
-    callback = ProgressCallback(progress_events, wall_start)
+    callback = ProgressCallback(progress_events, wall_start, cancel_check=cancel_check)
     result_holder: list[int] = []
     yield from _stream_solve(model, solver, callback, progress_events, result_holder)
     status_code = result_holder[0] if result_holder else cp_model.UNKNOWN
@@ -698,7 +718,7 @@ def solve_streaming(request: SolveRequest) -> Generator[str, None, None]:
         if request.randomSeed is not None:
             solver.parameters.random_seed = request.randomSeed
         progress_events = []
-        callback = ProgressCallback(progress_events, wall_start)
+        callback = ProgressCallback(progress_events, wall_start, cancel_check=cancel_check)
         result_holder = []
         yield from _stream_solve(model, solver, callback, progress_events, result_holder)
         status_code = result_holder[0] if result_holder else cp_model.UNKNOWN

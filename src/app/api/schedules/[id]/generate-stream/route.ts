@@ -28,6 +28,11 @@ import {
   STRATEGY_LABELS,
   type Strategy,
 } from "@/lib/solver/weights";
+import {
+  registerGeneration,
+  unregisterGeneration,
+} from "@/lib/schedule/generationCancelState";
+import { randomUUID } from "crypto";
 
 type RouteCtx = { params: Promise<{ id: string }> };
 
@@ -328,6 +333,13 @@ export async function POST(request: Request, context: RouteCtx) {
       `W_RELAX_ALT_WEEKENDS=${activeWeights.W_RELAX_ALT_WEEKENDS}`,
   );
 
+  // Cancel-key plumbing: register this generation so the sibling
+  // /cancel-generation endpoint can find it and signal CP-SAT to stop.
+  // Forwarded to every solver call below via payload.cancelKey.
+  const cancelKey = randomUUID();
+  payload.cancelKey = cancelKey;
+  const cancelEntry = registerGeneration(scheduleId, cancelKey);
+
   // ── System log: generation start ──
   const genStartTime = Date.now();
   const monthStr = schedule.periodStart.toISOString().slice(0, 7);
@@ -402,6 +414,18 @@ export async function POST(request: Request, context: RouteCtx) {
 
         // ── Main loop: N sequential races, keep best-so-far ──
         for (let i = 0; i < raceCount; i++) {
+          // Early bail-out for cancellation between races. The first
+          // (currently-running) race already received the cancelKey and
+          // got its own StopSearch signal forwarded by the cancel
+          // endpoint; this check just makes sure we don't kick off any
+          // further races after cancel.
+          if (cancelEntry.cancelled.value) {
+            console.log(
+              `[generate-stream] Cancellation detected before race ${i + 1}; ` +
+                `skipping remaining ${raceCount - i} race(s).`,
+            );
+            break;
+          }
           const variantLabel = multiRun ? variantLabels[i]! : "Einzellauf";
           const runLabel = multiRun ? `Rennen ${variantLabels[i]}` : "Einzellauf";
           const seed = seedFor(i);
@@ -533,7 +557,18 @@ export async function POST(request: Request, context: RouteCtx) {
         if (!bestRun) {
           send({
             type: "error",
-            error: "Alle Läufe fehlgeschlagen — kein Ergebnis verfügbar.",
+            error: cancelEntry.cancelled.value
+              ? "Generierung abgebrochen — keine Lösung gefunden, Plan unverändert."
+              : "Alle Läufe fehlgeschlagen — kein Ergebnis verfügbar.",
+          });
+          controller.close();
+          return;
+        }
+        // Cancelled before any race found a feasible solution: don't save.
+        if (cancelEntry.cancelled.value && !isFeasibleRun(bestRun)) {
+          send({
+            type: "error",
+            error: "Generierung abgebrochen — keine Lösung gefunden, Plan unverändert.",
           });
           controller.close();
           return;
@@ -1024,6 +1059,9 @@ export async function POST(request: Request, context: RouteCtx) {
             e instanceof Error ? e.message : "Generierung fehlgeschlagen.",
         });
       } finally {
+        // Always release the cancel-state slot so the cancel endpoint
+        // doesn't think a phantom generation is still running.
+        unregisterGeneration(scheduleId);
         controller.close();
       }
     },

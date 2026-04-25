@@ -295,6 +295,20 @@ export default function SchedulePage() {
   // the stacked display. Updated on every race_starting / race_finished event
   // using the server-sent `bestSoFarVariant` field.
   const [genBestSoFarVariant, setGenBestSoFarVariant] = useState<string | null>(null);
+  // True from the moment the user clicks "Abbrechen" until the server
+  // streams its final event (success, cancellation-with-result, or error).
+  // Used to disable the cancel button so it can't be clicked twice and
+  // to show "Abbruch läuft…" feedback.
+  const [genCancelInFlight, setGenCancelInFlight] = useState(false);
+  // Final summary shown in the modal after generation finishes. Cleared
+  // when a new generation starts. The modal stays open until the user
+  // clicks "Schließen" — this drives the message in that final state.
+  const [genFinalState, setGenFinalState] = useState<
+    | { kind: "success"; message: string }
+    | { kind: "cancelled"; message: string }
+    | { kind: "error"; message: string }
+    | null
+  >(null);
   const [editMode, setEditMode] = useState(false);
   const [editedCells, setEditedCells] = useState<Map<string, CellEdit>>(new Map());
   const [editedShiftWishSet, setEditedShiftWishSet] = useState<Set<string>>(new Set());
@@ -771,6 +785,8 @@ export default function SchedulePage() {
     setGenProgress({ label: "Starte Generierung..." });
     setGenElapsed(0);
     setGenModalOpen(true);
+    setGenCancelInFlight(false);
+    setGenFinalState(null);
     setActionMsg(null);
     setActionDebugPayload(null);
     setActionAlertSeverity("info");
@@ -1034,19 +1050,57 @@ export default function SchedulePage() {
         setActionMsg(msgParts.join(" "));
         setActionDebugPayload(null);
         if (totalIssues > 0) setWarningsOpen(true);
+        // Mark final state for the modal. If the user hit Abbrechen and
+        // the server still managed to save a best-so-far plan, frame it
+        // as "cancelled-with-result" so the chip is informative.
+        setGenFinalState({
+          kind: genCancelInFlight ? "cancelled" : "success",
+          message: msgParts.join(" "),
+        });
       }
     } catch (e) {
+      const errMsg =
+        e instanceof Error ? e.message : "Generierung fehlgeschlagen (Netzwerk).";
       setActionAlertSeverity("error");
-      setActionMsg(e instanceof Error ? e.message : "Generierung fehlgeschlagen (Netzwerk).");
+      setActionMsg(errMsg);
       setActionDebugPayload({ kind: "client", message: String(e) });
       console.error("Entwurf füllen — Fehler", e);
+      setGenFinalState({
+        kind: genCancelInFlight ? "cancelled" : "error",
+        message: errMsg,
+      });
     } finally {
       if (genTimerRef.current) {
         clearInterval(genTimerRef.current);
         genTimerRef.current = null;
       }
       setGenerateBusy(false);
-      setTimeout(() => setGenModalOpen(false), 800);
+      setGenCancelInFlight(false);
+      // Modal stays open — the user dismisses it explicitly via the
+      // "Schließen" button now visible in the dialog footer.
+    }
+  };
+
+  /** Best-effort cancel: POSTs to the cancel endpoint, server forwards
+   * the signal to the running solver. The SSE stream stays open so the
+   * solver's best-so-far result still flows back through the normal
+   * "complete" path. */
+  const onCancelGeneration = async () => {
+    if (!schedule || !generateBusy || genCancelInFlight) return;
+    setGenCancelInFlight(true);
+    try {
+      const r = await fetch(
+        `/api/schedules/${schedule.id}/cancel-generation`,
+        { method: "POST" },
+      );
+      if (!r.ok) {
+        // Don't reset cancel state — generation may still finish on its
+        // own; we just couldn't deliver the cancel signal. Surface a
+        // mild warning.
+        console.warn("Cancel signal failed:", r.status);
+      }
+    } catch (e) {
+      console.warn("Cancel POST error:", e);
     }
   };
 
@@ -2775,8 +2829,62 @@ export default function SchedulePage() {
                 })}
               </Box>
             ) : null}
+
+            {/* Final-state summary card. Shown once generation has ended
+                (success / cancelled-with-result / error). Modal stays
+                open after this so the planner can read the result before
+                explicitly closing. */}
+            {genFinalState ? (
+              <Alert
+                severity={
+                  genFinalState.kind === "success"
+                    ? "success"
+                    : genFinalState.kind === "cancelled"
+                      ? "warning"
+                      : "error"
+                }
+                sx={{ mt: 2 }}
+              >
+                <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                  {genFinalState.kind === "success"
+                    ? "Plan erstellt"
+                    : genFinalState.kind === "cancelled"
+                      ? "Abgebrochen — bestes Zwischenergebnis übernommen"
+                      : "Fehlgeschlagen"}
+                </Typography>
+                <Typography variant="body2">{genFinalState.message}</Typography>
+                {genFinalState.kind !== "error" ? (
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ display: "block", mt: 0.5 }}
+                  >
+                    Plan ist gespeichert. Sie können das Fenster jetzt schließen.
+                  </Typography>
+                ) : null}
+              </Alert>
+            ) : null}
           </Box>
         </DialogContent>
+        <DialogActions>
+          {generateBusy ? (
+            <Button
+              onClick={() => void onCancelGeneration()}
+              color="warning"
+              disabled={genCancelInFlight}
+            >
+              {genCancelInFlight ? "Abbruch läuft…" : "Abbrechen"}
+            </Button>
+          ) : (
+            <Button
+              variant="contained"
+              onClick={() => setGenModalOpen(false)}
+              autoFocus
+            >
+              Schließen
+            </Button>
+          )}
+        </DialogActions>
       </Dialog>
 
       {/* Generation logs dialog */}

@@ -123,6 +123,10 @@ export interface SolverPayload {
   // Weights dataclass; values are integers. Omitted / empty = solver uses
   // factory defaults. See src/lib/solver/weights.ts for the canonical list.
   weights?: Record<string, number>;
+  // Optional opaque cancel key. Solver registers it while running so a
+  // sibling POST to the solver's /cancel/{cancelKey} can stop the search
+  // and return the best feasible solution found so far.
+  cancelKey?: string;
 }
 
 interface SolverAssignment {

@@ -134,6 +134,12 @@ class SolveRequest(BaseModel):
     # solver/config.py. The API layer is responsible for validating
     # invariants (see config.validate_overrides) before submitting.
     weights: dict[str, int] | None = None
+    # Optional opaque key used by the cancel mechanism. When set, the
+    # solver registers this key while running; a POST to /cancel/{key}
+    # will signal CP-SAT to stop searching and return the best-so-far
+    # feasible solution. Used so the user can cancel a long generation
+    # mid-solve without losing progress.
+    cancelKey: str | None = None
 
 
 # ── Response models ─────────────────────────────────────────────────────────
