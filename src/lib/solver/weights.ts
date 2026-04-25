@@ -94,8 +94,11 @@ export const DEFAULT_WEIGHTS = {
   W_RELAX_CONSEC_NIGHTS: 300_000,
   W_RELAX_CONSEC_DAYS: 300_000,
   W_RELAX_WBL_WEEKEND_LIMIT: 250_000,
-  W_RELAX_WBL_BL_MAX_PER_WEEK: 250_000,
-  W_RELAX_WBL_BL_WEEKLY_MIN: 250_000,
+  // WBL-BL constraints are MUST-HAVE in both strategies. Above
+  // W_STAFFING_MIN (3M Vollabdeckung / 50k Slot-leer) so missing a
+  // weekly BL is strictly more expensive than leaving a slot empty.
+  W_RELAX_WBL_BL_MAX_PER_WEEK: 5_000_000,
+  W_RELAX_WBL_BL_WEEKLY_MIN: 5_000_000,
   W_RELAX_REST_AFTER_6: 150_000,
   W_RELAX_ALT_WEEKENDS: 80_000,
 } as const;

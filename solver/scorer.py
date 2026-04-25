@@ -396,32 +396,50 @@ def _run(data: dict) -> None:
         for a in non_wbl_bl[:3]:
             print(f"    {emp_names.get(a['employeeId'], '?')} on {a['date']}")
     # Group dates by ISO week once for workability analysis.
+    from utils import is_weekend_or_holiday
     weeks_dates: dict[str, list[date]] = collections.defaultdict(list)
     for d in dates:
         weeks_dates[_iso_week(d)].append(d)
 
+    # Cross-month: also count BL shifts from the previous month that
+    # spilled into an ISO week that overlaps the current period.
+    prev_bl_weekly: dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
+    for pa in (data.get("solverPayload", {}) or {}).get("previousAssignments", []) or []:
+        if pa.get("shiftProfileId") not in {p["id"] for p in profiles if p.get("shiftType") == "BL"}:
+            continue
+        try:
+            pd = date.fromisoformat(pa["date"])
+        except (KeyError, ValueError):
+            continue
+        prev_bl_weekly[pa["employeeId"]][_iso_week(pd)] += 1
+
     for eid in wbl_ids:
         name = emp_names.get(eid, eid[:8])
         total = wbl_bl_counts.get(eid, 0)
-        # Only count weeks where the employee has at least one workable day
-        # (not absent / not blocked). This mirrors add_wbl_bl_soft's skip logic
-        # and keeps the report focused on real misses rather than impossible
-        # weeks (e.g. full-week sickness).
         emp_absent = absent_dates.get(eid, set())
-        workable_weeks = {
+        # A week is "BL-eligible" only if it has at least one workable
+        # weekday that is NOT a weekend or public holiday — BL shifts
+        # are forbidden on weekends/holidays so any week consisting
+        # entirely of those days is impossible to cover and must be
+        # skipped from the report.
+        bl_eligible_weeks = {
             w for w, wk_dates in weeks_dates.items()
-            if any(d not in emp_absent for d in wk_dates)
+            if any(
+                (d not in emp_absent) and (not is_weekend_or_holiday(d))
+                for d in wk_dates
+            )
         }
-        weeks_total = len(workable_weeks)
+        weeks_total = len(bl_eligible_weeks)
+        # Coverage: count BLs from current month + previous-month carryover.
         weeks_with_bl = sum(
-            1 for w, c in wbl_bl_weekly[eid].items()
-            if c >= 1 and w in workable_weeks
+            1 for w in bl_eligible_weeks
+            if (wbl_bl_weekly[eid].get(w, 0) + prev_bl_weekly.get(eid, {}).get(w, 0)) >= 1
         )
         skipped = len(weeks_dates) - weeks_total
         multi_bl_weeks = [(w, c) for w, c in wbl_bl_weekly[eid].items() if c > 1]
         all_covered = (weeks_total == 0) or (weeks_with_bl == weeks_total)
         status = "OK" if all_covered and not multi_bl_weeks else "!!"
-        suffix = f" (skipped {skipped} fully-absent weeks)" if skipped else ""
+        suffix = f" (skipped {skipped} impossible/absent weeks)" if skipped else ""
         print(f"  {status} {name}: {total} BL total, {weeks_with_bl}/{weeks_total} weeks covered{suffix}", end="")
         if multi_bl_weeks:
             print(f" — MULTI-BL weeks: {multi_bl_weeks}", end="")

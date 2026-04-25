@@ -156,8 +156,13 @@ DEFAULT_W_RELAX_MINI_JOB_CAP = 6_000_000
 DEFAULT_W_RELAX_CONSEC_NIGHTS = 300_000
 DEFAULT_W_RELAX_CONSEC_DAYS = 300_000
 DEFAULT_W_RELAX_WBL_WEEKEND_LIMIT = 250_000
-DEFAULT_W_RELAX_WBL_BL_MAX_PER_WEEK = 250_000
-DEFAULT_W_RELAX_WBL_BL_WEEKLY_MIN = 250_000
+# WBL-BL constraints are MUST-HAVE in both Vollabdeckung and Slot-leer
+# modes — every WBL employee gets exactly one BL shift per ISO week
+# (not zero, not two). Weights deliberately above W_STAFFING_MIN (3M
+# in Vollabdeckung, 50k in Slot-leer) so missing or doubling a BL is
+# strictly more expensive than leaving a slot empty.
+DEFAULT_W_RELAX_WBL_BL_MAX_PER_WEEK = 5_000_000
+DEFAULT_W_RELAX_WBL_BL_WEEKLY_MIN = 5_000_000
 DEFAULT_W_RELAX_REST_AFTER_6 = 150_000
 DEFAULT_W_RELAX_ALT_WEEKENDS = 80_000
 

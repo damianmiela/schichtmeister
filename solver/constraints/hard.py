@@ -528,7 +528,15 @@ def add_wbl_bl_max_one_per_week(
     relaxed: bool = False,
     w: Weights = Weights(),
 ) -> list[tuple[cp_model.IntVar, int]]:
-    """Each WBL employee gets at most 1 BL shift per ISO week (skip full-time BL)."""
+    """Each WBL employee gets at most 1 BL shift per ISO week.
+
+    Cross-month aware: BL shifts the planner already assigned in the last
+    days of the previous month (passed in via req.previousAssignments)
+    are counted toward the per-(employee, ISO-week) BL tally — so if a
+    WBL had her week-N BL on the previous Friday, the constraint
+    correctly forbids her another BL on the current month's Saturday or
+    Sunday of that same ISO week.
+    """
     terms: list[tuple[cp_model.IntVar, int]] = []
     wbl_emps = [e for e in req.employees if e.isWbl and not e.isFullTimeBl]
     bl_profiles = {p.id for p in req.shiftProfiles if p.shiftType == "BL"}
@@ -540,6 +548,21 @@ def add_wbl_bl_max_one_per_week(
     for d in dates:
         wk = iso_week_key(d)
         weeks.setdefault(wk, []).append(d)
+
+    # Pre-tally BL shifts the planner already assigned in the previous
+    # month, indexed by (employeeId, isoWeekKey). These count toward
+    # the weekly limit for any ISO week that straddles the boundary.
+    prev_bl_count: dict[tuple[str, str], int] = {}
+    for pa in req.previousAssignments:
+        if pa.shiftProfileId not in bl_profiles:
+            continue
+        try:
+            d = date.fromisoformat(pa.date)
+        except ValueError:
+            continue
+        wk = iso_week_key(d)
+        key = (pa.employeeId, wk)
+        prev_bl_count[key] = prev_bl_count.get(key, 0) + 1
 
     for emp in wbl_emps:
         emp_bl = {pid for pid in bl_profiles
@@ -554,13 +577,19 @@ def add_wbl_bl_max_one_per_week(
                     key = (emp.id, ds, pid)
                     if key in shift:
                         bl_vars.append(shift[key])
-            if bl_vars:
-                if relaxed:
-                    slack = model.NewIntVar(0, len(bl_vars), f"wblmax_{emp.id}_{wk}")
-                    model.Add(sum(bl_vars) <= 1 + slack)
-                    terms.append((slack, w.W_RELAX_WBL_BL_MAX_PER_WEEK))
-                else:
-                    model.Add(sum(bl_vars) <= 1)
+            if not bl_vars:
+                continue
+            # Cross-month carryover: count BL shifts the planner already
+            # placed in this same ISO week during the previous month.
+            prev = prev_bl_count.get((emp.id, wk), 0)
+            # Effective ceiling within this period = 1 - prev (clamped ≥ 0)
+            ceiling = max(0, 1 - prev)
+            if relaxed:
+                slack = model.NewIntVar(0, len(bl_vars), f"wblmax_{emp.id}_{wk}")
+                model.Add(sum(bl_vars) <= ceiling + slack)
+                terms.append((slack, w.W_RELAX_WBL_BL_MAX_PER_WEEK))
+            else:
+                model.Add(sum(bl_vars) <= ceiling)
 
     return terms
 
@@ -574,6 +603,13 @@ def add_wbl_bl_weekly(
     relaxed: bool = False,
     w: Weights = Weights(),
 ) -> list[tuple[cp_model.IntVar, int]]:
+    """Every WBL employee must have ≥ 1 BL shift per workable ISO week.
+
+    Cross-month aware: BL shifts already placed in the previous month
+    that fall inside an ISO week which extends into the current period
+    count toward the minimum. A WBL whose Apr-30-week-18 BL spilled
+    over from the previous month does NOT need a second BL within
+    May 1–3 of the same week."""
     terms: list[tuple[cp_model.IntVar, int]] = []
     wbl_emps = [e for e in req.employees if e.isWbl]
     bl_profiles = {p.id for p in req.shiftProfiles if p.shiftType == "BL"}
@@ -585,6 +621,19 @@ def add_wbl_bl_weekly(
     for d in dates:
         wk = iso_week_key(d)
         weeks.setdefault(wk, []).append(d)
+
+    # Pre-tally BL shifts from the previous month, by (employee, ISO week).
+    prev_bl_count: dict[tuple[str, str], int] = {}
+    for pa in req.previousAssignments:
+        if pa.shiftProfileId not in bl_profiles:
+            continue
+        try:
+            d = date.fromisoformat(pa.date)
+        except ValueError:
+            continue
+        wk = iso_week_key(d)
+        key = (pa.employeeId, wk)
+        prev_bl_count[key] = prev_bl_count.get(key, 0) + 1
 
     for emp in wbl_emps:
         emp_bl = {pid for pid in bl_profiles
@@ -599,13 +648,20 @@ def add_wbl_bl_weekly(
                     key = (emp.id, ds, pid)
                     if key in shift:
                         bl_vars.append(shift[key])
-            if bl_vars:
-                if relaxed:
-                    short = model.NewBoolVar(f"wblmin_{emp.id}_{wk}")
-                    model.Add(sum(bl_vars) + short >= 1)
-                    terms.append((short, w.W_RELAX_WBL_BL_WEEKLY_MIN))
-                else:
-                    model.Add(sum(bl_vars) >= 1)
+            if not bl_vars:
+                continue
+            # If a BL was already placed for this WBL in this ISO week
+            # during the previous month, the weekly minimum is already
+            # met — skip the constraint to avoid forcing a second BL
+            # in the same week.
+            if prev_bl_count.get((emp.id, wk), 0) >= 1:
+                continue
+            if relaxed:
+                short = model.NewBoolVar(f"wblmin_{emp.id}_{wk}")
+                model.Add(sum(bl_vars) + short >= 1)
+                terms.append((short, w.W_RELAX_WBL_BL_WEEKLY_MIN))
+            else:
+                model.Add(sum(bl_vars) >= 1)
 
     return terms
 
