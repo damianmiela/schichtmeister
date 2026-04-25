@@ -275,10 +275,28 @@ export default function SchedulePage() {
   // RELATIVE comparison across runs ("this run got to 82%, that one only
   // 88%") more than as an absolute optimality signal.
   const [genGap, setGenGap] = useState<number | null>(null);
+  // Browser-side wall clock when the current race started — Date.now() ms.
+  // Reset on generation start AND on each race_starting event in
+  // Mehrfach-Lauf. Used together with `genLastImprovementElapsed` to
+  // display "Letzte Verbesserung vor Xs" live (counts up between solver
+  // events, including during a plateau when no events arrive).
+  const [genCurrentRaceStartMs, setGenCurrentRaceStartMs] = useState<number | null>(null);
+  // Per-race-relative seconds at which the solver last found a
+  // strictly-better objective. Sent by the solver in every progress event
+  // ("lastImprovementElapsed") and stored here for live ticking display.
+  const [genLastImprovementElapsed, setGenLastImprovementElapsed] = useState<number | null>(null);
   // Number of sequential races per generation (1-10). When > 1 we run a
   // Mehrfach-Lauf with distinct seeds and keep the run with the lowest
   // objective. Total wall time ≈ raceCount × maxSolveTimeSeconds.
   const [raceCountDraft, setRaceCountDraft] = useState("1");
+  // Timing mode for the solver:
+  //   "FIXED" — each race runs for exactly solveTimeDraft seconds (current default).
+  //   "PLATEAU" — each race runs until plateauSecondsDraft seconds elapse
+  //               without finding a strictly-better objective. Solver self-stops
+  //               with the best-so-far solution. Useful for letting the search
+  //               take "as long as it actually needs" without a fixed budget.
+  const [timingMode, setTimingMode] = useState<"FIXED" | "PLATEAU">("FIXED");
+  const [plateauSecondsDraft, setPlateauSecondsDraft] = useState("60");
   // Solver strategy: "PREFER_FULL_COVERAGE" (default — fill every slot
   // with overtime / rule-breaking if needed) or "PREFER_GAPS" (lieber
   // Slot leer lassen). See src/lib/solver/weights.ts.
@@ -832,6 +850,7 @@ export default function SchedulePage() {
         endDate: e.dateTo,
       }));
     const solveTimeVal = Number(solveTimeDraft);
+    const plateauVal = Number(plateauSecondsDraft);
     const body: {
       manualPlacements?: ManualPlacement[];
       blockedDates?: { employeeId: string; date: string }[];
@@ -839,11 +858,23 @@ export default function SchedulePage() {
       maxSolveTimeSeconds?: number;
       raceCount?: number;
       strategy?: "PREFER_FULL_COVERAGE" | "PREFER_GAPS";
+      timingMode?: "FIXED" | "PLATEAU";
+      plateauSeconds?: number;
     } = {};
     if (manualPlacements.length > 0) body.manualPlacements = manualPlacements;
     if (blockedDates.length > 0) body.blockedDates = blockedDates;
     if (absences.length > 0) body.absences = absences;
-    if (solveTimeVal >= 5 && solveTimeVal <= 3600) body.maxSolveTimeSeconds = solveTimeVal;
+    // FIXED mode → send the budget as maxSolveTimeSeconds (existing path).
+    // PLATEAU mode → send timingMode + plateauSeconds; solver caps wall-time
+    // internally at 30 min as safety. Frontend display switches accordingly.
+    if (timingMode === "PLATEAU") {
+      body.timingMode = "PLATEAU";
+      if (plateauVal >= 5 && plateauVal <= 600) {
+        body.plateauSeconds = Math.floor(plateauVal);
+      }
+    } else {
+      if (solveTimeVal >= 5 && solveTimeVal <= 3600) body.maxSolveTimeSeconds = solveTimeVal;
+    }
     const raceCountVal = (() => {
       const n = Number(raceCountDraft);
       if (!Number.isFinite(n)) return 1;
@@ -862,6 +893,11 @@ export default function SchedulePage() {
     setGenGap(null);
     setGenRaceSlots([]);
     setGenBestSoFarVariant(null);
+    // Race-start timer (for the live "since last improvement" counter).
+    // Single-run sets this once here; multi-run also resets it on each
+    // race_starting event below.
+    setGenCurrentRaceStartMs(Date.now());
+    setGenLastImprovementElapsed(null);
 
     try {
       const resp = await fetch(`/api/schedules/${schedule.id}/generate-stream`, {
@@ -897,6 +933,10 @@ export default function SchedulePage() {
               // Single-run generation doesn't emit any of these — the normal
               // indeterminate progress bar + generic label path handles it.
               if (event.stage === "race_starting") {
+                // Reset the per-race timer so "Letzte Verbesserung vor Xs"
+                // counts from this race's start, not from the gen start.
+                setGenCurrentRaceStartMs(Date.now());
+                setGenLastImprovementElapsed(null);
                 // Initialize / update per-variant slot list. The server
                 // sends the full `variantLabels` array on the first
                 // race_starting event so we can show all upcoming runs as
@@ -1002,6 +1042,13 @@ export default function SchedulePage() {
                 if (typeof event.gap === "number") {
                   setGenGap(event.gap);
                 }
+              }
+              // lastImprovementElapsed is sent by the solver in every
+              // progress event regardless of whether it's tagged with a
+              // variant. Capture it for the live "Letzte Verbesserung
+              // vor Xs" counter.
+              if (typeof event.lastImprovementElapsed === "number") {
+                setGenLastImprovementElapsed(event.lastImprovementElapsed);
               }
               setGenProgress({
                 label: event.label ?? "",
@@ -2611,52 +2658,104 @@ export default function SchedulePage() {
 
           <Divider sx={{ my: 2 }} />
 
-          {/* Solver time limit + Anzahl Läufe on the same row. When
-              Anzahl Läufe > 1 we run a Mehrfach-Lauf (distinct seeds,
-              lowest-objective wins). Total wall time ≈ Sek. × Läufe. */}
-          <Box sx={{ display: "flex", alignItems: "flex-start", gap: 2 }}>
-            <Box sx={{ flex: 1 }}>
-              <Typography variant="subtitle2" sx={{ mb: 0.25 }}>
-                Solver-Zeit & Anzahl Läufe
-              </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
-                Mehr Zeit pro Lauf und/oder mehr Läufe können zu besseren
-                Ergebnissen führen. Bei mehreren Läufen wird der Plan mit dem
-                besten Objective übernommen.
-              </Typography>
-              {(() => {
-                const sec = Number(solveTimeDraft);
-                const n = Math.max(1, Math.min(10, Math.floor(Number(raceCountDraft) || 1)));
-                const total = Number.isFinite(sec) && sec > 0 ? sec * n : null;
-                return total != null ? (
-                  <Typography
-                    variant="caption"
-                    color="text.secondary"
-                    sx={{ display: "block", mt: 0.5, fontVariantNumeric: "tabular-nums" }}
-                  >
-                    ≈ {total}s gesamt ({sec}s × {n} {n === 1 ? "Lauf" : "Läufe"})
+          {/* Timing strategy: FIXED budget vs PLATEAU-stop.
+              FIXED — each race runs exactly Sek. seconds.
+              PLATEAU — each race runs until Sek. seconds without finding a
+              strictly-better objective; solver self-stops with best-so-far. */}
+          <Box>
+            <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+              Solver-Zeit & Anzahl Läufe
+            </Typography>
+            <ToggleButtonGroup
+              value={timingMode}
+              exclusive
+              onChange={(_, v) => {
+                if (v === "FIXED" || v === "PLATEAU") setTimingMode(v);
+              }}
+              size="small"
+              fullWidth
+              sx={{ mb: 1 }}
+            >
+              <ToggleButton value="FIXED" sx={{ textTransform: "none", py: 0.5 }}>
+                Festes Zeitlimit
+              </ToggleButton>
+              <ToggleButton value="PLATEAU" sx={{ textTransform: "none", py: 0.5 }}>
+                Plateau-Erkennung (Test)
+              </ToggleButton>
+            </ToggleButtonGroup>
+
+            {timingMode === "FIXED" ? (
+              <Box sx={{ display: "flex", alignItems: "flex-start", gap: 2 }}>
+                <Box sx={{ flex: 1 }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                    Jeder Lauf läuft genau die angegebene Anzahl Sekunden.
+                    Bei mehreren Läufen wird der Plan mit dem besten
+                    Objective übernommen.
                   </Typography>
-                ) : null;
-              })()}
-            </Box>
-            <TextField
-              size="small"
-              type="number"
-              label="Sek."
-              value={solveTimeDraft}
-              onChange={(e) => setSolveTimeDraft(e.target.value)}
-              inputProps={{ min: 5, max: 3600, step: 5 }}
-              sx={{ width: 110 }}
-            />
-            <TextField
-              size="small"
-              type="number"
-              label="Läufe"
-              value={raceCountDraft}
-              onChange={(e) => setRaceCountDraft(e.target.value)}
-              inputProps={{ min: 1, max: 10, step: 1 }}
-              sx={{ width: 90 }}
-            />
+                  {(() => {
+                    const sec = Number(solveTimeDraft);
+                    const n = Math.max(1, Math.min(10, Math.floor(Number(raceCountDraft) || 1)));
+                    const total = Number.isFinite(sec) && sec > 0 ? sec * n : null;
+                    return total != null ? (
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        sx={{ display: "block", mt: 0.5, fontVariantNumeric: "tabular-nums" }}
+                      >
+                        ≈ {total}s gesamt ({sec}s × {n} {n === 1 ? "Lauf" : "Läufe"})
+                      </Typography>
+                    ) : null;
+                  })()}
+                </Box>
+                <TextField
+                  size="small"
+                  type="number"
+                  label="Sek."
+                  value={solveTimeDraft}
+                  onChange={(e) => setSolveTimeDraft(e.target.value)}
+                  inputProps={{ min: 5, max: 3600, step: 5 }}
+                  sx={{ width: 110 }}
+                />
+                <TextField
+                  size="small"
+                  type="number"
+                  label="Läufe"
+                  value={raceCountDraft}
+                  onChange={(e) => setRaceCountDraft(e.target.value)}
+                  inputProps={{ min: 1, max: 10, step: 1 }}
+                  sx={{ width: 90 }}
+                />
+              </Box>
+            ) : (
+              <Box sx={{ display: "flex", alignItems: "flex-start", gap: 2 }}>
+                <Box sx={{ flex: 1 }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                    Jeder Lauf endet, sobald für die angegebene Sekunden-Zahl
+                    keine bessere Lösung mehr gefunden wurde. Gesamtdauer
+                    hängt davon ab, wie schnell die Suche konvergiert
+                    (Hard-Cap intern: 30 Min. pro Lauf).
+                  </Typography>
+                </Box>
+                <TextField
+                  size="small"
+                  type="number"
+                  label="Plateau-Sek."
+                  value={plateauSecondsDraft}
+                  onChange={(e) => setPlateauSecondsDraft(e.target.value)}
+                  inputProps={{ min: 5, max: 600, step: 5 }}
+                  sx={{ width: 130 }}
+                />
+                <TextField
+                  size="small"
+                  type="number"
+                  label="Läufe"
+                  value={raceCountDraft}
+                  onChange={(e) => setRaceCountDraft(e.target.value)}
+                  inputProps={{ min: 1, max: 10, step: 1 }}
+                  sx={{ width: 90 }}
+                />
+              </Box>
+            )}
           </Box>
 
           <Divider sx={{ my: 2 }} />
@@ -2751,16 +2850,33 @@ export default function SchedulePage() {
                     : genProgress.label}
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ fontVariantNumeric: "tabular-nums", ml: 2, whiteSpace: "nowrap" }}>
-                {genElapsed}/
                 {(() => {
+                  // Live "since last improvement" counter: race-relative.
+                  // Computed from genCurrentRaceStartMs (browser-side
+                  // wall-clock) minus genLastImprovementElapsed (sent by
+                  // the solver). Re-renders ~10×/s because genElapsed ticks.
+                  let sinceImprovementStr = "";
+                  if (
+                    genCurrentRaceStartMs != null &&
+                    genLastImprovementElapsed != null
+                  ) {
+                    const sinceSec = Math.max(
+                      0,
+                      (Date.now() - genCurrentRaceStartMs) / 1000 -
+                        genLastImprovementElapsed,
+                    );
+                    sinceImprovementStr = ` · Verbesserung vor ${sinceSec.toFixed(0)}s`;
+                  }
+                  if (timingMode === "PLATEAU") {
+                    return `${genElapsed}s · Plateau ${plateauSecondsDraft}s${sinceImprovementStr}`;
+                  }
                   const sec = Number(solveTimeDraft) || 0;
                   const n = Math.max(
                     1,
                     Math.min(10, Math.floor(Number(raceCountDraft) || 1)),
                   );
-                  return sec * n;
+                  return `${genElapsed}/${sec * n}s${sinceImprovementStr}`;
                 })()}
-                s
               </Typography>
             </Box>
             {/* Mehrfach-Lauf — stacked per-variant live display.

@@ -68,6 +68,11 @@ class ProgressCallback(cp_model.CpSolverSolutionCallback):
         self._wall_start = wall_start
         self._solutions = 0
         self._cancel_check = cancel_check
+        # Plateau tracking — wall-time of last STRICTLY better objective.
+        # The watchdog in solve_streaming polls this externally to decide
+        # when the search has plateaued and call StopSearch().
+        self._best_obj_seen = float("inf")
+        self._last_improvement_at = wall_start
 
     def on_solution_callback(self):
         self._solutions += 1
@@ -81,6 +86,18 @@ class ProgressCallback(cp_model.CpSolverSolutionCallback):
         # minimization relaxation but guard anyway.
         denom = max(abs(obj), 1.0)
         gap_pct = max(0.0, (obj - bound) / denom * 100.0)
+        # Plateau tracking: bump the timestamp only on a STRICTLY better
+        # objective. Same-objective callbacks (e.g. solver exploring
+        # equivalent solutions) leave the timer alone — those don't count
+        # as progress for the plateau heuristic.
+        if obj < self._best_obj_seen:
+            self._best_obj_seen = obj
+            self._last_improvement_at = time.perf_counter()
+        # Wall-clock seconds (since this race's wall_start) at which the
+        # most recent strictly-better objective was found. Frontend uses
+        # this with its own race-start timer to display "Letzte
+        # Verbesserung vor Xs" live.
+        last_improvement_elapsed = self._last_improvement_at - self._wall_start
         event = {
             "type": "progress",
             "stage": "solving",
@@ -91,6 +108,7 @@ class ProgressCallback(cp_model.CpSolverSolutionCallback):
             "bound": round(bound, 1),
             "gap": round(gap_pct, 2),  # percentage, e.g. 12.43
             "elapsed": round(elapsed, 1),
+            "lastImprovementElapsed": round(last_improvement_elapsed, 1),
         }
         self._events.append(json.dumps(event))
         # Graceful cancellation: when set, CP-SAT returns the best
@@ -668,35 +686,79 @@ def solve_streaming(
 
     import threading
 
+    # Plateau-stop config: when set, the search stops after this many
+    # seconds without a strictly-better objective. None = no plateau check.
+    plateau_seconds = request.plateauSeconds
+
     def _stream_solve(current_model, current_solver, callback, progress_events, result_holder):
         """Generator — runs solver in thread and yields progress events live.
 
         Status code is stored in ``result_holder[0]`` once the solver finishes.
         Caller uses ``yield from _stream_solve(...)`` so every event reaches the
         SSE stream as soon as the CP-SAT callback pushes it to the shared list.
+
+        Also acts as the watchdog for plateau-stop: between event drains, if
+        ``plateau_seconds`` is configured AND at least one feasible solution
+        has been found AND the time since the last STRICTLY-better objective
+        exceeds the threshold, calls ``solver.StopSearch()`` externally. The
+        solver winds down within ~0.5s; we keep draining events while it does.
         """
         def _run_solver():
             result_holder.append(current_solver.Solve(current_model, callback))
 
         solver_thread = threading.Thread(target=_run_solver)
         solver_thread.start()
+        plateau_stopped = False
         while solver_thread.is_alive():
             solver_thread.join(timeout=0.5)
             while progress_events:
                 yield progress_events.pop(0) + "\n"
+            if (
+                plateau_seconds is not None
+                and not plateau_stopped
+                and callback._best_obj_seen != float("inf")
+            ):
+                idle = time.perf_counter() - callback._last_improvement_at
+                if idle > plateau_seconds:
+                    log.info(
+                        "Plateau-stop: no improvement for %.1fs (>= %ds), calling StopSearch()",
+                        idle, plateau_seconds,
+                    )
+                    progress_events.append(json.dumps({
+                        "type": "progress", "stage": "plateau_stop",
+                        "label": (
+                            f"Plateau erkannt: {idle:.0f}s ohne Verbesserung — "
+                            f"Suche wird beendet."
+                        ),
+                    }))
+                    current_solver.StopSearch()
+                    plateau_stopped = True
         # Drain any events added between the last check and thread exit
         while progress_events:
             yield progress_events.pop(0) + "\n"
 
+    # When plateau-stop is active, the time budget is effectively the
+    # plateau threshold (the watchdog calls StopSearch once it triggers).
+    # CP-SAT still requires SOME max — set a generous safety cap of 30
+    # minutes so a truly stuck solver eventually gives up.
+    PLATEAU_HARD_CAP_S = 1800
+    effective_max_time = (
+        PLATEAU_HARD_CAP_S if plateau_seconds is not None else request.maxSolveTimeSeconds
+    )
+
     # ── Phase 1: strict solve ──
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = request.maxSolveTimeSeconds
+    solver.parameters.max_time_in_seconds = effective_max_time
     solver.parameters.num_workers = request.numWorkers
     if request.randomSeed is not None:
         solver.parameters.random_seed = request.randomSeed
-    log.info("Stream-solving (STRICT) max_time=%ds, num_workers=%d, random_seed=%s",
-             request.maxSolveTimeSeconds, request.numWorkers,
-             request.randomSeed if request.randomSeed is not None else "default")
+    log.info(
+        "Stream-solving (STRICT) max_time=%ds, plateau=%s, num_workers=%d, random_seed=%s",
+        effective_max_time,
+        f"{plateau_seconds}s" if plateau_seconds is not None else "off",
+        request.numWorkers,
+        request.randomSeed if request.randomSeed is not None else "default",
+    )
     progress_events: list[str] = []
     callback = ProgressCallback(progress_events, wall_start, cancel_check=cancel_check)
     result_holder: list[int] = []
@@ -729,11 +791,13 @@ def solve_streaming(
         )
 
         solver = cp_model.CpSolver()
-        solver.parameters.max_time_in_seconds = request.maxSolveTimeSeconds
+        solver.parameters.max_time_in_seconds = effective_max_time
         solver.parameters.num_workers = request.numWorkers
         if request.randomSeed is not None:
             solver.parameters.random_seed = request.randomSeed
         progress_events = []
+        # Fresh callback for Phase 2 — plateau timer resets naturally because
+        # _last_improvement_at is initialized to wall_start in __init__.
         callback = ProgressCallback(progress_events, wall_start, cancel_check=cancel_check)
         result_holder = []
         yield from _stream_solve(model, solver, callback, progress_events, result_holder)

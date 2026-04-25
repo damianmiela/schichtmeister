@@ -127,6 +127,11 @@ export interface SolverPayload {
   // sibling POST to the solver's /cancel/{cancelKey} can stop the search
   // and return the best feasible solution found so far.
   cancelKey?: string;
+  // Optional plateau budget — when set, solver runs until this many
+  // seconds have passed without a strictly-better objective, then stops
+  // with best-so-far. Overrides maxSolveTimeSeconds (which becomes a
+  // 30-min safety cap).
+  plateauSeconds?: number;
 }
 
 interface SolverAssignment {

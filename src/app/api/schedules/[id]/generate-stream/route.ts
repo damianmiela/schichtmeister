@@ -227,6 +227,16 @@ export async function POST(request: Request, context: RouteCtx) {
   const clientMaxSolveTime = typeof body?.maxSolveTimeSeconds === "number"
     ? Math.max(5, Math.min(3600, body.maxSolveTimeSeconds))
     : null;
+  // Timing mode: "FIXED" uses maxSolveTimeSeconds as the per-race budget
+  // (current default). "PLATEAU" runs each race until plateauSeconds have
+  // elapsed without a strictly-better objective, with a generous 30-min
+  // safety cap on the solver side.
+  const timingMode: "FIXED" | "PLATEAU" =
+    body?.timingMode === "PLATEAU" ? "PLATEAU" : "FIXED";
+  const clientPlateauSeconds =
+    timingMode === "PLATEAU" && typeof body?.plateauSeconds === "number"
+      ? Math.max(5, Math.min(600, Math.floor(body.plateauSeconds)))
+      : null;
   // Mehrfach-Lauf: generation is now "raceCount sequential CP-SAT runs with
   // distinct seeds, keep the best". raceCount=1 is a normal single run
   // (unchanged wall-clock). raceCount>1 spawns N races A, B, C, …; each with
@@ -320,6 +330,12 @@ export async function POST(request: Request, context: RouteCtx) {
   if (clientMaxSolveTime != null) {
     payload.maxSolveTimeSeconds = clientMaxSolveTime;
   }
+  // Plateau-stop budget. When set, the solver stops a race after
+  // plateauSeconds without a strictly-better objective. The solver
+  // applies its own 30-min hard cap on top via max_time_in_seconds.
+  if (clientPlateauSeconds != null) {
+    payload.plateauSeconds = clientPlateauSeconds;
+  }
 
   // Resolve active weights: factory defaults → strategy template (A or B)
   // → admin's common overrides → admin's per-template overrides → final.
@@ -376,7 +392,13 @@ export async function POST(request: Request, context: RouteCtx) {
 
         // Each race gets its OWN perPhaseTimeoutMs budget via the per-fetch
         // AbortSignal.timeout(); total wall-clock is ~raceCount × perPhaseTimeoutMs.
-        const perPhaseTimeoutMs = ((payload.maxSolveTimeSeconds ?? 120) + 60) * 1000;
+        // In plateau mode we don't know the race length up-front, so we
+        // align the fetch timeout with the solver's own 30-min hard cap
+        // (PLATEAU_HARD_CAP_S in solver/engine.py) plus a 60-s grace.
+        const perPhaseTimeoutMs =
+          payload.plateauSeconds != null
+            ? (1800 + 60) * 1000
+            : ((payload.maxSolveTimeSeconds ?? 120) + 60) * 1000;
         console.log(
           `[generate-stream] Calling solver at ${SOLVER_URL}/solve-stream, ` +
           `raceCount=${raceCount}, perPhaseTimeout=${perPhaseTimeoutMs}ms, ` +

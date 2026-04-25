@@ -140,6 +140,12 @@ class SolveRequest(BaseModel):
     # feasible solution. Used so the user can cancel a long generation
     # mid-solve without losing progress.
     cancelKey: str | None = None
+    # Plateau-stop budget. When set (in seconds), the solver runs until
+    # this many seconds have elapsed without finding a strictly-better
+    # objective, then auto-stops with the best-so-far solution.
+    # `maxSolveTimeSeconds` is overridden to a generous 30-min safety
+    # cap when plateau is in effect. None = no plateau check.
+    plateauSeconds: int | None = None
 
 
 # ── Response models ─────────────────────────────────────────────────────────
