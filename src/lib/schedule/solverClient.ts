@@ -34,6 +34,10 @@ interface SolverEmployee {
   isFullTimeBl: boolean;
   maxConsecutiveDays: number | null;
   shiftDistribution: Record<string, number> | null;
+  /** True for AUSBILDUNG / MINI_JOB. Solver won't auto-assign new shifts;
+   * existing manualPlacements still count toward staffing. See
+   * solver/models.py EmployeeInput.autoPlanDisabled. */
+  autoPlanDisabled: boolean;
 }
 
 interface SolverShiftProfile {
@@ -275,6 +279,7 @@ export function buildSolverPayload(
       isFullTimeBl: e.isFullTimeBl,
       maxConsecutiveDays: e.maxConsecutiveDays,
       shiftDistribution: e.shiftDistribution,
+      autoPlanDisabled: e.autoPlanDisabled,
     };
   });
 

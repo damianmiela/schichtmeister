@@ -375,6 +375,10 @@ def add_min_utilization_soft(
     avg_hours = sum(active_hours) / len(active_hours) if active_hours else 8.0
 
     for emp in req.employees:
+        # Auto-plan-disabled employees (MJ / Ausbildung): solver only locks
+        # their manualPlacement slots; we don't penalize them here.
+        if emp.autoPlanDisabled:
+            continue
         soll = soll_map.get(emp.id)
         if soll is None:
             pct = emp.targetHoursPercent
@@ -449,6 +453,10 @@ def add_soll_deviation(
     has_pt = False
 
     for emp in req.employees:
+        # Auto-plan-disabled employees (MJ / Ausbildung): solver only locks
+        # their manualPlacement slots; we don't penalize them here.
+        if emp.autoPlanDisabled:
+            continue
         soll = soll_map.get(emp.id)
         if soll is None:
             pct = emp.targetHoursPercent
@@ -546,6 +554,10 @@ def add_overtime_penalty(
     max_ot = req.rules.maxOvertimeHours
 
     for emp in req.employees:
+        # Auto-plan-disabled employees (MJ / Ausbildung): solver only locks
+        # their manualPlacement slots; we don't penalize them here.
+        if emp.autoPlanDisabled:
+            continue
         soll = soll_map.get(emp.id)
         if soll is None:
             pct = emp.targetHoursPercent
@@ -590,6 +602,10 @@ def add_undercut_penalty(
     max_under = req.rules.maxUndercutHours
 
     for emp in req.employees:
+        # Auto-plan-disabled employees (MJ / Ausbildung): solver only locks
+        # their manualPlacement slots; we don't penalize them here.
+        if emp.autoPlanDisabled:
+            continue
         soll = soll_map.get(emp.id)
         if soll is None:
             pct = emp.targetHoursPercent
@@ -629,7 +645,13 @@ def add_wish_fulfillment(
     """Penalize unfulfilled wishes (higher weight for STRONG)."""
     terms: list[tuple[cp_model.IntVar, int]] = []
 
+    # Skip wishes belonging to auto-plan-disabled employees (MJ/Ausb).
+    # Their shifts are entirely planner-driven via manualPlacements.
+    auto_disabled: set[str] = {e.id for e in req.employees if e.autoPlanDisabled}
+
     for wish in req.wishes:
+        if wish.employeeId in auto_disabled:
+            continue
         matching_vars: list[cp_model.IntVar] = []
         for p in req.shiftProfiles:
             if wish.shiftProfileId and p.id != wish.shiftProfileId:
@@ -668,6 +690,10 @@ def add_fairness(
 
     dev_vars: list[cp_model.IntVar] = []
     for emp in req.employees:
+        # Auto-plan-disabled employees (MJ / Ausbildung): solver only locks
+        # their manualPlacement slots; we don't penalize them here.
+        if emp.autoPlanDisabled:
+            continue
         soll = soll_map.get(emp.id)
         if soll is None:
             pct = emp.targetHoursPercent
@@ -715,6 +741,10 @@ def add_preference_bonus(
     dates = dates_in_range(req.periodStart, req.periodEnd)
 
     for emp in req.employees:
+        # Auto-plan-disabled employees (MJ / Ausbildung): solver only locks
+        # their manualPlacement slots; we don't penalize them here.
+        if emp.autoPlanDisabled:
+            continue
         if not emp.preferredShiftTypes:
             continue
         pref_set = set(emp.preferredShiftTypes)
@@ -747,6 +777,10 @@ def add_shift_distribution_soft(
     avg_hours = sum(active_hours) / len(active_hours) if active_hours else 8.0
 
     for emp in req.employees:
+        # Auto-plan-disabled employees (MJ / Ausbildung): solver only locks
+        # their manualPlacement slots; we don't penalize them here.
+        if emp.autoPlanDisabled:
+            continue
         dist = emp.shiftDistribution
         if not dist:
             continue
@@ -823,6 +857,10 @@ def add_consecutive_days_boundary_soft(
         prev_worked.setdefault(pa.employeeId, set()).add(pa.date)
 
     for emp in req.employees:
+        # Auto-plan-disabled employees (MJ / Ausbildung): solver only locks
+        # their manualPlacement slots; we don't penalize them here.
+        if emp.autoPlanDisabled:
+            continue
         max_days = emp.maxConsecutiveDays if emp.maxConsecutiveDays is not None else global_max
         emp_dates = prev_worked.get(emp.id, set())
         if not emp_dates:
@@ -887,6 +925,10 @@ def add_rest_after_streak_boundary_soft(
         prev_worked.setdefault(pa.employeeId, set()).add(pa.date)
 
     for emp in req.employees:
+        # Auto-plan-disabled employees (MJ / Ausbildung): solver only locks
+        # their manualPlacement slots; we don't penalize them here.
+        if emp.autoPlanDisabled:
+            continue
         emp_dates = prev_worked.get(emp.id, set())
         if not emp_dates:
             continue
@@ -971,6 +1013,10 @@ def add_alternating_weekends_boundary_soft(
         prev_worked.setdefault(pa.employeeId, set()).add(pa.date)
 
     for emp in req.employees:
+        # Auto-plan-disabled employees (MJ / Ausbildung): solver only locks
+        # their manualPlacement slots; we don't penalize them here.
+        if emp.autoPlanDisabled:
+            continue
         emp_dates = prev_worked.get(emp.id, set())
         if prev_sat_iso not in emp_dates and prev_sun_iso not in emp_dates:
             continue  # didn't work previous weekend

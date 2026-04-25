@@ -24,6 +24,16 @@ class EmployeeInput(BaseModel):
     isFullTimeBl: bool = False
     maxConsecutiveDays: int | None = None
     shiftDistribution: dict[str, float] | None = None
+    # When True the solver MUST NOT auto-assign new shifts to this employee.
+    # Used for MINI_JOB and AUSBILDUNG: they only work shifts the planner
+    # explicitly placed via manualPlacements, never solver-chosen ones.
+    # In practice the data layer also sets allowedShiftProfileIds=[] for
+    # these employees, so the solver creates no variables for them
+    # (except for the manualPlacement bypass). This flag additionally
+    # excludes them from soft-constraint loops (Soll/overtime/util/wish
+    # fairness/distribution/preference) so we don't penalize them for
+    # being "underused" — they're not supposed to be used at all.
+    autoPlanDisabled: bool = False
 
 
 class ShiftProfileInput(BaseModel):

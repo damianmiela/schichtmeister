@@ -250,6 +250,11 @@ export type GenEmployee = {
   fixedWorkingDays: number[];
   maxConsecutiveDays: number | null;
   shiftDistribution: Record<string, number> | null;
+  /** True for AUSBILDUNG and MINI_JOB. The solver will not auto-assign new
+   * shifts to this employee — they only appear in slots the planner placed
+   * via manualPlacements. Their existing manual placements still count
+   * toward staffing minimums (pre-credit). See solver/models.py. */
+  autoPlanDisabled: boolean;
 };
 
 /** Presence of `EmployeeAvailability` row for that calendar day -> excluded from generation. */
@@ -426,7 +431,10 @@ export async function loadGenerateContext(
     where: {
       facilityId,
       status: EmployeeStatus.ACTIVE,
-      contractType: { not: ContractType.AUSBILDUNG },
+      // NOTE: AUSBILDUNG and MINI_JOB used to be excluded entirely. They're
+      // now INCLUDED but flagged as "auto-plan disabled" downstream so the
+      // solver counts their existing manual placements toward staffing
+      // minimums (pre-credit) without auto-assigning new shifts to them.
     },
     include: {
       qualifications: true,
@@ -501,6 +509,15 @@ export async function loadGenerateContext(
       }
     }
 
+    // AUSBILDUNG and MINI_JOB are not auto-planned. We strip their
+    // allowedShiftProfileIds so the solver creates NO variables for them
+    // (except for manualPlacement bypass), and flag them so soft-constraint
+    // loops skip them too. Their existing forced placements still count
+    // toward staffing minimums.
+    const autoPlanDisabled =
+      e.contractType === ContractType.AUSBILDUNG ||
+      e.contractType === ContractType.MINI_JOB;
+
     return {
       id: e.id,
       qualificationTags: e.qualificationTags,
@@ -513,12 +530,15 @@ export async function loadGenerateContext(
       miniJobMaxMonthlyHours:
         e.miniJobMaxMonthlyHours != null ? Number(e.miniJobMaxMonthlyHours) : null,
       assignedStations: e.assignedStations ?? [],
-      allowedShiftProfileIds: new Set(e.allowedShiftProfiles.map(p => p.id)),
+      allowedShiftProfileIds: autoPlanDisabled
+        ? new Set<string>()
+        : new Set(e.allowedShiftProfiles.map(p => p.id)),
       unavailableDateSet: unavail,
       isFullTimeBl: e.isFullTimeBl ?? false,
       fixedWorkingDays: fwd,
       maxConsecutiveDays: e.maxConsecutiveDays ?? null,
       shiftDistribution: (e.shiftDistribution as Record<string, number>) ?? null,
+      autoPlanDisabled,
     };
   });
 

@@ -126,10 +126,13 @@ export const STRATEGY_SPECIFIC_KEYS: readonly WeightKey[] = [
   "W_QUALIFICATION",
   "W_STAFFING_MIN",
   "W_WBL_BL",
-  // Tier 3b — overtime cost (cheap in B, expensive in A)
+  // Tier 3b — overtime cost (cheap in B, expensive in A).
+  // Note: W_OVERTIME_MINI is no longer in this list — MJ employees are no
+  // longer auto-planned (autoPlanDisabled), so the weight is unused and
+  // not exposed in the admin UI. Default value preserved in DEFAULT_WEIGHTS
+  // for backwards compat with stored configs.
   "W_OVERTIME_FT",
   "W_OVERTIME_PT",
-  "W_OVERTIME_MINI",
   // Tier -1 — relax weights that flip role between strategies
   "W_RELAX_MIN_REST",
   "W_RELAX_CONSEC_NIGHTS",
@@ -180,10 +183,10 @@ export const TEMPLATE_A_FACTORY_DEFAULTS: Partial<Record<WeightKey, number>> = {
   W_QUALIFICATION: 150_000,
   W_STAFFING_MIN: 50_000,
   W_WBL_BL: 20_000,
-  // Tier 3b — overtime made expensive (~50k/h FT, 100k/h PT, 300k/h MJ)
+  // Tier 3b — overtime made expensive (~50k/h FT, 100k/h PT)
+  // (W_OVERTIME_MINI dropped — MJ no longer auto-planned)
   W_OVERTIME_FT: 500,
   W_OVERTIME_PT: 1_000,
-  W_OVERTIME_MINI: 3_000,
   // Tier -1 — physical/legal rules stay near-hard but scaled to new staffing
   W_RELAX_MIN_REST: 1_000_000,
   W_RELAX_CONSEC_NIGHTS: 500_000,
@@ -302,10 +305,9 @@ export const WEIGHT_DEFINITIONS: readonly WeightDef[] = [
     label: "Überstunden PT (Stunde)",
     description: "Strafe pro Stunde Überstunden für Teilzeit.",
     perHourCost: DEFAULT_WEIGHTS.W_OVERTIME_PT * SCALE },
-  { key: "W_OVERTIME_MINI", tier: "tier_3b_overtime",
-    label: "Überstunden MJ (Stunde)",
-    description: "Strafe pro Stunde Überstunden für MiniJob.",
-    perHourCost: DEFAULT_WEIGHTS.W_OVERTIME_MINI * SCALE },
+  // W_OVERTIME_MINI removed: MJ employees are no longer auto-planned
+  // (autoPlanDisabled), so this weight applies to nobody. Default value
+  // still exists in DEFAULT_WEIGHTS for backwards compat with stored configs.
   { key: "W_SOLL_HARD_FT", tier: "tier_3c_undersoll",
     label: "Unter-Soll FT (Stunde)",
     description: "Strafe pro Stunde unter Soll + min_delta für Vollzeit.",
@@ -314,10 +316,7 @@ export const WEIGHT_DEFINITIONS: readonly WeightDef[] = [
     label: "Unter-Soll PT (Stunde)",
     description: "Strafe pro Stunde unter Soll für Teilzeit.",
     perHourCost: DEFAULT_WEIGHTS.W_SOLL_HARD_PT * SCALE },
-  { key: "W_SOLL_HARD_MINI", tier: "tier_3c_undersoll",
-    label: "Unter-Soll MJ (Stunde)",
-    description: "Strafe pro Stunde unter Soll für MiniJob.",
-    perHourCost: DEFAULT_WEIGHTS.W_SOLL_HARD_MINI * SCALE },
+  // W_SOLL_HARD_MINI removed: MJ no longer auto-planned.
   { key: "W_OVER_SOLL_T1_FT", tier: "tier_3d_oversoll_ladder",
     label: "Über-Soll FT T1 (0..+4h)", description: "FT, 0–4h über Soll.",
     perHourCost: DEFAULT_WEIGHTS.W_OVER_SOLL_T1_FT * SCALE },
@@ -342,18 +341,7 @@ export const WEIGHT_DEFINITIONS: readonly WeightDef[] = [
   { key: "W_OVER_SOLL_T4_PT", tier: "tier_3d_oversoll_ladder",
     label: "Über-Soll PT T4 (+16h+)", description: "PT, +16h+ über Soll.",
     perHourCost: DEFAULT_WEIGHTS.W_OVER_SOLL_T4_PT * SCALE },
-  { key: "W_OVER_SOLL_T1_MINI", tier: "tier_3d_oversoll_ladder",
-    label: "Über-Soll MJ T1 (0..+4h)", description: "MJ, 0–4h über Soll.",
-    perHourCost: DEFAULT_WEIGHTS.W_OVER_SOLL_T1_MINI * SCALE },
-  { key: "W_OVER_SOLL_T2_MINI", tier: "tier_3d_oversoll_ladder",
-    label: "Über-Soll MJ T2 (+4..+8h)", description: "MJ, +4–8h über Soll.",
-    perHourCost: DEFAULT_WEIGHTS.W_OVER_SOLL_T2_MINI * SCALE },
-  { key: "W_OVER_SOLL_T3_MINI", tier: "tier_3d_oversoll_ladder",
-    label: "Über-Soll MJ T3 (+8..+16h)", description: "MJ, +8–16h über Soll.",
-    perHourCost: DEFAULT_WEIGHTS.W_OVER_SOLL_T3_MINI * SCALE },
-  { key: "W_OVER_SOLL_T4_MINI", tier: "tier_3d_oversoll_ladder",
-    label: "Über-Soll MJ T4 (+16h+)", description: "MJ, +16h+ über Soll.",
-    perHourCost: DEFAULT_WEIGHTS.W_OVER_SOLL_T4_MINI * SCALE },
+  // 4×W_OVER_SOLL_T*_MINI removed: MJ no longer auto-planned, ladder unused.
   { key: "W_MAX_OT_FT", tier: "tier_3e_fairness_cap",
     label: "Max-Über-Soll Cap FT (Stunde)",
     description: "Strafe für die FT-Person mit größter Über-Soll-Spitze.",
@@ -526,28 +514,19 @@ export function validateMergedWeights(
     );
   }
 
-  // R3 — Overtime contract ordering FT ≤ PT ≤ MJ
-  if (
-    !(
-      merged.W_OVERTIME_FT <= merged.W_OVERTIME_PT &&
-      merged.W_OVERTIME_PT <= merged.W_OVERTIME_MINI
-    )
-  ) {
-    errors.push("Überstunden-Reihenfolge falsch: W_OVERTIME_FT ≤ W_OVERTIME_PT ≤ W_OVERTIME_MINI erforderlich.");
+  // R3 — Overtime contract ordering (FT ≤ PT only — MJ no longer auto-planned)
+  if (merged.W_OVERTIME_FT > merged.W_OVERTIME_PT) {
+    errors.push("Überstunden-Reihenfolge falsch: W_OVERTIME_FT ≤ W_OVERTIME_PT erforderlich.");
   }
 
-  // R4 — Under-Soll hard contract ordering
-  if (
-    !(
-      merged.W_SOLL_HARD_FT <= merged.W_SOLL_HARD_PT &&
-      merged.W_SOLL_HARD_PT <= merged.W_SOLL_HARD_MINI
-    )
-  ) {
-    errors.push("Soll-Hard-Reihenfolge falsch: W_SOLL_HARD_FT ≤ W_SOLL_HARD_PT ≤ W_SOLL_HARD_MINI erforderlich.");
+  // R4 — Under-Soll hard contract ordering (FT ≤ PT only)
+  if (merged.W_SOLL_HARD_FT > merged.W_SOLL_HARD_PT) {
+    errors.push("Soll-Hard-Reihenfolge falsch: W_SOLL_HARD_FT ≤ W_SOLL_HARD_PT erforderlich.");
   }
 
-  // R5 — Piecewise ladder T1 ≤ T2 ≤ T3 ≤ T4 within each contract type
-  for (const ct of ["FT", "PT", "MINI"] as const) {
+  // R5 — Piecewise ladder T1 ≤ T2 ≤ T3 ≤ T4 within FT and PT contract types
+  // (MINI tier dropped — MJ employees no longer reach the soft constraints)
+  for (const ct of ["FT", "PT"] as const) {
     const t1 = merged[`W_OVER_SOLL_T1_${ct}`];
     const t2 = merged[`W_OVER_SOLL_T2_${ct}`];
     const t3 = merged[`W_OVER_SOLL_T3_${ct}`];
@@ -559,14 +538,13 @@ export function validateMergedWeights(
     }
   }
 
-  // R6 — Piecewise ladder cross-contract per tier (FT ≤ PT ≤ MINI)
+  // R6 — Piecewise ladder cross-contract per tier (FT ≤ PT only)
   for (const n of [1, 2, 3, 4] as const) {
     const ft = merged[`W_OVER_SOLL_T${n}_FT`];
     const pt = merged[`W_OVER_SOLL_T${n}_PT`];
-    const mj = merged[`W_OVER_SOLL_T${n}_MINI`];
-    if (!(ft <= pt && pt <= mj)) {
+    if (ft > pt) {
       errors.push(
-        `Über-Soll Tier ${n}: FT ≤ PT ≤ MINI erforderlich (aktuell ${ft}, ${pt}, ${mj}).`,
+        `Über-Soll Tier ${n}: FT ≤ PT erforderlich (aktuell ${ft}, ${pt}).`,
       );
     }
   }
