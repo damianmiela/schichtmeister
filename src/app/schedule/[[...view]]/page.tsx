@@ -269,6 +269,12 @@ export default function SchedulePage() {
   const [genPhaseLabel, setGenPhaseLabel] = useState<string | null>(null);
   // Live objective value reported by the solver (lower is better).
   const [genObjective, setGenObjective] = useState<number | null>(null);
+  // Live optimality gap as a percentage — (objective - bound) / |objective|.
+  // 0% = proven optimal. For our heavy-soft-penalty model the bound stays
+  // loose so the gap typically stays in the 80-95% range; useful for
+  // RELATIVE comparison across runs ("this run got to 82%, that one only
+  // 88%") more than as an absolute optimality signal.
+  const [genGap, setGenGap] = useState<number | null>(null);
   // Number of sequential races per generation (1-10). When > 1 we run a
   // Mehrfach-Lauf with distinct seeds and keep the run with the lowest
   // objective. Total wall time ≈ raceCount × maxSolveTimeSeconds.
@@ -289,6 +295,7 @@ export default function SchedulePage() {
     solutions: number | null;        // how many feasible solutions solver has
     status: "pending" | "running" | "done" | "failed";
     finalObjective: number | null;   // frozen value once the race finishes
+    gap: number | null;              // latest optimality gap (%), live
   };
   const [genRaceSlots, setGenRaceSlots] = useState<RaceSlot[]>([]);
   // Best-so-far variant id ("A".."J") that currently holds the 🏆 trophy in
@@ -852,6 +859,7 @@ export default function SchedulePage() {
     // Reset progress indicators for this run
     setGenPhaseLabel(multiRun ? `Rennen 1 von ${raceCountVal}…` : null);
     setGenObjective(null);
+    setGenGap(null);
     setGenRaceSlots([]);
     setGenBestSoFarVariant(null);
 
@@ -906,6 +914,7 @@ export default function SchedulePage() {
                         solutions: null,
                         status: v === current ? "running" : "pending",
                         finalObjective: null,
+                        gap: null,
                       }));
                     }
                     // Subsequent events → mark the newly-starting variant as
@@ -980,6 +989,8 @@ export default function SchedulePage() {
                         typeof event.objective === "number" ? event.objective : s.objective,
                       solutions:
                         typeof event.solutions === "number" ? event.solutions : s.solutions,
+                      gap:
+                        typeof event.gap === "number" ? event.gap : s.gap,
                     };
                   }),
                 );
@@ -987,6 +998,9 @@ export default function SchedulePage() {
                 // untagged → single-run live slot
                 if (typeof event.objective === "number") {
                   setGenObjective(event.objective);
+                }
+                if (typeof event.gap === "number") {
+                  setGenGap(event.gap);
                 }
               }
               setGenProgress({
@@ -2733,7 +2747,7 @@ export default function SchedulePage() {
                 {genRaceSlots.length > 0
                   ? ""
                   : genProgress.solutions != null && genProgress.solutions > 0
-                    ? `Suche beste Lösung…${genProgress.objective != null ? ` Aktueller Wert: ${genProgress.objective.toFixed(0)}` : ""}`
+                    ? `Suche beste Lösung…${genProgress.objective != null ? ` Aktueller Wert: ${genProgress.objective.toFixed(0)}` : ""}${genGap != null ? ` · Lücke ${genGap.toFixed(1)}%` : ""}`
                     : genProgress.label}
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ fontVariantNumeric: "tabular-nums", ml: 2, whiteSpace: "nowrap" }}>
@@ -2809,6 +2823,9 @@ export default function SchedulePage() {
                         slot.solutions != null &&
                         slot.solutions > 0
                           ? ` (Lsg. #${slot.solutions})`
+                          : ""}
+                        {slot.gap != null
+                          ? ` · Lücke ${slot.gap.toFixed(1)}%`
                           : ""}
                       </span>
                       <span

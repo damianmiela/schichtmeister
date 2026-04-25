@@ -74,7 +74,13 @@ class ProgressCallback(cp_model.CpSolverSolutionCallback):
         elapsed = time.perf_counter() - self._wall_start
         obj = self.ObjectiveValue()
         bound = self.BestObjectiveBound()
-        gap = bound / max(obj, 1e-9) if obj > 0 else 0.0
+        # Relative optimality gap as a percentage:
+        #   gap_pct = (objective - bound) / max(|objective|, 1) * 100
+        # Approaches 0% as the search closes; 0% means proven optimal.
+        # Clamped to [0, infinity) - bound > obj shouldn\'t happen for a valid
+        # minimization relaxation but guard anyway.
+        denom = max(abs(obj), 1.0)
+        gap_pct = max(0.0, (obj - bound) / denom * 100.0)
         event = {
             "type": "progress",
             "stage": "solving",
@@ -82,7 +88,8 @@ class ProgressCallback(cp_model.CpSolverSolutionCallback):
             "pct": min(30 + self._solutions * 5, 85),
             "solutions": self._solutions,
             "objective": round(obj, 1),
-            "gap": round(gap, 4),
+            "bound": round(bound, 1),
+            "gap": round(gap_pct, 2),  # percentage, e.g. 12.43
             "elapsed": round(elapsed, 1),
         }
         self._events.append(json.dumps(event))
