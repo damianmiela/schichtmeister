@@ -23,7 +23,10 @@ from ortools.sat.python import cp_model
 
 from models import SolveRequest, ShiftProfileInput
 from utils import dates_in_range, iso_week_key, rest_violated
-from constraints.soft import (
+# Relaxed-mode (Phase 2) penalty weights are defined in solver/config.py.
+# Hard.py only uses these when re-solving an INFEASIBLE strict model with
+# selected hard rules turned into very expensive soft rules.
+from config import (
     W_RELAX_MIN_REST,
     W_RELAX_CONSEC_NIGHTS,
     W_RELAX_CONSEC_DAYS,
