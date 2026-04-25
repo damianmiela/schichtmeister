@@ -87,10 +87,15 @@ model Facility {
   miniJobMaxMonthlyHours  Decimal  @default(520) @db.Decimal(8, 2)
   maxSolveTimeSeconds     Int      @default(120)
   ruleOverridesJson       String?
-  // JSON map of admin-tunable solver-weight overrides. Keys are W_*
-  // field names from solver/config.py Weights dataclass; values are
-  // integers. Validated by validateWeights() in src/lib/solver/weights.ts
-  // before save, and again server-side. NULL/empty = use solver defaults.
+  // JSON config object: { common: {...}, templateA: {...}, templateB: {...} }
+  // - common:    overrides for the ~25 weights that DON'T differ between
+  //              "lieber Slot leer" and "Vollabdeckung" strategies.
+  // - templateA: overrides for the 13 strategy-specific weights when the
+  //              user picks "lieber Slot leer lassen" at generation time.
+  // - templateB: same 13 fields but for "Vollabdeckung anstreben".
+  // All three are optional; missing keys fall back to factory defaults
+  // from solver/config.py + STRATEGY_TEMPLATES in src/lib/solver/weights.ts.
+  // Validated by validateWeightsConfig() before save (and again server-side).
   solverWeightsJson       String?
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt

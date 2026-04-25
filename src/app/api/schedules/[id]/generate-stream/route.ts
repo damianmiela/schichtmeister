@@ -21,7 +21,13 @@ import {
   logGenerationComplete,
   logGenerationError,
 } from "@/lib/logging/generationLogger";
-import { parseStoredWeights } from "@/lib/solver/weights";
+import {
+  parseWeightsConfig,
+  resolveActiveWeights,
+  DEFAULT_STRATEGY,
+  STRATEGY_LABELS,
+  type Strategy,
+} from "@/lib/solver/weights";
 
 type RouteCtx = { params: Promise<{ id: string }> };
 
@@ -229,6 +235,14 @@ export async function POST(request: Request, context: RouteCtx) {
     return Math.max(1, Math.min(10, n));
   })();
   const multiRun = raceCount > 1;
+  // Strategy choice — picked per-generation in the pre-gen modal.
+  // Determines which weight template (Vollabdeckung / Lieber Slot leer)
+  // is layered on top of the facility's admin overrides. See
+  // src/lib/solver/weights.ts for the resolution logic.
+  const strategy: Strategy =
+    body?.strategy === "PREFER_GAPS" || body?.strategy === "PREFER_FULL_COVERAGE"
+      ? body.strategy
+      : DEFAULT_STRATEGY;
 
   const schedule = await prisma.schedule.findFirst({
     where: { id: scheduleId, facilityId },
@@ -302,12 +316,17 @@ export async function POST(request: Request, context: RouteCtx) {
     payload.maxSolveTimeSeconds = clientMaxSolveTime;
   }
 
-  // Inject facility-level solver weight overrides (set in admin-tools).
-  // Empty / null = solver uses factory defaults from solver/config.py.
-  const facilityWeights = parseStoredWeights(facility.solverWeightsJson);
-  if (Object.keys(facilityWeights).length > 0) {
-    payload.weights = facilityWeights;
-  }
+  // Resolve active weights: factory defaults → strategy template (A or B)
+  // → admin's common overrides → admin's per-template overrides → final.
+  const weightsConfig = parseWeightsConfig(facility.solverWeightsJson);
+  const activeWeights = resolveActiveWeights(strategy, weightsConfig);
+  payload.weights = activeWeights;
+  console.log(
+    `[generate-stream] Strategy=${strategy} (${STRATEGY_LABELS[strategy]}); ` +
+      `W_STAFFING_MIN=${activeWeights.W_STAFFING_MIN}, ` +
+      `W_OVERTIME_FT=${activeWeights.W_OVERTIME_FT}, ` +
+      `W_RELAX_ALT_WEEKENDS=${activeWeights.W_RELAX_ALT_WEEKENDS}`,
+  );
 
   // ── System log: generation start ──
   const genStartTime = Date.now();
@@ -601,6 +620,7 @@ export async function POST(request: Request, context: RouteCtx) {
                 winnerVariant: winnerRun.variant,
               }
             : null,
+          strategy,
         );
 
         if (
@@ -1106,6 +1126,7 @@ function buildDebugLog(
     runs: DebugLogRunRecord[];
     winnerVariant: string;   // "A".."J" — which race won
   } | null,
+  strategy: Strategy = DEFAULT_STRATEGY,
 ): string {
   const profMap = new Map(
     payload.shiftProfiles.map((p) => [p.id, p]),
@@ -1121,6 +1142,13 @@ function buildDebugLog(
   const nameFor = (id: string) => employeeNames.get(id) ?? id.slice(0, 8);
 
   const lines: string[] = [];
+
+  // ── Strategy header (always present, gives reviewer the "why" for any
+  // gap-vs-overtime trade-offs the solver made). ──
+  lines.push(
+    `Strategie: ${STRATEGY_LABELS[strategy]} (${strategy})`,
+  );
+  lines.push("");
 
   // ── Mehrfach-Lauf header (only when >1 race happened) ──
   if (comparison && comparison.runs.length > 0) {

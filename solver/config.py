@@ -332,14 +332,11 @@ def validate_overrides(overrides: dict[str, int]) -> list[str]:
                 f"Pflicht-Slot zu füllen)."
             )
 
-    # Rule 9 — Relaxed-mode "below staffing" ceiling (rule SHOULD break)
-    must_stay_below = ("W_RELAX_REST_AFTER_6", "W_RELAX_ALT_WEEKENDS")
-    for k in must_stay_below:
-        if merged[k] > merged["W_STAFFING_MIN"]:
-            errors.append(
-                f"{k} muss ≤ W_STAFFING_MIN bleiben (sonst würde der Solver "
-                f"eher einen Pflicht-Slot leer lassen als diese Regel zu brechen)."
-            )
+    # NOTE: We intentionally do NOT enforce W_RELAX_REST_AFTER_6 ≤ W_STAFFING_MIN
+    # or W_RELAX_ALT_WEEKENDS ≤ W_STAFFING_MIN here. The "lieber Slot leer
+    # lassen" strategy template (TS-side) explicitly inverts these to put
+    # leaving-slot-empty cost BELOW the rule-breaking cost. So both
+    # orderings are valid depending on the active strategy.
 
     return errors
 

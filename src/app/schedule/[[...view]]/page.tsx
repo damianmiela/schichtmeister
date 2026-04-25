@@ -273,6 +273,12 @@ export default function SchedulePage() {
   // Mehrfach-Lauf with distinct seeds and keep the run with the lowest
   // objective. Total wall time ≈ raceCount × maxSolveTimeSeconds.
   const [raceCountDraft, setRaceCountDraft] = useState("1");
+  // Solver strategy: "PREFER_FULL_COVERAGE" (default — fill every slot
+  // with overtime / rule-breaking if needed) or "PREFER_GAPS" (lieber
+  // Slot leer lassen). See src/lib/solver/weights.ts.
+  const [strategyDraft, setStrategyDraft] = useState<
+    "PREFER_FULL_COVERAGE" | "PREFER_GAPS"
+  >("PREFER_FULL_COVERAGE");
   // Per-variant live state for the stacked Mehrfach-Lauf display. One slot
   // per variant "A", "B", …, populated when the first race_starting event
   // arrives.
@@ -809,6 +815,7 @@ export default function SchedulePage() {
       absences?: { employeeId: string; type: string; startDate: string; endDate: string }[];
       maxSolveTimeSeconds?: number;
       raceCount?: number;
+      strategy?: "PREFER_FULL_COVERAGE" | "PREFER_GAPS";
     } = {};
     if (manualPlacements.length > 0) body.manualPlacements = manualPlacements;
     if (blockedDates.length > 0) body.blockedDates = blockedDates;
@@ -823,6 +830,8 @@ export default function SchedulePage() {
     if (multiRun) {
       body.raceCount = raceCountVal;
     }
+    // Always send strategy explicitly (avoids server-side defaulting surprises).
+    body.strategy = strategyDraft;
 
     // Reset progress indicators for this run
     setGenPhaseLabel(multiRun ? `Rennen 1 von ${raceCountVal}…` : null);
@@ -2580,6 +2589,44 @@ export default function SchedulePage() {
               inputProps={{ min: 1, max: 10, step: 1 }}
               sx={{ width: 90 }}
             />
+          </Box>
+
+          <Divider sx={{ my: 2 }} />
+
+          {/* Strategy toggle: choose how the solver handles tight scenarios.
+              "Vollabdeckung" (default): fill every slot, even with overtime
+              or by breaking soft Phase-2 rules in extreme cases.
+              "Lieber Slot leer lassen": leave slots empty before paying
+              expensive overtime or breaking weekend / consec-day / rest
+              rules — planner fills gaps manually afterwards. */}
+          <Box>
+            <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+              Strategie bei Engpässen
+            </Typography>
+            <ToggleButtonGroup
+              value={strategyDraft}
+              exclusive
+              onChange={(_, v) => {
+                if (v === "PREFER_FULL_COVERAGE" || v === "PREFER_GAPS") {
+                  setStrategyDraft(v);
+                }
+              }}
+              size="small"
+              fullWidth
+              sx={{ mb: 1 }}
+            >
+              <ToggleButton value="PREFER_FULL_COVERAGE" sx={{ textTransform: "none", py: 0.75 }}>
+                Vollabdeckung anstreben
+              </ToggleButton>
+              <ToggleButton value="PREFER_GAPS" sx={{ textTransform: "none", py: 0.75 }}>
+                Lieber Slot leer lassen
+              </ToggleButton>
+            </ToggleButtonGroup>
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+              {strategyDraft === "PREFER_FULL_COVERAGE"
+                ? "Standard. Der Solver füllt jeden Pflicht-Slot — auch mit Überstunden oder im Notfall durch Brechen weicher Regeln (Wechsel-Wochenenden, max. Tage in Folge, Ruhe nach 6+ Tagen)."
+                : "Der Solver lässt Slots lieber unbesetzt als Überstunden zu vergeben oder Regeln zu brechen. Sie füllen die Lücken anschließend von Hand."}
+            </Typography>
           </Box>
         </DialogContent>
         <DialogActions>
