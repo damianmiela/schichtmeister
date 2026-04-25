@@ -43,6 +43,13 @@ export async function POST(_request: Request, context: RouteCtx) {
         warningsJson: null,
         preGenWishesJson: savedEntriesJson,
         generationLog: null,
+        // Detach the active version pointer. The empty state isn't
+        // represented by ANY saved version (snapshotCurrentVersion bails
+        // out on 0 assignments), and leaving currentVersionId pointing
+        // at the pre-clear version causes /revalidate to overwrite that
+        // version's warningCount with the empty-schedule warning count
+        // on the next page load.
+        currentVersionId: null,
       },
     });
 
