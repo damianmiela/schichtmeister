@@ -144,6 +144,14 @@ def _build_variables(
             day_has_var = False
             for p in active_profiles:
                 is_forced = (emp.id, ds, p.id) in mp_forced
+                # Auto-plan-disabled (MJ/Ausbildung): solver MUST NOT create
+                # variables for these employees except where the planner has
+                # forced a manualPlacement. This is the mechanism that keeps
+                # them out of the auto-assignment pool. Note: empty
+                # `allowed` was historically interpreted as "no restrictions",
+                # so we can't rely on the `allowed` check below for this.
+                if not is_forced and emp.autoPlanDisabled:
+                    continue
                 if not is_forced and allowed and p.id not in allowed:
                     continue
                 # BL profiles: only WBL employees, unless isFullTimeBl (but always allow if forced)
