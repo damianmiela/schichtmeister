@@ -225,7 +225,7 @@ export async function POST(request: Request, context: RouteCtx) {
   const blockedDates = parseBlockedDates(body?.blockedDates);
   const clientAbsences = parseAbsences(body?.absences);
   const clientMaxSolveTime = typeof body?.maxSolveTimeSeconds === "number"
-    ? Math.max(30, Math.min(3600, body.maxSolveTimeSeconds))
+    ? Math.max(5, Math.min(3600, body.maxSolveTimeSeconds))
     : null;
   // Mehrfach-Lauf: generation is now "raceCount sequential CP-SAT runs with
   // distinct seeds, keep the best". raceCount=1 is a normal single run

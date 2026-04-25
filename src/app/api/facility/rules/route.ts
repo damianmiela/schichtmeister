@@ -54,7 +54,7 @@ export async function GET() {
 const patchSchema = z.object({
   minRestHours: z.number().min(0).optional(),
   miniJobMaxMonthlyHours: z.number().min(0).optional(),
-  maxSolveTimeSeconds: z.number().int().min(30).max(3600).optional(),
+  maxSolveTimeSeconds: z.number().int().min(5).max(3600).optional(),
   ruleOverrides: z
     .record(
       z.string(),

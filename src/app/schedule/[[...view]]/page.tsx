@@ -836,7 +836,7 @@ export default function SchedulePage() {
     if (manualPlacements.length > 0) body.manualPlacements = manualPlacements;
     if (blockedDates.length > 0) body.blockedDates = blockedDates;
     if (absences.length > 0) body.absences = absences;
-    if (solveTimeVal >= 30 && solveTimeVal <= 3600) body.maxSolveTimeSeconds = solveTimeVal;
+    if (solveTimeVal >= 5 && solveTimeVal <= 3600) body.maxSolveTimeSeconds = solveTimeVal;
     const raceCountVal = (() => {
       const n = Number(raceCountDraft);
       if (!Number.isFinite(n)) return 1;
@@ -2631,7 +2631,7 @@ export default function SchedulePage() {
               label="Sek."
               value={solveTimeDraft}
               onChange={(e) => setSolveTimeDraft(e.target.value)}
-              inputProps={{ min: 30, max: 3600, step: 30 }}
+              inputProps={{ min: 5, max: 3600, step: 5 }}
               sx={{ width: 110 }}
             />
             <TextField

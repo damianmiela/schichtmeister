@@ -716,7 +716,7 @@ export default function SettingsPage() {
           ...(Number.isFinite(minRestVal) && minRestVal >= 0
             ? { minRestHours: minRestVal }
             : {}),
-          ...(Number.isFinite(maxSolveVal) && maxSolveVal >= 30
+          ...(Number.isFinite(maxSolveVal) && maxSolveVal >= 5
             ? { maxSolveTimeSeconds: maxSolveVal }
             : {}),
         }),

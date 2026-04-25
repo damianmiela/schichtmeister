@@ -101,20 +101,26 @@ DEFAULT_W_SOLL_HARD_MINI = 3_000
 # ── Tier 3d: Over-Soll piecewise ladder (T1 ≤ T2 ≤ T3 ≤ T4) ─────────
 DEFAULT_W_OVER_SOLL_T1_FT = 50
 DEFAULT_W_OVER_SOLL_T2_FT = 150
-DEFAULT_W_OVER_SOLL_T3_FT = 400
-DEFAULT_W_OVER_SOLL_T4_FT = 1_000
+DEFAULT_W_OVER_SOLL_T3_FT = 800       # was 400 — 2× steeper escalation
+DEFAULT_W_OVER_SOLL_T4_FT = 2_500     # was 1,000 — 2.5× (just below the
+                                      # "leave-slot-empty" threshold so
+                                      # Vollabdeckung still wins coverage)
 DEFAULT_W_OVER_SOLL_T1_PT = 150
 DEFAULT_W_OVER_SOLL_T2_PT = 400
-DEFAULT_W_OVER_SOLL_T3_PT = 1_000
-DEFAULT_W_OVER_SOLL_T4_PT = 2_500
+DEFAULT_W_OVER_SOLL_T3_PT = 2_000     # was 1,000 — 2× steeper
+DEFAULT_W_OVER_SOLL_T4_PT = 6_000     # was 2,500 — 2.4×
 DEFAULT_W_OVER_SOLL_T1_MINI = 1_000
 DEFAULT_W_OVER_SOLL_T2_MINI = 3_000
 DEFAULT_W_OVER_SOLL_T3_MINI = 8_000
-DEFAULT_W_OVER_SOLL_T4_MINI = 20_000
+DEFAULT_W_OVER_SOLL_T4_MINI = 20_000   # MJ no longer auto-planned. Value just
+                                       # has to stay ≥ T4_PT (6_000) per the
+                                       # FT ≤ PT ≤ MJ cross-contract ordering.
 
 # ── Tier 3e: Fairness cap on peak over-Soll ─────────────────────────
-DEFAULT_W_MAX_OT_FT = 300
-DEFAULT_W_MAX_OT_PT = 1_000
+DEFAULT_W_MAX_OT_FT = 5_000    # 17× original — peak FT pays 500k/h. Targets
+                               # flattening specifically without raising T4
+                               # (which would cause leave-slot-empty thresh).
+DEFAULT_W_MAX_OT_PT = 18_000   # 18× original — 1.8M/h peak pressure
 
 # ── Tier 4: Wishes & preferences ────────────────────────────────────
 DEFAULT_W_WISH_NORMAL = 3_000
@@ -127,17 +133,33 @@ DEFAULT_W_WEEKEND_BOUNDARY = 10_000
 DEFAULT_W_CONSEC_DAYS_BOUNDARY = 500_000
 DEFAULT_W_REST_AFTER_6_BOUNDARY = 30_000
 
-# ── Tier -1: Relaxed-mode (Phase 2) ─────────────────────────────────
+# ── Tier -1: Relaxed-mode penalties ─────────────────────────────────
+# Two sub-categories now:
+#  • "Legal/physical" rules — only ever soft in Phase 2 (when Phase 1
+#    was infeasible). Weights stay huge so they almost never break.
+#  • "Policy/fairness" rules — ALWAYS soft (Phase 1 + Phase 2). Weights
+#    are tuned to be cheaper than the over-Soll T3/T4 ladder so the
+#    solver picks "break a rule" over "dump +20h on one person" when
+#    spreading is otherwise impossible.
+#
+# Legal/physical (hard in Phase 1, near-hard in Phase 2):
 DEFAULT_W_RELAX_MIN_REST = 20_000_000
-DEFAULT_W_RELAX_CONSEC_NIGHTS = 15_000_000
-DEFAULT_W_RELAX_CONSEC_DAYS = 15_000_000
 DEFAULT_W_RELAX_STAFFING_MAX = 8_000_000
 DEFAULT_W_RELAX_MINI_JOB_CAP = 6_000_000
-DEFAULT_W_RELAX_WBL_WEEKEND_LIMIT = 1_500_000
-DEFAULT_W_RELAX_WBL_BL_MAX_PER_WEEK = 1_000_000
-DEFAULT_W_RELAX_WBL_BL_WEEKLY_MIN = 800_000
-DEFAULT_W_RELAX_REST_AFTER_6 = 300_000   # below W_STAFFING_MIN — staffing wins
-DEFAULT_W_RELAX_ALT_WEEKENDS = 100_000   # below W_STAFFING_MIN — staffing wins
+
+# Policy/fairness (always soft, calibrated for spreading):
+# These all need to be < per-hour over-Soll T3/T4 cost so spreading wins:
+#   T3 PT = 200,000/h, T4 PT = 1,250,000/h after the 5× bump.
+#   T3 FT = 80,000/h,  T4 FT = 500,000/h.
+# Each rule break is per-(employee, week) or per-(employee, day) and
+# saves the marginal over-Soll cost on the would-be victim.
+DEFAULT_W_RELAX_CONSEC_NIGHTS = 300_000
+DEFAULT_W_RELAX_CONSEC_DAYS = 300_000
+DEFAULT_W_RELAX_WBL_WEEKEND_LIMIT = 250_000
+DEFAULT_W_RELAX_WBL_BL_MAX_PER_WEEK = 250_000
+DEFAULT_W_RELAX_WBL_BL_WEEKLY_MIN = 250_000
+DEFAULT_W_RELAX_REST_AFTER_6 = 150_000
+DEFAULT_W_RELAX_ALT_WEEKENDS = 80_000
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -312,15 +334,15 @@ def validate_overrides(overrides: dict[str, int]) -> list[str]:
     if merged["W_MAX_OT_FT"] > merged["W_MAX_OT_PT"]:
         errors.append("W_MAX_OT_FT muss ≤ W_MAX_OT_PT sein.")
 
-    # Rule 8 — Relaxed-mode "above staffing" floor (rule must stay near-hard)
-    # Only the rules that are EXPLICITLY meant to remain near-hard: rest
-    # between shifts, consecutive nights/days, staffing max, MJ legal cap.
-    # The WBL relax weights are deliberately mid-tier (between "near-hard"
-    # and "break-friendly") and are NOT bounded by this rule.
+    # Rule 8 — Legal/physical relax weights stay near-hard (≥ staffing).
+    # CONSEC_DAYS/NIGHTS were moved out of this set when those rules
+    # became always-soft policy/fairness rules — the planner explicitly
+    # accepts that the solver will break them to spread shifts more
+    # fairly across employees rather than dumping +20h on one person.
+    # Only truly legal/physical limits remain: 11h rest between shifts,
+    # MJ monthly hour cap, and the staffing-max ceiling.
     must_stay_above = (
         "W_RELAX_MIN_REST",
-        "W_RELAX_CONSEC_NIGHTS",
-        "W_RELAX_CONSEC_DAYS",
         "W_RELAX_STAFFING_MAX",
         "W_RELAX_MINI_JOB_CAP",
     )

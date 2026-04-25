@@ -395,16 +395,25 @@ def _build_and_add_all_constraints(
     add_manual_placements(model, shift, request, station_assign)
     add_station_assignment(model, shift, works_day, station_assign, request)
 
-    # ── Hard in strict mode, soft in relaxed mode ───────────────────
+    # ── Hard in strict mode, soft in relaxed mode (legal / physical) ──
+    # These three are physical or legal constraints that should almost
+    # never break. Stay hard in Phase 1; only Phase 2 turns them soft.
     objective_terms.extend(add_staffing_maximum(model, shift, request, station_assign, relaxed=relaxed, w=w))
     objective_terms.extend(add_min_rest(model, shift, request, relaxed=relaxed, w=w))
-    objective_terms.extend(add_max_consecutive_nights(model, shift, request, relaxed=relaxed, w=w))
-    objective_terms.extend(add_max_consecutive_days(model, works_day, request, relaxed=relaxed, w=w))
     objective_terms.extend(add_mini_job_cap(model, shift, request, relaxed=relaxed, w=w))
-    objective_terms.extend(add_wbl_bl_max_one_per_week(model, shift, request, relaxed=relaxed, w=w))
-    objective_terms.extend(add_alternating_weekends(model, works_day, request, relaxed=relaxed, w=w))
-    objective_terms.extend(add_wbl_weekend_limit(model, works_day, request, relaxed=relaxed, w=w))
-    objective_terms.extend(add_wbl_bl_weekly(model, shift, request, relaxed=relaxed, w=w))
+
+    # ── ALWAYS soft (policy / fairness rules) ───────────────────────
+    # User policy: prefer breaking these to spread shifts more evenly
+    # across employees rather than concentrating heavy overtime on a
+    # single person. Their W_RELAX_* weights are calibrated below the
+    # over-Soll T3/T4 cost so the solver picks a rule break before it
+    # piles +20h+ onto one employee.
+    objective_terms.extend(add_max_consecutive_nights(model, shift, request, relaxed=True, w=w))
+    objective_terms.extend(add_max_consecutive_days(model, works_day, request, relaxed=True, w=w))
+    objective_terms.extend(add_wbl_bl_max_one_per_week(model, shift, request, relaxed=True, w=w))
+    objective_terms.extend(add_alternating_weekends(model, works_day, request, relaxed=True, w=w))
+    objective_terms.extend(add_wbl_weekend_limit(model, works_day, request, relaxed=True, w=w))
+    objective_terms.extend(add_wbl_bl_weekly(model, shift, request, relaxed=True, w=w))
 
     # ── Always soft ─────────────────────────────────────────────────
     objective_terms.extend(add_staffing_minimum_soft(model, shift, request, station_assign, w=w))

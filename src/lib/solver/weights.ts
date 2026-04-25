@@ -53,21 +53,26 @@ export const DEFAULT_WEIGHTS = {
   W_SOLL_HARD_PT: 300,
   W_SOLL_HARD_MINI: 3_000,
   // Tier 3d — Over-Soll piecewise ladder
+  // T3+T4 weights bumped vs initial design so dumping 30h+ overtime
+  // on a single employee becomes more expensive than spreading or even
+  // breaking weekend / consec / rest rules in Phase-2 relaxed mode.
   W_OVER_SOLL_T1_FT: 50,
   W_OVER_SOLL_T2_FT: 150,
-  W_OVER_SOLL_T3_FT: 400,
-  W_OVER_SOLL_T4_FT: 1_000,
+  W_OVER_SOLL_T3_FT: 800,
+  W_OVER_SOLL_T4_FT: 2_500,
   W_OVER_SOLL_T1_PT: 150,
   W_OVER_SOLL_T2_PT: 400,
-  W_OVER_SOLL_T3_PT: 1_000,
-  W_OVER_SOLL_T4_PT: 2_500,
+  W_OVER_SOLL_T3_PT: 2_000,
+  W_OVER_SOLL_T4_PT: 6_000,
   W_OVER_SOLL_T1_MINI: 1_000,
   W_OVER_SOLL_T2_MINI: 3_000,
   W_OVER_SOLL_T3_MINI: 8_000,
   W_OVER_SOLL_T4_MINI: 20_000,
-  // Tier 3e — Fairness max-OT cap
-  W_MAX_OT_FT: 300,
-  W_MAX_OT_PT: 1_000,
+  // Tier 3e — Fairness max-OT cap (penalizes the SINGLE worst peak per
+  // contract type — drives the solver to flatten outliers). Bumped 5×
+  // for the same reason as T3/T4 above.
+  W_MAX_OT_FT: 5_000,
+  W_MAX_OT_PT: 18_000,
   // Tier 4 — Wishes & preferences
   W_WISH_NORMAL: 3_000,
   W_WISH_STRONG: 6_000,
@@ -77,17 +82,22 @@ export const DEFAULT_WEIGHTS = {
   W_WEEKEND_BOUNDARY: 10_000,
   W_CONSEC_DAYS_BOUNDARY: 500_000,
   W_REST_AFTER_6_BOUNDARY: 30_000,
-  // Tier -1 — Relaxed-mode (Phase 2)
-  W_RELAX_MIN_REST: 20_000_000,
-  W_RELAX_CONSEC_NIGHTS: 15_000_000,
-  W_RELAX_CONSEC_DAYS: 15_000_000,
-  W_RELAX_STAFFING_MAX: 8_000_000,
-  W_RELAX_MINI_JOB_CAP: 6_000_000,
-  W_RELAX_WBL_WEEKEND_LIMIT: 1_500_000,
-  W_RELAX_WBL_BL_MAX_PER_WEEK: 1_000_000,
-  W_RELAX_WBL_BL_WEEKLY_MIN: 800_000,
-  W_RELAX_REST_AFTER_6: 300_000,
-  W_RELAX_ALT_WEEKENDS: 100_000,
+  // Tier -1 — Two sub-categories now (see solver/config.py for details):
+  //   * Legal/physical (only soft in Phase 2, near-hard at all times)
+  //   * Policy/fairness (ALWAYS soft, calibrated cheaper than over-Soll
+  //     T3/T4 so the solver picks "break a rule" over "+20h on one
+  //     person" when spreading is otherwise impossible).
+  W_RELAX_MIN_REST: 20_000_000,           // legal — 11h between shifts
+  W_RELAX_STAFFING_MAX: 8_000_000,        // planner-defined ceiling
+  W_RELAX_MINI_JOB_CAP: 6_000_000,        // legal — MJ monthly hours
+  // Policy/fairness — always soft:
+  W_RELAX_CONSEC_NIGHTS: 300_000,
+  W_RELAX_CONSEC_DAYS: 300_000,
+  W_RELAX_WBL_WEEKEND_LIMIT: 250_000,
+  W_RELAX_WBL_BL_MAX_PER_WEEK: 250_000,
+  W_RELAX_WBL_BL_WEEKLY_MIN: 250_000,
+  W_RELAX_REST_AFTER_6: 150_000,
+  W_RELAX_ALT_WEEKENDS: 80_000,
 } as const;
 
 export type WeightKey = keyof typeof DEFAULT_WEIGHTS;
@@ -554,14 +564,13 @@ export function validateMergedWeights(
     errors.push("W_MAX_OT_FT muss ≤ W_MAX_OT_PT sein.");
   }
 
-  // R8 — Physical/legal relax weights stay near-hard (≥ staffing)
-  // Kept because these aren't policy choices — they're physical/legal
-  // limits (11h rest, consecutive shifts, MJ legal cap, headcount max).
-  // No template should flip these.
+  // R8 — Legal/physical relax weights stay near-hard (≥ staffing).
+  // CONSEC_DAYS/NIGHTS were moved out of this list when those rules
+  // became always-soft policy/fairness rules — the planner explicitly
+  // accepts that the solver will break them to spread shifts more
+  // fairly rather than dumping +20h on one person.
   const mustStayAbove: readonly WeightKey[] = [
     "W_RELAX_MIN_REST",
-    "W_RELAX_CONSEC_NIGHTS",
-    "W_RELAX_CONSEC_DAYS",
     "W_RELAX_STAFFING_MAX",
     "W_RELAX_MINI_JOB_CAP",
   ];
