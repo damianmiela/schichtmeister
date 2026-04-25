@@ -23,21 +23,10 @@ from ortools.sat.python import cp_model
 
 from models import SolveRequest, ShiftProfileInput
 from utils import dates_in_range, iso_week_key, rest_violated
-# Relaxed-mode (Phase 2) penalty weights are defined in solver/config.py.
-# Hard.py only uses these when re-solving an INFEASIBLE strict model with
-# selected hard rules turned into very expensive soft rules.
-from config import (
-    W_RELAX_MIN_REST,
-    W_RELAX_CONSEC_NIGHTS,
-    W_RELAX_CONSEC_DAYS,
-    W_RELAX_REST_AFTER_6,
-    W_RELAX_STAFFING_MAX,
-    W_RELAX_MINI_JOB_CAP,
-    W_RELAX_ALT_WEEKENDS,
-    W_RELAX_WBL_WEEKEND_LIMIT,
-    W_RELAX_WBL_BL_MAX_PER_WEEK,
-    W_RELAX_WBL_BL_WEEKLY_MIN,
-)
+# Relaxed-mode (Phase 2) penalty weights live on the Weights dataclass
+# in solver/config.py. Hard.py functions that emit penalty terms accept
+# the active Weights instance (`w`) as their trailing parameter.
+from config import Weights
 
 log = logging.getLogger(__name__)
 
@@ -168,6 +157,7 @@ def add_staffing_maximum(
     req: SolveRequest,
     station_assign: StationAssign | None = None,
     relaxed: bool = False,
+    w: Weights = Weights(),
 ) -> list[tuple[cp_model.IntVar, int]]:
     terms: list[tuple[cp_model.IntVar, int]] = []
     dates = _dates(req)
@@ -249,7 +239,7 @@ def add_staffing_maximum(
                     model.Add(total == sum(covering))
                     over = model.NewIntVar(0, len(covering), f"smax_over_{sr.shiftType}_{sr.stationNumber}_{ds}")
                     model.Add(over >= total - sr.maxTotalCount)
-                    terms.append((over, W_RELAX_STAFFING_MAX))
+                    terms.append((over, w.W_RELAX_STAFFING_MAX))
                 else:
                     model.Add(sum(covering) <= sr.maxTotalCount)
 
@@ -281,7 +271,7 @@ def add_staffing_maximum(
                     model.Add(total == sum(all_vars))
                     over = model.NewIntVar(0, len(all_vars), f"smax_agg_over_{stype}_{ds}")
                     model.Add(over >= total - agg_max)
-                    terms.append((over, W_RELAX_STAFFING_MAX))
+                    terms.append((over, w.W_RELAX_STAFFING_MAX))
                 else:
                     model.Add(sum(all_vars) <= agg_max)
 
@@ -383,6 +373,7 @@ def add_min_rest(
     shift: ShiftVar,
     req: SolveRequest,
     relaxed: bool = False,
+    w: Weights = Weights(),
 ) -> list[tuple[cp_model.IntVar, int]]:
     terms: list[tuple[cp_model.IntVar, int]] = []
     dates = _dates(req)
@@ -411,7 +402,7 @@ def add_min_rest(
                     if relaxed:
                         v = model.NewBoolVar(f"rest_v_{emp.id}_{d1}_{pid1}_{d2}_{pid2}")
                         model.Add(shift[k1] + shift[k2] <= 1 + v)
-                        terms.append((v, W_RELAX_MIN_REST))
+                        terms.append((v, w.W_RELAX_MIN_REST))
                     else:
                         model.Add(shift[k1] + shift[k2] <= 1)
 
@@ -429,6 +420,7 @@ def add_max_consecutive_nights(
     shift: ShiftVar,
     req: SolveRequest,
     relaxed: bool = False,
+    w: Weights = Weights(),
 ) -> list[tuple[cp_model.IntVar, int]]:
     terms: list[tuple[cp_model.IntVar, int]] = []
     max_nights = req.rules.maxConsecutiveNights
@@ -460,7 +452,7 @@ def add_max_consecutive_nights(
             if relaxed:
                 slack = model.NewIntVar(0, window, f"cn_slack_{emp.id}_{i}")
                 model.Add(sum(night_vars_by_day[i:i + window]) <= max_nights + slack)
-                terms.append((slack, W_RELAX_CONSEC_NIGHTS))
+                terms.append((slack, w.W_RELAX_CONSEC_NIGHTS))
             else:
                 model.Add(sum(night_vars_by_day[i:i + window]) <= max_nights)
 
@@ -474,6 +466,7 @@ def add_max_consecutive_days(
     works_day: WorksDay,
     req: SolveRequest,
     relaxed: bool = False,
+    w: Weights = Weights(),
 ) -> list[tuple[cp_model.IntVar, int]]:
     terms: list[tuple[cp_model.IntVar, int]] = []
     global_max_days = req.rules.maxConsecutiveDays
@@ -501,7 +494,7 @@ def add_max_consecutive_days(
             if relaxed:
                 slack = model.NewIntVar(0, window, f"cd_slack_{emp.id}_{i}")
                 model.Add(sum(day_vars[i:i + window]) <= max_days + slack)
-                terms.append((slack, W_RELAX_CONSEC_DAYS))
+                terms.append((slack, w.W_RELAX_CONSEC_DAYS))
             else:
                 model.Add(sum(day_vars[i:i + window]) <= max_days)
 
@@ -519,7 +512,7 @@ def add_max_consecutive_days(
                             # Soft: violated if streak_6 AND day_vars[idx]>0; use implication
                             # day_vars[idx] <= v when streak_6 enforced
                             model.Add(day_vars[idx] <= v).OnlyEnforceIf(streak_6)
-                            terms.append((v, W_RELAX_REST_AFTER_6))
+                            terms.append((v, w.W_RELAX_REST_AFTER_6))
                         else:
                             model.Add(day_vars[idx] == 0).OnlyEnforceIf(streak_6)
 
@@ -533,6 +526,7 @@ def add_wbl_bl_max_one_per_week(
     shift: ShiftVar,
     req: SolveRequest,
     relaxed: bool = False,
+    w: Weights = Weights(),
 ) -> list[tuple[cp_model.IntVar, int]]:
     """Each WBL employee gets at most 1 BL shift per ISO week (skip full-time BL)."""
     terms: list[tuple[cp_model.IntVar, int]] = []
@@ -564,7 +558,7 @@ def add_wbl_bl_max_one_per_week(
                 if relaxed:
                     slack = model.NewIntVar(0, len(bl_vars), f"wblmax_{emp.id}_{wk}")
                     model.Add(sum(bl_vars) <= 1 + slack)
-                    terms.append((slack, W_RELAX_WBL_BL_MAX_PER_WEEK))
+                    terms.append((slack, w.W_RELAX_WBL_BL_MAX_PER_WEEK))
                 else:
                     model.Add(sum(bl_vars) <= 1)
 
@@ -578,6 +572,7 @@ def add_wbl_bl_weekly(
     shift: ShiftVar,
     req: SolveRequest,
     relaxed: bool = False,
+    w: Weights = Weights(),
 ) -> list[tuple[cp_model.IntVar, int]]:
     terms: list[tuple[cp_model.IntVar, int]] = []
     wbl_emps = [e for e in req.employees if e.isWbl]
@@ -608,7 +603,7 @@ def add_wbl_bl_weekly(
                 if relaxed:
                     short = model.NewBoolVar(f"wblmin_{emp.id}_{wk}")
                     model.Add(sum(bl_vars) + short >= 1)
-                    terms.append((short, W_RELAX_WBL_BL_WEEKLY_MIN))
+                    terms.append((short, w.W_RELAX_WBL_BL_WEEKLY_MIN))
                 else:
                     model.Add(sum(bl_vars) >= 1)
 
@@ -768,6 +763,7 @@ def add_mini_job_cap(
     shift: ShiftVar,
     req: SolveRequest,
     relaxed: bool = False,
+    w: Weights = Weights(),
 ) -> list[tuple[cp_model.IntVar, int]]:
     terms: list[tuple[cp_model.IntVar, int]] = []
     profiles = _profile_map(req)
@@ -799,7 +795,7 @@ def add_mini_job_cap(
             model.Add(total_scaled <= scaled_limit + slack)
             # Dividing weight to approximately penalize per-hour-over rather
             # than per scaled-unit-over. Keep it simple: per scaled-unit.
-            terms.append((slack, W_RELAX_MINI_JOB_CAP))
+            terms.append((slack, w.W_RELAX_MINI_JOB_CAP))
         else:
             model.Add(total_scaled <= scaled_limit)
 
@@ -813,6 +809,7 @@ def add_alternating_weekends(
     works_day: WorksDay,
     req: SolveRequest,
     relaxed: bool = False,
+    w: Weights = Weights(),
 ) -> list[tuple[cp_model.IntVar, int]]:
     terms: list[tuple[cp_model.IntVar, int]] = []
     if not req.rules.alternatingWeekendsEnabled:
@@ -878,7 +875,7 @@ def add_alternating_weekends(
                     # works_wk AND works_day[key] implies v
                     # Encode: works_day[key] <= v when works_wk
                     model.Add(works_day[key] <= v).OnlyEnforceIf(works_wk)
-                    terms.append((v, W_RELAX_ALT_WEEKENDS))
+                    terms.append((v, w.W_RELAX_ALT_WEEKENDS))
                 else:
                     model.Add(works_day[key] == 0).OnlyEnforceIf(works_wk)
 
@@ -892,6 +889,7 @@ def add_wbl_weekend_limit(
     works_day: WorksDay,
     req: SolveRequest,
     relaxed: bool = False,
+    w: Weights = Weights(),
 ) -> list[tuple[cp_model.IntVar, int]]:
     terms: list[tuple[cp_model.IntVar, int]] = []
     max_wd = req.rules.wblMaxWeekendDays
@@ -913,7 +911,7 @@ def add_wbl_weekend_limit(
             if relaxed:
                 slack = model.NewIntVar(0, len(wknd_vars), f"wblwke_{emp.id}")
                 model.Add(sum(wknd_vars) <= max_wd + slack)
-                terms.append((slack, W_RELAX_WBL_WEEKEND_LIMIT))
+                terms.append((slack, w.W_RELAX_WBL_WEEKEND_LIMIT))
             else:
                 model.Add(sum(wknd_vars) <= max_wd)
 

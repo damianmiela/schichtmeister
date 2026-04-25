@@ -114,6 +114,11 @@ export interface SolverPayload {
   monthlyWorkingDays: number | null;
   monthlySollHoursByEmployee: Record<string, number> | null;
   previousAssignments: SolverPreviousAssignment[];
+  // Per-facility solver weight overrides. Loaded from facility.solverWeightsJson
+  // by the generate-stream route. Keys are W_* names from solver/config.py
+  // Weights dataclass; values are integers. Omitted / empty = solver uses
+  // factory defaults. See src/lib/solver/weights.ts for the canonical list.
+  weights?: Record<string, number>;
 }
 
 interface SolverAssignment {

@@ -118,6 +118,12 @@ class SolveRequest(BaseModel):
     rules: RulesInput = Field(default_factory=RulesInput)
     monthlyWorkingDays: int | None = None
     monthlySollHoursByEmployee: dict[str, float] | None = None
+    # Per-facility solver weight overrides. Keys are W_* field names from
+    # solver.config.Weights; values are integers. Unknown keys are
+    # ignored. When None / empty, the solver uses factory defaults from
+    # solver/config.py. The API layer is responsible for validating
+    # invariants (see config.validate_overrides) before submitting.
+    weights: dict[str, int] | None = None
 
 
 # ── Response models ─────────────────────────────────────────────────────────

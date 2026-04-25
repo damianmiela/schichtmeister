@@ -16,6 +16,7 @@ from models import (
     SolveRequest, SolveResponse, AssignmentOutput,
     ModelStats, Diagnostics, SollDelta, QualityMetrics,
 )
+from config import weights_from_overrides
 from scorer import extract_quality_metrics
 from utils import dates_in_range, paid_hours, is_weekend_or_holiday
 import collections
@@ -363,6 +364,11 @@ def _build_and_add_all_constraints(
     weights so the solver can still produce a plan. Manual placements,
     absences, one-shift-per-day, and station assignment remain HARD.
     """
+    # Build the per-solve Weights instance once. Constraint builders read
+    # ``w.W_FOO`` and runtime overrides from ``request.weights`` are
+    # already merged on top of factory defaults here.
+    w = weights_from_overrides(request.weights)
+
     objective_terms: list[tuple[cp_model.IntVar, int]] = []
 
     # ── Hard (always) ───────────────────────────────────────────────
@@ -372,31 +378,31 @@ def _build_and_add_all_constraints(
     add_station_assignment(model, shift, works_day, station_assign, request)
 
     # ── Hard in strict mode, soft in relaxed mode ───────────────────
-    objective_terms.extend(add_staffing_maximum(model, shift, request, station_assign, relaxed=relaxed))
-    objective_terms.extend(add_min_rest(model, shift, request, relaxed=relaxed))
-    objective_terms.extend(add_max_consecutive_nights(model, shift, request, relaxed=relaxed))
-    objective_terms.extend(add_max_consecutive_days(model, works_day, request, relaxed=relaxed))
-    objective_terms.extend(add_mini_job_cap(model, shift, request, relaxed=relaxed))
-    objective_terms.extend(add_wbl_bl_max_one_per_week(model, shift, request, relaxed=relaxed))
-    objective_terms.extend(add_alternating_weekends(model, works_day, request, relaxed=relaxed))
-    objective_terms.extend(add_wbl_weekend_limit(model, works_day, request, relaxed=relaxed))
-    objective_terms.extend(add_wbl_bl_weekly(model, shift, request, relaxed=relaxed))
+    objective_terms.extend(add_staffing_maximum(model, shift, request, station_assign, relaxed=relaxed, w=w))
+    objective_terms.extend(add_min_rest(model, shift, request, relaxed=relaxed, w=w))
+    objective_terms.extend(add_max_consecutive_nights(model, shift, request, relaxed=relaxed, w=w))
+    objective_terms.extend(add_max_consecutive_days(model, works_day, request, relaxed=relaxed, w=w))
+    objective_terms.extend(add_mini_job_cap(model, shift, request, relaxed=relaxed, w=w))
+    objective_terms.extend(add_wbl_bl_max_one_per_week(model, shift, request, relaxed=relaxed, w=w))
+    objective_terms.extend(add_alternating_weekends(model, works_day, request, relaxed=relaxed, w=w))
+    objective_terms.extend(add_wbl_weekend_limit(model, works_day, request, relaxed=relaxed, w=w))
+    objective_terms.extend(add_wbl_bl_weekly(model, shift, request, relaxed=relaxed, w=w))
 
     # ── Always soft ─────────────────────────────────────────────────
-    objective_terms.extend(add_staffing_minimum_soft(model, shift, request, station_assign))
-    objective_terms.extend(add_qualification_coverage_soft(model, shift, request, station_assign))
-    objective_terms.extend(add_wbl_bl_soft(model, shift, request))
-    objective_terms.extend(add_min_utilization_soft(model, shift, request))
-    objective_terms.extend(add_soll_deviation(model, shift, request))
-    objective_terms.extend(add_overtime_penalty(model, shift, request))
-    objective_terms.extend(add_undercut_penalty(model, shift, request))
-    objective_terms.extend(add_wish_fulfillment(model, shift, request))
-    objective_terms.extend(add_fairness(model, shift, request))
-    objective_terms.extend(add_preference_bonus(model, shift, request))
-    objective_terms.extend(add_shift_distribution_soft(model, shift, request))
-    objective_terms.extend(add_alternating_weekends_boundary_soft(model, works_day, request))
-    objective_terms.extend(add_consecutive_days_boundary_soft(model, works_day, request))
-    objective_terms.extend(add_rest_after_streak_boundary_soft(model, works_day, request))
+    objective_terms.extend(add_staffing_minimum_soft(model, shift, request, station_assign, w=w))
+    objective_terms.extend(add_qualification_coverage_soft(model, shift, request, station_assign, w=w))
+    objective_terms.extend(add_wbl_bl_soft(model, shift, request, w=w))
+    objective_terms.extend(add_min_utilization_soft(model, shift, request, w=w))
+    objective_terms.extend(add_soll_deviation(model, shift, request, w=w))
+    objective_terms.extend(add_overtime_penalty(model, shift, request, w=w))
+    objective_terms.extend(add_undercut_penalty(model, shift, request, w=w))
+    objective_terms.extend(add_wish_fulfillment(model, shift, request, w=w))
+    objective_terms.extend(add_fairness(model, shift, request, w=w))
+    objective_terms.extend(add_preference_bonus(model, shift, request, w=w))
+    objective_terms.extend(add_shift_distribution_soft(model, shift, request, w=w))
+    objective_terms.extend(add_alternating_weekends_boundary_soft(model, works_day, request, w=w))
+    objective_terms.extend(add_consecutive_days_boundary_soft(model, works_day, request, w=w))
+    objective_terms.extend(add_rest_after_streak_boundary_soft(model, works_day, request, w=w))
 
     if objective_terms:
         model.Minimize(sum(var * weight for var, weight in objective_terms))

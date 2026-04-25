@@ -87,6 +87,11 @@ model Facility {
   miniJobMaxMonthlyHours  Decimal  @default(520) @db.Decimal(8, 2)
   maxSolveTimeSeconds     Int      @default(120)
   ruleOverridesJson       String?
+  // JSON map of admin-tunable solver-weight overrides. Keys are W_*
+  // field names from solver/config.py Weights dataclass; values are
+  // integers. Validated by validateWeights() in src/lib/solver/weights.ts
+  // before save, and again server-side. NULL/empty = use solver defaults.
+  solverWeightsJson       String?
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
 

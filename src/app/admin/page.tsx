@@ -39,8 +39,10 @@ import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import TimelineIcon from "@mui/icons-material/Timeline";
+import TuneIcon from "@mui/icons-material/Tune";
 import { fetchJson } from "@/lib/api/fetchJson";
 import ActivityLogTab from "@/components/admin/ActivityLogTab";
+import SolverWeightsTab from "@/components/admin/SolverWeightsTab";
 
 /* ═══════════════════════════════════════════════
    SHARED TYPES & HELPERS
@@ -114,12 +116,14 @@ export default function AdminPage() {
           <Tab icon={<PersonIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="Benutzer" />
           <Tab icon={<StorageIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="Datenbank" />
           <Tab icon={<TimelineIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="Aktivitätslog" />
+          <Tab icon={<TuneIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="Solver-Gewichte" />
         </Tabs>
       </Box>
 
       {tabIndex === 0 && <UsersTab session={session} />}
       {tabIndex === 1 && <DatabaseTab />}
       {tabIndex === 2 && <ActivityLogTab />}
+      {tabIndex === 3 && <SolverWeightsTab />}
     </MainLayout>
   );
 }

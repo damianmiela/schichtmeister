@@ -1,10 +1,15 @@
 """Single source of truth for the CP-SAT objective configuration.
 
-Everything that shapes the cost the solver minimizes lives here:
-weights for soft constraints, weights for relaxed-mode (Phase-2)
-penalties, the integer scaling factor, and the over-Soll piecewise
-tier widths. No imports from anywhere else in the project — config
-is at the bottom of the dependency graph.
+Two halves:
+
+  • DEFAULT_*  — the factory-default value of every weight. These are
+                 frozen module-level constants. They never change at
+                 runtime and form the floor / fallback for runtime
+                 overrides.
+  • Weights    — a frozen dataclass instance, one field per weight,
+                 used by every constraint builder. Built once per solve
+                 from request overrides + defaults via
+                 ``weights_from_overrides``.
 
 ──────────────────────────────────────────────────────────────────────
 Objective math, in one paragraph
@@ -26,8 +31,8 @@ do the multiplication in your head.
 ──────────────────────────────────────────────────────────────────────
 Tier hierarchy — DO NOT REORDER WITHOUT THINKING
 ──────────────────────────────────────────────────────────────────────
-The values below aren't arbitrary. They form a deliberate hierarchy
-where each tier dominates the next by orders of magnitude:
+The defaults form a deliberate hierarchy where each tier dominates
+the next:
 
   Tier  1  (millions)  — uncovered shift / qualification    must win
   Tier  2  (10s of k)  — utilization
@@ -36,261 +41,356 @@ where each tier dominates the next by orders of magnitude:
   Tier  5  (10k..500k) — cross-month boundary carryover
   Tier -1  (millions)  — relaxed-mode penalties (Phase 2 only)
 
-Concretely: filling EVERY required staffing slot must always beat
-ANY combination of overtime / weekend / rest-after-streak penalties.
-That's why W_QUALIFICATION (5M) > W_STAFFING_MIN (3M) > W_WBL_BL
-(500k) > everything else. If you raise a Tier-3 weight above
-W_STAFFING_MIN you will, eventually, see the solver leave a
-required slot empty to avoid that Tier-3 cost. Be careful.
-
 The piecewise over-Soll ladder ALSO has internal monotonicity that
-must hold: T1 < T2 < T3 < T4 within each contract type, and within
-each tier MINI > PT > FT. The fairness cap (W_MAX_OT_*) sits ON TOP
-of the per-employee piecewise — it nudges the solver to flatten
-peaks across employees when several distributions have similar
-total piecewise cost.
+must hold: T1 ≤ T2 ≤ T3 ≤ T4 within each contract type, and within
+each tier MINI ≥ PT ≥ FT. The fairness cap (W_MAX_OT_*) sits ON TOP
+of the per-employee piecewise. ``validate_overrides`` enforces these
+invariants for any runtime override.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass, fields, replace
+from typing import Iterable
+
 
 # ══════════════════════════════════════════════════════════════════════
-# Structural constants (not weights, but shape the objective math)
+# Structural constants (NOT user-tunable — locked at code level)
 # ══════════════════════════════════════════════════════════════════════
 
-# Integer scale factor for hour-based variables. CP-SAT only does
-# integer arithmetic, so paid hours (which can be fractional, e.g.
-# 7.75) are multiplied by SCALE before entering the model. All
-# per-hour weights below assume hours have been pre-multiplied by
-# this factor — i.e. effective cost-per-hour = weight × SCALE.
+# Integer scale factor for hour-based variables. Changing this would
+# invalidate every weight at once, so it's deliberately not exposed
+# to admin-tools.
 SCALE = 100
 
-# Width (in hours) of the over-Soll piecewise tiers. The cumulative
-# edges are 4h, 8h, 16h. So:
-#   T1 covers hours 0..+4h above Soll
-#   T2 covers hours +4h..+8h
-#   T3 covers hours +8h..+16h
-#   T4 covers hours +16h..+∞
-#
-# Chosen so T1 = "absorb a missing shift", T2 = "noticeable", T3 =
-# "blowout", T4 = "prohibitive — only to keep a required slot filled".
+# Width (in hours) of the over-Soll piecewise tiers. Cumulative
+# edges: 4h, 8h, 16h. Architectural decision, not a tuning knob.
 OVER_SOLL_TIER_WIDTHS_H = (4, 4, 8)
 
 
 # ══════════════════════════════════════════════════════════════════════
-# TIER 1 — Coverage (must dominate everything else)
-#
-# Uncovered required slots are the worst possible outcome — a nurse
-# manager will always rather pay overtime than face an empty
-# Frühschicht. These weights are deliberately HUGE so any other cost
-# the solver could trade against is dwarfed.
+# DEFAULT WEIGHT VALUES (factory defaults — runtime fallback floor)
 # ══════════════════════════════════════════════════════════════════════
+# These constants are the source of truth for the "Default" button in
+# admin-tools. ``Weights.defaults()`` reads them, and runtime overrides
+# are layered on top.
 
-# A required-qualification slot is uncovered (e.g. no Examinierte on
-# the shift). Highest priority of all soft penalties.
-W_QUALIFICATION = 5_000_000
+# ── Tier 1: Coverage ────────────────────────────────────────────────
+DEFAULT_W_QUALIFICATION = 5_000_000
+DEFAULT_W_STAFFING_MIN = 3_000_000
+DEFAULT_W_WBL_BL = 500_000
 
-# Headcount on a shift is below the configured minimum
-# (e.g. only 2 of 3 required nurses).
-W_STAFFING_MIN = 3_000_000
+# ── Tier 2: Utilization ─────────────────────────────────────────────
+DEFAULT_W_MIN_UTIL = 30_000
 
-# A WBL employee (non-fulltime-BL) did NOT get a BL shift in a
-# workable ISO week. Almost-hard rule. Sits at ~17% of W_STAFFING_MIN
-# so a bare required slot still wins, but the solver strongly
-# prefers parking a BL onto each available WBL week.
-# Absence-only weeks are skipped automatically by add_wbl_bl_soft.
-W_WBL_BL = 500_000
+# ── Tier 3a: Generic Soll-deviation ─────────────────────────────────
+DEFAULT_W_SOLL_DEV = 100
+DEFAULT_W_UNDERCUT = 150
+DEFAULT_W_FAIRNESS = 50
 
+# ── Tier 3b: Flat overtime above hard cap ───────────────────────────
+DEFAULT_W_OVERTIME_FT = 30
+DEFAULT_W_OVERTIME_PT = 200
+DEFAULT_W_OVERTIME_MINI = 2_000
 
-# ══════════════════════════════════════════════════════════════════════
-# TIER 2 — Utilization
-# ══════════════════════════════════════════════════════════════════════
+# ── Tier 3c: Under-Soll hard penalty ────────────────────────────────
+DEFAULT_W_SOLL_HARD_FT = 50
+DEFAULT_W_SOLL_HARD_PT = 300
+DEFAULT_W_SOLL_HARD_MINI = 3_000
 
-# Employee is severely underused vs. their contract — gets very few
-# shifts assigned. Soft floor on per-employee assignments so the
-# solver doesn't park a whole month's load on three convenient FTs.
-W_MIN_UTIL = 30_000
+# ── Tier 3d: Over-Soll piecewise ladder (T1 ≤ T2 ≤ T3 ≤ T4) ─────────
+DEFAULT_W_OVER_SOLL_T1_FT = 50
+DEFAULT_W_OVER_SOLL_T2_FT = 150
+DEFAULT_W_OVER_SOLL_T3_FT = 400
+DEFAULT_W_OVER_SOLL_T4_FT = 1_000
+DEFAULT_W_OVER_SOLL_T1_PT = 150
+DEFAULT_W_OVER_SOLL_T2_PT = 400
+DEFAULT_W_OVER_SOLL_T3_PT = 1_000
+DEFAULT_W_OVER_SOLL_T4_PT = 2_500
+DEFAULT_W_OVER_SOLL_T1_MINI = 1_000
+DEFAULT_W_OVER_SOLL_T2_MINI = 3_000
+DEFAULT_W_OVER_SOLL_T3_MINI = 8_000
+DEFAULT_W_OVER_SOLL_T4_MINI = 20_000
 
+# ── Tier 3e: Fairness cap on peak over-Soll ─────────────────────────
+DEFAULT_W_MAX_OT_FT = 300
+DEFAULT_W_MAX_OT_PT = 1_000
 
-# ══════════════════════════════════════════════════════════════════════
-# TIER 3 — Hours accuracy
-#
-# Three sub-groups: legacy generic Soll-deviation, flat overtime
-# above hard cap, and the piecewise-linear over-Soll ladder + max-OT
-# fairness cap. All are contract-tiered (FT < PT < MJ).
-# ══════════════════════════════════════════════════════════════════════
+# ── Tier 4: Wishes & preferences ────────────────────────────────────
+DEFAULT_W_WISH_NORMAL = 3_000
+DEFAULT_W_WISH_STRONG = 6_000
+DEFAULT_W_PREFERENCE = 1
+DEFAULT_W_DISTRIBUTION = 500
 
-# ── 3a. Legacy generic Soll-deviation ───────────────────────────────
+# ── Tier 5: Cross-month boundary ────────────────────────────────────
+DEFAULT_W_WEEKEND_BOUNDARY = 10_000
+DEFAULT_W_CONSEC_DAYS_BOUNDARY = 500_000
+DEFAULT_W_REST_AFTER_6_BOUNDARY = 30_000
 
-# Generic deviation from monthly Soll-Stunden (both sides). Gentle
-# nudge applied to every employee.
-W_SOLL_DEV = 100
-
-# Hours below Soll. Pushes the solver toward filling people up.
-W_UNDERCUT = 150
-
-# Spread of deviations across employees. Keeps no single person
-# unfairly far from Soll.
-W_FAIRNESS = 50
-
-
-# ── 3b. Flat overtime above hard cap, per contract type ─────────────
-# Applied per SCALE'd hour above (Soll + maxOvertimeHours).
-# FT absorbs cheaply, PT moderately, MJ heavily — the solver only
-# pushes mini-jobbers into overtime when nothing else can cover a
-# required slot. Note MJ is also separately bounded by add_mini_job_cap
-# (the legal monthly cap stays a hard rule).
-
-W_OVERTIME_FT = 30          #     3_000 per hour
-W_OVERTIME_PT = 200         #    20_000 per hour
-W_OVERTIME_MINI = 2_000     #   200_000 per hour
-
-
-# ── 3c. Under-Soll hard penalty (hours below Soll + min_delta) ──────
-# Used for the UNDER-Soll half only. The OVER-Soll half is handled
-# by the piecewise ladder below. Same FT/PT/MJ tiering.
-
-W_SOLL_HARD_FT = 50         #     5_000 per hour
-W_SOLL_HARD_PT = 300        #    30_000 per hour
-W_SOLL_HARD_MINI = 3_000    #   300_000 per hour
-
-
-# ── 3d. Over-Soll piecewise-linear ladder ───────────────────────────
-# Four monotonically-escalating tiers per contract type. Each
-# additional hour over Soll is progressively more expensive, so
-# spreading +2h across 5 people is cheaper than dumping +20h on one
-# person.
-#
-# Tier edges (cumulative hours above Soll): see OVER_SOLL_TIER_WIDTHS_H
-#   T1 = [0..+4h]   cheap   — "absorb a missing shift" range
-#   T2 = [+4..+8h]  moderate — noticeable unfairness
-#   T3 = [+8..+16h] steep    — blowout range
-#   T4 = [+16h..∞]  prohibit — only accepted to cover required slot
-#
-# Required orderings:
-#   • T1_X < T2_X < T3_X < T4_X within each contract type X
-#   • T_n_FT < T_n_PT < T_n_MINI within each tier n
-# Breaking these orderings causes pathological behavior (solver
-# preferring to push someone deeper over Soll).
-
-# FT piecewise ladder
-W_OVER_SOLL_T1_FT = 50          #     5_000 per hour (0..+4h)
-W_OVER_SOLL_T2_FT = 150         #    15_000 per hour (+4..+8h)
-W_OVER_SOLL_T3_FT = 400         #    40_000 per hour (+8..+16h)
-W_OVER_SOLL_T4_FT = 1_000       #   100_000 per hour (+16h+)
-
-# PT piecewise ladder (~3× FT)
-W_OVER_SOLL_T1_PT = 150         #    15_000 per hour (0..+4h)
-W_OVER_SOLL_T2_PT = 400         #    40_000 per hour (+4..+8h)
-W_OVER_SOLL_T3_PT = 1_000       #   100_000 per hour (+8..+16h)
-W_OVER_SOLL_T4_PT = 2_500       #   250_000 per hour (+16h+)
-
-# MJ piecewise ladder (~20× FT) — MJ should never take overtime
-# unless it's the only way to keep a required slot filled.
-W_OVER_SOLL_T1_MINI = 1_000     #   100_000 per hour (0..+4h)
-W_OVER_SOLL_T2_MINI = 3_000     #   300_000 per hour (+4..+8h)
-W_OVER_SOLL_T3_MINI = 8_000     #   800_000 per hour (+8..+16h)
-W_OVER_SOLL_T4_MINI = 20_000    # 2_000_000 per hour (+16h+)
-
-
-# ── 3e. Fairness cap on peak over-Soll ──────────────────────────────
-# A single IntVar per contract type, constrained to be ≥ every
-# employee's over-Soll hours. Penalizing the MAX (in addition to the
-# per-employee piecewise) pushes the solver to flatten peaks when
-# multiple distributions have similar total piecewise cost.
-# MJ excluded — the MJ piecewise alone is already prohibitive.
-
-W_MAX_OT_FT = 300               #    30_000 per hour of peak FT over-Soll
-W_MAX_OT_PT = 1_000             #   100_000 per hour of peak PT over-Soll
+# ── Tier -1: Relaxed-mode (Phase 2) ─────────────────────────────────
+DEFAULT_W_RELAX_MIN_REST = 20_000_000
+DEFAULT_W_RELAX_CONSEC_NIGHTS = 15_000_000
+DEFAULT_W_RELAX_CONSEC_DAYS = 15_000_000
+DEFAULT_W_RELAX_STAFFING_MAX = 8_000_000
+DEFAULT_W_RELAX_MINI_JOB_CAP = 6_000_000
+DEFAULT_W_RELAX_WBL_WEEKEND_LIMIT = 1_500_000
+DEFAULT_W_RELAX_WBL_BL_MAX_PER_WEEK = 1_000_000
+DEFAULT_W_RELAX_WBL_BL_WEEKLY_MIN = 800_000
+DEFAULT_W_RELAX_REST_AFTER_6 = 300_000   # below W_STAFFING_MIN — staffing wins
+DEFAULT_W_RELAX_ALT_WEEKENDS = 100_000   # below W_STAFFING_MIN — staffing wins
 
 
 # ══════════════════════════════════════════════════════════════════════
-# TIER 4 — Wishes & preferences
-#
-# Lowest-priority soft penalties. Tiny compared to coverage and hours
-# accuracy — wishes lose every fight against staffing math.
+# Weights dataclass — runtime container
 # ══════════════════════════════════════════════════════════════════════
 
-# An ordinary wish (Wunschdienst / Frei-Wunsch) is NOT fulfilled.
-W_WISH_NORMAL = 3_000
+@dataclass(frozen=True)
+class Weights:
+    """One field per tunable weight. Built once per solve from request
+    overrides layered on top of factory defaults. Constraint builders
+    take this as a parameter and read ``w.W_FOO`` instead of importing
+    bare module constants.
+    """
 
-# A strong wish (priority HIGH) is not fulfilled. ~2× normal.
-W_WISH_STRONG = 6_000
+    # Tier 1
+    W_QUALIFICATION: int = DEFAULT_W_QUALIFICATION
+    W_STAFFING_MIN: int = DEFAULT_W_STAFFING_MIN
+    W_WBL_BL: int = DEFAULT_W_WBL_BL
+    # Tier 2
+    W_MIN_UTIL: int = DEFAULT_W_MIN_UTIL
+    # Tier 3a
+    W_SOLL_DEV: int = DEFAULT_W_SOLL_DEV
+    W_UNDERCUT: int = DEFAULT_W_UNDERCUT
+    W_FAIRNESS: int = DEFAULT_W_FAIRNESS
+    # Tier 3b
+    W_OVERTIME_FT: int = DEFAULT_W_OVERTIME_FT
+    W_OVERTIME_PT: int = DEFAULT_W_OVERTIME_PT
+    W_OVERTIME_MINI: int = DEFAULT_W_OVERTIME_MINI
+    # Tier 3c
+    W_SOLL_HARD_FT: int = DEFAULT_W_SOLL_HARD_FT
+    W_SOLL_HARD_PT: int = DEFAULT_W_SOLL_HARD_PT
+    W_SOLL_HARD_MINI: int = DEFAULT_W_SOLL_HARD_MINI
+    # Tier 3d
+    W_OVER_SOLL_T1_FT: int = DEFAULT_W_OVER_SOLL_T1_FT
+    W_OVER_SOLL_T2_FT: int = DEFAULT_W_OVER_SOLL_T2_FT
+    W_OVER_SOLL_T3_FT: int = DEFAULT_W_OVER_SOLL_T3_FT
+    W_OVER_SOLL_T4_FT: int = DEFAULT_W_OVER_SOLL_T4_FT
+    W_OVER_SOLL_T1_PT: int = DEFAULT_W_OVER_SOLL_T1_PT
+    W_OVER_SOLL_T2_PT: int = DEFAULT_W_OVER_SOLL_T2_PT
+    W_OVER_SOLL_T3_PT: int = DEFAULT_W_OVER_SOLL_T3_PT
+    W_OVER_SOLL_T4_PT: int = DEFAULT_W_OVER_SOLL_T4_PT
+    W_OVER_SOLL_T1_MINI: int = DEFAULT_W_OVER_SOLL_T1_MINI
+    W_OVER_SOLL_T2_MINI: int = DEFAULT_W_OVER_SOLL_T2_MINI
+    W_OVER_SOLL_T3_MINI: int = DEFAULT_W_OVER_SOLL_T3_MINI
+    W_OVER_SOLL_T4_MINI: int = DEFAULT_W_OVER_SOLL_T4_MINI
+    # Tier 3e
+    W_MAX_OT_FT: int = DEFAULT_W_MAX_OT_FT
+    W_MAX_OT_PT: int = DEFAULT_W_MAX_OT_PT
+    # Tier 4
+    W_WISH_NORMAL: int = DEFAULT_W_WISH_NORMAL
+    W_WISH_STRONG: int = DEFAULT_W_WISH_STRONG
+    W_PREFERENCE: int = DEFAULT_W_PREFERENCE
+    W_DISTRIBUTION: int = DEFAULT_W_DISTRIBUTION
+    # Tier 5
+    W_WEEKEND_BOUNDARY: int = DEFAULT_W_WEEKEND_BOUNDARY
+    W_CONSEC_DAYS_BOUNDARY: int = DEFAULT_W_CONSEC_DAYS_BOUNDARY
+    W_REST_AFTER_6_BOUNDARY: int = DEFAULT_W_REST_AFTER_6_BOUNDARY
+    # Tier -1
+    W_RELAX_MIN_REST: int = DEFAULT_W_RELAX_MIN_REST
+    W_RELAX_CONSEC_NIGHTS: int = DEFAULT_W_RELAX_CONSEC_NIGHTS
+    W_RELAX_CONSEC_DAYS: int = DEFAULT_W_RELAX_CONSEC_DAYS
+    W_RELAX_STAFFING_MAX: int = DEFAULT_W_RELAX_STAFFING_MAX
+    W_RELAX_MINI_JOB_CAP: int = DEFAULT_W_RELAX_MINI_JOB_CAP
+    W_RELAX_WBL_WEEKEND_LIMIT: int = DEFAULT_W_RELAX_WBL_WEEKEND_LIMIT
+    W_RELAX_WBL_BL_MAX_PER_WEEK: int = DEFAULT_W_RELAX_WBL_BL_MAX_PER_WEEK
+    W_RELAX_WBL_BL_WEEKLY_MIN: int = DEFAULT_W_RELAX_WBL_BL_WEEKLY_MIN
+    W_RELAX_REST_AFTER_6: int = DEFAULT_W_RELAX_REST_AFTER_6
+    W_RELAX_ALT_WEEKENDS: int = DEFAULT_W_RELAX_ALT_WEEKENDS
 
-# Tiebreaker against assigning shift types outside an employee's
-# preferredShiftTypes. Tiny — only matters when nothing else is at
-# stake.
-W_PREFERENCE = 1
-
-# Deviation from an employee's preferred mix of shift profiles
-# (e.g. "60% Früh / 40% Spät").
-W_DISTRIBUTION = 500
+    @classmethod
+    def field_names(cls) -> tuple[str, ...]:
+        return tuple(f.name for f in fields(cls))
 
 
 # ══════════════════════════════════════════════════════════════════════
-# TIER 5 — Cross-month boundary
-#
-# Penalties for streaks/weekends that carry over from the previous
-# month's plan into the current month.
+# Factory + validator
 # ══════════════════════════════════════════════════════════════════════
 
-# Alternating-weekend rule violated when last month's previous
-# assignments push someone into a 2-weekends-in-a-row situation.
-W_WEEKEND_BOUNDARY = 10_000
+def weights_from_overrides(overrides: dict[str, int] | None) -> Weights:
+    """Build a Weights instance from optional overrides layered on top
+    of factory defaults. Unknown keys are silently ignored — the API
+    layer should validate before calling this. Non-int values are
+    coerced via ``int()``; if coercion fails the default is used.
+    """
+    if not overrides:
+        return Weights()
+    valid = set(Weights.field_names())
+    kw: dict[str, int] = {}
+    for k, v in overrides.items():
+        if k not in valid:
+            continue
+        try:
+            kw[k] = int(v)
+        except (TypeError, ValueError):
+            continue  # fall back to default for this field
+    return Weights(**kw) if kw else Weights()
 
-# Carryover from previous month creates a streak longer than
-# maxConsecutiveDays in the first days of this month. High because
-# max-consecutive-days is NOT on the user-breakable list.
-W_CONSEC_DAYS_BOUNDARY = 500_000
 
-# After 6+ consecutive days at end of previous month, employee
-# should get rest days at the start of this month. Reduced so
-# staffing wins.
-W_REST_AFTER_6_BOUNDARY = 30_000
+def validate_overrides(overrides: dict[str, int]) -> list[str]:
+    """Return a list of human-readable invariant violations. Empty list
+    means the override set is safe. Used by both the API endpoint
+    (server-side hard-reject) and the admin UI (live validation).
+
+    The same rules MUST be mirrored in src/lib/solver/weights.ts.
+    """
+    errors: list[str] = []
+    valid = set(Weights.field_names())
+
+    # Build a "merged" view: overrides on top of defaults.
+    merged: dict[str, int] = {f.name: f.default for f in fields(Weights)}
+    for k, v in overrides.items():
+        if k not in valid:
+            errors.append(f"Unbekannter Schlüssel: {k}")
+            continue
+        try:
+            merged[k] = int(v)
+        except (TypeError, ValueError):
+            errors.append(f"{k}: Wert muss eine Ganzzahl sein.")
+
+    # Rule 1 — every weight must be ≥ 0
+    for k in valid:
+        if merged[k] < 0:
+            errors.append(f"{k}: Wert darf nicht negativ sein.")
+
+    # Rule 2 — Tier 1 hierarchy
+    if merged["W_QUALIFICATION"] < merged["W_STAFFING_MIN"]:
+        errors.append(
+            "W_QUALIFICATION muss ≥ W_STAFFING_MIN sein (sonst lässt der "
+            "Solver eher eine Qualifikation unbesetzt als einen Headcount-Slot)."
+        )
+    if merged["W_STAFFING_MIN"] < merged["W_WBL_BL"]:
+        errors.append(
+            "W_STAFFING_MIN muss ≥ W_WBL_BL sein (sonst lässt der Solver "
+            "eher einen Pflicht-Slot leer als WBL ohne BL-Schicht)."
+        )
+
+    # Rule 3 — Overtime contract ordering
+    if not (merged["W_OVERTIME_FT"] <= merged["W_OVERTIME_PT"] <= merged["W_OVERTIME_MINI"]):
+        errors.append(
+            "Überstunden-Reihenfolge falsch: erforderlich "
+            "W_OVERTIME_FT ≤ W_OVERTIME_PT ≤ W_OVERTIME_MINI."
+        )
+
+    # Rule 4 — Under-Soll hard contract ordering
+    if not (merged["W_SOLL_HARD_FT"] <= merged["W_SOLL_HARD_PT"] <= merged["W_SOLL_HARD_MINI"]):
+        errors.append(
+            "Soll-Hard-Reihenfolge falsch: erforderlich "
+            "W_SOLL_HARD_FT ≤ W_SOLL_HARD_PT ≤ W_SOLL_HARD_MINI."
+        )
+
+    # Rule 5 — Piecewise ladder monotonicity per contract type
+    for ct in ("FT", "PT", "MINI"):
+        t1, t2, t3, t4 = (merged[f"W_OVER_SOLL_T{n}_{ct}"] for n in (1, 2, 3, 4))
+        if not (t1 <= t2 <= t3 <= t4):
+            errors.append(
+                f"Über-Soll-Treppe ({ct}) falsch: erforderlich "
+                f"T1 ≤ T2 ≤ T3 ≤ T4 (aktuell {t1}, {t2}, {t3}, {t4})."
+            )
+
+    # Rule 6 — Piecewise ladder cross-contract ordering per tier
+    for n in (1, 2, 3, 4):
+        ft = merged[f"W_OVER_SOLL_T{n}_FT"]
+        pt = merged[f"W_OVER_SOLL_T{n}_PT"]
+        mj = merged[f"W_OVER_SOLL_T{n}_MINI"]
+        if not (ft <= pt <= mj):
+            errors.append(
+                f"Über-Soll-Treppe Tier {n}: erforderlich "
+                f"FT ≤ PT ≤ MINI (aktuell {ft}, {pt}, {mj})."
+            )
+
+    # Rule 7 — Fairness max-OT cap ordering
+    if merged["W_MAX_OT_FT"] > merged["W_MAX_OT_PT"]:
+        errors.append("W_MAX_OT_FT muss ≤ W_MAX_OT_PT sein.")
+
+    # Rule 8 — Relaxed-mode "above staffing" floor (rule must stay near-hard)
+    # Only the rules that are EXPLICITLY meant to remain near-hard: rest
+    # between shifts, consecutive nights/days, staffing max, MJ legal cap.
+    # The WBL relax weights are deliberately mid-tier (between "near-hard"
+    # and "break-friendly") and are NOT bounded by this rule.
+    must_stay_above = (
+        "W_RELAX_MIN_REST",
+        "W_RELAX_CONSEC_NIGHTS",
+        "W_RELAX_CONSEC_DAYS",
+        "W_RELAX_STAFFING_MAX",
+        "W_RELAX_MINI_JOB_CAP",
+    )
+    for k in must_stay_above:
+        if merged[k] < merged["W_STAFFING_MIN"]:
+            errors.append(
+                f"{k} muss ≥ W_STAFFING_MIN bleiben (sonst würde der Solver "
+                f"diese harte Regel im Relaxed-Modus brechen statt einen "
+                f"Pflicht-Slot zu füllen)."
+            )
+
+    # Rule 9 — Relaxed-mode "below staffing" ceiling (rule SHOULD break)
+    must_stay_below = ("W_RELAX_REST_AFTER_6", "W_RELAX_ALT_WEEKENDS")
+    for k in must_stay_below:
+        if merged[k] > merged["W_STAFFING_MIN"]:
+            errors.append(
+                f"{k} muss ≤ W_STAFFING_MIN bleiben (sonst würde der Solver "
+                f"eher einen Pflicht-Slot leer lassen als diese Regel zu brechen)."
+            )
+
+    return errors
 
 
 # ══════════════════════════════════════════════════════════════════════
-# TIER -1 — Relaxed-mode (Phase 2) penalties
-#
-# These weights apply ONLY when the strict model returned INFEASIBLE
-# and we re-solve with selected hard rules turned into very expensive
-# soft rules. The high values keep these rules near-hard; the values
-# below W_STAFFING_MIN (3M) are deliberately chosen to be broken in
-# preference to leaving a required slot empty.
-#
-# Above W_STAFFING_MIN  → "still near-hard"
-# Below W_STAFFING_MIN  → "we'd rather break this than leave a slot empty"
+# Backwards-compat shims — bare W_* names still available for any
+# code that hasn't been migrated yet. These are pure aliases for
+# DEFAULT_W_* and never reflect runtime overrides. New code MUST use
+# Weights instead.
 # ══════════════════════════════════════════════════════════════════════
-
-# Min 11h rest between two consecutive shifts. Highest of all relax
-# weights — this should almost never break.
-W_RELAX_MIN_REST = 20_000_000
-
-# Max consecutive night shifts.
-W_RELAX_CONSEC_NIGHTS = 15_000_000
-
-# Max consecutive working days.
-W_RELAX_CONSEC_DAYS = 15_000_000
-
-# Max headcount per shift (over-staffing).
-W_RELAX_STAFFING_MAX = 8_000_000
-
-# MiniJob legal monthly hour cap.
-W_RELAX_MINI_JOB_CAP = 6_000_000
-
-# WBL max weekend days.
-W_RELAX_WBL_WEEKEND_LIMIT = 1_500_000
-
-# WBL max one BL shift per week.
-W_RELAX_WBL_BL_MAX_PER_WEEK = 1_000_000
-
-# WBL min one BL shift per workable week.
-W_RELAX_WBL_BL_WEEKLY_MIN = 800_000
-
-# Required rest days after a 6+ day streak.
-# BELOW W_STAFFING_MIN — staffing wins.
-W_RELAX_REST_AFTER_6 = 300_000
-
-# Alternating weekends rule.
-# BELOW W_STAFFING_MIN — staffing wins.
-W_RELAX_ALT_WEEKENDS = 100_000
+W_QUALIFICATION = DEFAULT_W_QUALIFICATION
+W_STAFFING_MIN = DEFAULT_W_STAFFING_MIN
+W_WBL_BL = DEFAULT_W_WBL_BL
+W_MIN_UTIL = DEFAULT_W_MIN_UTIL
+W_SOLL_DEV = DEFAULT_W_SOLL_DEV
+W_UNDERCUT = DEFAULT_W_UNDERCUT
+W_FAIRNESS = DEFAULT_W_FAIRNESS
+W_OVERTIME_FT = DEFAULT_W_OVERTIME_FT
+W_OVERTIME_PT = DEFAULT_W_OVERTIME_PT
+W_OVERTIME_MINI = DEFAULT_W_OVERTIME_MINI
+W_SOLL_HARD_FT = DEFAULT_W_SOLL_HARD_FT
+W_SOLL_HARD_PT = DEFAULT_W_SOLL_HARD_PT
+W_SOLL_HARD_MINI = DEFAULT_W_SOLL_HARD_MINI
+W_OVER_SOLL_T1_FT = DEFAULT_W_OVER_SOLL_T1_FT
+W_OVER_SOLL_T2_FT = DEFAULT_W_OVER_SOLL_T2_FT
+W_OVER_SOLL_T3_FT = DEFAULT_W_OVER_SOLL_T3_FT
+W_OVER_SOLL_T4_FT = DEFAULT_W_OVER_SOLL_T4_FT
+W_OVER_SOLL_T1_PT = DEFAULT_W_OVER_SOLL_T1_PT
+W_OVER_SOLL_T2_PT = DEFAULT_W_OVER_SOLL_T2_PT
+W_OVER_SOLL_T3_PT = DEFAULT_W_OVER_SOLL_T3_PT
+W_OVER_SOLL_T4_PT = DEFAULT_W_OVER_SOLL_T4_PT
+W_OVER_SOLL_T1_MINI = DEFAULT_W_OVER_SOLL_T1_MINI
+W_OVER_SOLL_T2_MINI = DEFAULT_W_OVER_SOLL_T2_MINI
+W_OVER_SOLL_T3_MINI = DEFAULT_W_OVER_SOLL_T3_MINI
+W_OVER_SOLL_T4_MINI = DEFAULT_W_OVER_SOLL_T4_MINI
+W_MAX_OT_FT = DEFAULT_W_MAX_OT_FT
+W_MAX_OT_PT = DEFAULT_W_MAX_OT_PT
+W_WISH_NORMAL = DEFAULT_W_WISH_NORMAL
+W_WISH_STRONG = DEFAULT_W_WISH_STRONG
+W_PREFERENCE = DEFAULT_W_PREFERENCE
+W_DISTRIBUTION = DEFAULT_W_DISTRIBUTION
+W_WEEKEND_BOUNDARY = DEFAULT_W_WEEKEND_BOUNDARY
+W_CONSEC_DAYS_BOUNDARY = DEFAULT_W_CONSEC_DAYS_BOUNDARY
+W_REST_AFTER_6_BOUNDARY = DEFAULT_W_REST_AFTER_6_BOUNDARY
+W_RELAX_MIN_REST = DEFAULT_W_RELAX_MIN_REST
+W_RELAX_CONSEC_NIGHTS = DEFAULT_W_RELAX_CONSEC_NIGHTS
+W_RELAX_CONSEC_DAYS = DEFAULT_W_RELAX_CONSEC_DAYS
+W_RELAX_STAFFING_MAX = DEFAULT_W_RELAX_STAFFING_MAX
+W_RELAX_MINI_JOB_CAP = DEFAULT_W_RELAX_MINI_JOB_CAP
+W_RELAX_WBL_WEEKEND_LIMIT = DEFAULT_W_RELAX_WBL_WEEKEND_LIMIT
+W_RELAX_WBL_BL_MAX_PER_WEEK = DEFAULT_W_RELAX_WBL_BL_MAX_PER_WEEK
+W_RELAX_WBL_BL_WEEKLY_MIN = DEFAULT_W_RELAX_WBL_BL_WEEKLY_MIN
+W_RELAX_REST_AFTER_6 = DEFAULT_W_RELAX_REST_AFTER_6
+W_RELAX_ALT_WEEKENDS = DEFAULT_W_RELAX_ALT_WEEKENDS

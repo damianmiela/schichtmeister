@@ -13,64 +13,12 @@ from ortools.sat.python import cp_model
 from models import SolveRequest
 from utils import dates_in_range, iso_week_key
 
-# All objective weights, the integer SCALE factor, and the over-Soll
-# tier widths live in solver/config.py. See that file for the tier
-# hierarchy explanation, weight values, and ordering invariants that
-# must hold (e.g. T1 < T2 < T3 < T4, FT < PT < MJ within each tier).
-from config import (
-    SCALE,
-    OVER_SOLL_TIER_WIDTHS_H,
-    # Tier 1 — Coverage
-    W_QUALIFICATION,
-    W_STAFFING_MIN,
-    W_WBL_BL,
-    # Tier 2 — Utilization
-    W_MIN_UTIL,
-    # Tier 3 — Hours accuracy
-    W_SOLL_DEV,
-    W_UNDERCUT,
-    W_FAIRNESS,
-    W_OVERTIME_FT,
-    W_OVERTIME_PT,
-    W_OVERTIME_MINI,
-    W_SOLL_HARD_FT,
-    W_SOLL_HARD_PT,
-    W_SOLL_HARD_MINI,
-    W_OVER_SOLL_T1_FT,
-    W_OVER_SOLL_T2_FT,
-    W_OVER_SOLL_T3_FT,
-    W_OVER_SOLL_T4_FT,
-    W_OVER_SOLL_T1_PT,
-    W_OVER_SOLL_T2_PT,
-    W_OVER_SOLL_T3_PT,
-    W_OVER_SOLL_T4_PT,
-    W_OVER_SOLL_T1_MINI,
-    W_OVER_SOLL_T2_MINI,
-    W_OVER_SOLL_T3_MINI,
-    W_OVER_SOLL_T4_MINI,
-    W_MAX_OT_FT,
-    W_MAX_OT_PT,
-    # Tier 4 — Wishes & preferences
-    W_WISH_NORMAL,
-    W_WISH_STRONG,
-    W_PREFERENCE,
-    W_DISTRIBUTION,
-    # Tier 5 — Cross-month boundary
-    W_WEEKEND_BOUNDARY,
-    W_CONSEC_DAYS_BOUNDARY,
-    W_REST_AFTER_6_BOUNDARY,
-    # Tier -1 — Relaxed-mode (Phase 2)
-    W_RELAX_MIN_REST,
-    W_RELAX_CONSEC_NIGHTS,
-    W_RELAX_CONSEC_DAYS,
-    W_RELAX_STAFFING_MAX,
-    W_RELAX_MINI_JOB_CAP,
-    W_RELAX_WBL_WEEKEND_LIMIT,
-    W_RELAX_WBL_BL_MAX_PER_WEEK,
-    W_RELAX_WBL_BL_WEEKLY_MIN,
-    W_RELAX_REST_AFTER_6,
-    W_RELAX_ALT_WEEKENDS,
-)
+# All objective weights live on the Weights dataclass in solver/config.py.
+# Constraint builders take the active Weights instance (`w`) as their
+# trailing parameter and read e.g. ``w.W_QUALIFICATION`` instead of
+# importing bare module constants. SCALE and OVER_SOLL_TIER_WIDTHS_H are
+# structural (NOT user-tunable) so they're imported as constants.
+from config import SCALE, OVER_SOLL_TIER_WIDTHS_H, Weights
 
 ShiftVar = dict[tuple[str, str, str], cp_model.IntVar]
 
@@ -80,17 +28,17 @@ def _contract_type(emp) -> str:
     return ct.upper()
 
 
-def overtime_weight(emp) -> int:
+def overtime_weight(emp, w: Weights) -> int:
     """Return per-scaled-unit overtime penalty weight for an employee."""
     ct = _contract_type(emp)
     if ct == "MINI_JOB":
-        return W_OVERTIME_MINI
+        return w.W_OVERTIME_MINI
     if ct == "PART_TIME":
-        return W_OVERTIME_PT
-    return W_OVERTIME_FT
+        return w.W_OVERTIME_PT
+    return w.W_OVERTIME_FT
 
 
-def soll_hard_weight(emp) -> int:
+def soll_hard_weight(emp, w: Weights) -> int:
     """Return per-scaled-unit penalty for hours outside soll delta range.
 
     NOTE: Only used for the UNDER-soll half (hours below soll+min_delta).
@@ -99,13 +47,13 @@ def soll_hard_weight(emp) -> int:
     """
     ct = _contract_type(emp)
     if ct == "MINI_JOB":
-        return W_SOLL_HARD_MINI
+        return w.W_SOLL_HARD_MINI
     if ct == "PART_TIME":
-        return W_SOLL_HARD_PT
-    return W_SOLL_HARD_FT
+        return w.W_SOLL_HARD_PT
+    return w.W_SOLL_HARD_FT
 
 
-def over_soll_piecewise_weights(emp) -> tuple[int, int, int, int]:
+def over_soll_piecewise_weights(emp, w: Weights) -> tuple[int, int, int, int]:
     """Return the (T1, T2, T3, T4) piecewise weights per scaled unit
     for over-soll hours, tiered by contract type.
 
@@ -115,36 +63,36 @@ def over_soll_piecewise_weights(emp) -> tuple[int, int, int, int]:
     ct = _contract_type(emp)
     if ct == "MINI_JOB":
         return (
-            W_OVER_SOLL_T1_MINI,
-            W_OVER_SOLL_T2_MINI,
-            W_OVER_SOLL_T3_MINI,
-            W_OVER_SOLL_T4_MINI,
+            w.W_OVER_SOLL_T1_MINI,
+            w.W_OVER_SOLL_T2_MINI,
+            w.W_OVER_SOLL_T3_MINI,
+            w.W_OVER_SOLL_T4_MINI,
         )
     if ct == "PART_TIME":
         return (
-            W_OVER_SOLL_T1_PT,
-            W_OVER_SOLL_T2_PT,
-            W_OVER_SOLL_T3_PT,
-            W_OVER_SOLL_T4_PT,
+            w.W_OVER_SOLL_T1_PT,
+            w.W_OVER_SOLL_T2_PT,
+            w.W_OVER_SOLL_T3_PT,
+            w.W_OVER_SOLL_T4_PT,
         )
     return (
-        W_OVER_SOLL_T1_FT,
-        W_OVER_SOLL_T2_FT,
-        W_OVER_SOLL_T3_FT,
-        W_OVER_SOLL_T4_FT,
+        w.W_OVER_SOLL_T1_FT,
+        w.W_OVER_SOLL_T2_FT,
+        w.W_OVER_SOLL_T3_FT,
+        w.W_OVER_SOLL_T4_FT,
     )
 
 
-def max_ot_cap_weight(emp) -> int:
+def max_ot_cap_weight(emp, w: Weights) -> int:
     """Per-scaled-unit weight for the fairness max-overtime cap.
     MJ excluded (piecewise alone is prohibitive).
     """
     ct = _contract_type(emp)
     if ct == "PART_TIME":
-        return W_MAX_OT_PT
+        return w.W_MAX_OT_PT
     if ct == "MINI_JOB":
         return 0
-    return W_MAX_OT_FT
+    return w.W_MAX_OT_FT
 
 
 # Tier -1 (relaxed-mode penalties) is defined in solver/config.py and
@@ -193,6 +141,7 @@ def add_staffing_minimum_soft(
     shift: ShiftVar,
     req: SolveRequest,
     station_assign: StationAssign | None = None,
+    w: Weights = Weights(),
 ) -> list[tuple[cp_model.IntVar, int]]:
     """Penalize understaffing — each missing person per day per requirement costs W_STAFFING_MIN.
 
@@ -265,7 +214,7 @@ def add_staffing_minimum_soft(
             model.Add(total_assigned == sum(covering))
             shortfall = model.NewIntVar(0, sr.minTotalCount, f"staff_short_{sr.shiftType}_{sr.stationNumber}_{ds}")
             model.Add(shortfall >= sr.minTotalCount - total_assigned)
-            terms.append((shortfall, W_STAFFING_MIN))
+            terms.append((shortfall, w.W_STAFFING_MIN))
     return terms
 
 
@@ -274,6 +223,7 @@ def add_qualification_coverage_soft(
     shift: ShiftVar,
     req: SolveRequest,
     station_assign: StationAssign | None = None,
+    w: Weights = Weights(),
 ) -> list[tuple[cp_model.IntVar, int]]:
     """Penalize missing qualification coverage per day.
 
@@ -351,13 +301,13 @@ def add_qualification_coverage_soft(
                 model.Add(total_qualified == sum(qualified_vars))
                 shortfall = model.NewIntVar(0, qr.minCount, f"qual_short_{sr.shiftType}_{sr.stationNumber}_{ds}_{'_'.join(tags[:2])}")
                 model.Add(shortfall >= qr.minCount - total_qualified)
-                terms.append((shortfall, W_QUALIFICATION))
+                terms.append((shortfall, w.W_QUALIFICATION))
 
                 # Penalize exceeding maxCount
                 if qr.maxCount is not None and qr.maxCount > 0:
                     excess = model.NewIntVar(0, len(qualified_vars), f"qual_excess_{sr.shiftType}_{sr.stationNumber}_{ds}_{'_'.join(tags[:2])}")
                     model.Add(excess >= total_qualified - qr.maxCount)
-                    terms.append((excess, W_QUALIFICATION))
+                    terms.append((excess, w.W_QUALIFICATION))
     return terms
 
 
@@ -365,6 +315,7 @@ def add_wbl_bl_soft(
     model: cp_model.CpModel,
     shift: ShiftVar,
     req: SolveRequest,
+    w: Weights = Weights(),
 ) -> list[tuple[cp_model.IntVar, int]]:
     """Penalize WBL employees missing BL shifts (at least 1 per ISO week). Skip full-time BL."""
     terms: list[tuple[cp_model.IntVar, int]] = []
@@ -399,7 +350,7 @@ def add_wbl_bl_soft(
             model.Add(sum(bl_vars) == 0).OnlyEnforceIf(has_bl.Not())
             miss_bl = model.NewBoolVar(f"wbl_miss_{emp.id}_{wk}")
             model.Add(miss_bl == 1 - has_bl)
-            terms.append((miss_bl, W_WBL_BL))
+            terms.append((miss_bl, w.W_WBL_BL))
     return terms
 
 
@@ -407,6 +358,7 @@ def add_min_utilization_soft(
     model: cp_model.CpModel,
     shift: ShiftVar,
     req: SolveRequest,
+    w: Weights = Weights(),
 ) -> list[tuple[cp_model.IntVar, int]]:
     """Penalize employees who get far fewer shifts than their soll requires.
 
@@ -453,7 +405,7 @@ def add_min_utilization_soft(
 
         shortfall = model.NewIntVar(0, min_shifts, f"util_short_{emp.id}")
         model.Add(shortfall >= min_shifts - total_shifts)
-        terms.append((shortfall, W_MIN_UTIL))
+        terms.append((shortfall, w.W_MIN_UTIL))
 
     return terms
 
@@ -462,6 +414,7 @@ def add_soll_deviation(
     model: cp_model.CpModel,
     shift: ShiftVar,
     req: SolveRequest,
+    w: Weights = Weights(),
 ) -> list[tuple[cp_model.IntVar, int]]:
     """Minimize |total_hours[e] - soll[e]| with tiered penalties.
 
@@ -523,7 +476,7 @@ def add_soll_deviation(
         dev = model.NewIntVar(0, BIG, f"dev_{emp.id}")
         model.Add(dev >= total - soll_scaled)
         model.Add(dev >= soll_scaled - total)
-        terms.append((dev, W_SOLL_DEV))
+        terms.append((dev, w.W_SOLL_DEV))
 
         # ── Piecewise-linear OVER-soll penalty (tiers T1..T4) ─────────
         # over_total = max(0, total - soll).
@@ -547,7 +500,7 @@ def add_soll_deviation(
         excess_e3 = model.NewIntVar(0, BIG, f"over_e3_{emp.id}")
         model.Add(excess_e3 >= over_total - edge3_scaled)
 
-        w1, w2, w3, w4 = over_soll_piecewise_weights(emp)
+        w1, w2, w3, w4 = over_soll_piecewise_weights(emp, w)
         # Base tier 1 weight on the full over_total; subsequent tiers
         # add the *delta* so slopes monotonically escalate.
         terms.append((over_total, w1))
@@ -566,16 +519,16 @@ def add_soll_deviation(
 
         # ── Legacy UNDER-soll hard penalty (unchanged) ────────────────
         lower_bound_scaled = int((soll + min_delta) * SCALE)
-        w_hard = soll_hard_weight(emp)
+        w_hard = soll_hard_weight(emp, w)
 
         under_excess = model.NewIntVar(0, BIG, f"soll_under_{emp.id}")
         model.Add(under_excess >= lower_bound_scaled - total)
         terms.append((under_excess, w_hard))
 
     if has_ft:
-        terms.append((max_ot_ft, W_MAX_OT_FT))
+        terms.append((max_ot_ft, w.W_MAX_OT_FT))
     if has_pt:
-        terms.append((max_ot_pt, W_MAX_OT_PT))
+        terms.append((max_ot_pt, w.W_MAX_OT_PT))
 
     return terms
 
@@ -584,6 +537,7 @@ def add_overtime_penalty(
     model: cp_model.CpModel,
     shift: ShiftVar,
     req: SolveRequest,
+    w: Weights = Weights(),
 ) -> list[tuple[cp_model.IntVar, int]]:
     """Extra penalty when total > soll + maxOvertimeHours."""
     terms: list[tuple[cp_model.IntVar, int]] = []
@@ -618,7 +572,7 @@ def add_overtime_penalty(
         excess = model.NewIntVar(0, 744 * SCALE, f"ot_excess_{emp.id}")
         model.Add(excess >= total - cap_scaled)
         # Contract-tiered: cheap for full-timers, heavy for mini-jobbers.
-        terms.append((excess, overtime_weight(emp)))
+        terms.append((excess, overtime_weight(emp, w)))
 
     return terms
 
@@ -627,6 +581,7 @@ def add_undercut_penalty(
     model: cp_model.CpModel,
     shift: ShiftVar,
     req: SolveRequest,
+    w: Weights = Weights(),
 ) -> list[tuple[cp_model.IntVar, int]]:
     """Penalty when total < soll - maxUndercutHours."""
     terms: list[tuple[cp_model.IntVar, int]] = []
@@ -660,7 +615,7 @@ def add_undercut_penalty(
 
         under = model.NewIntVar(0, 744 * SCALE, f"uc_under_{emp.id}")
         model.Add(under >= floor_scaled - total)
-        terms.append((under, W_UNDERCUT))
+        terms.append((under, w.W_UNDERCUT))
 
     return terms
 
@@ -669,30 +624,31 @@ def add_wish_fulfillment(
     model: cp_model.CpModel,
     shift: ShiftVar,
     req: SolveRequest,
+    w: Weights = Weights(),
 ) -> list[tuple[cp_model.IntVar, int]]:
     """Penalize unfulfilled wishes (higher weight for STRONG)."""
     terms: list[tuple[cp_model.IntVar, int]] = []
 
-    for w in req.wishes:
+    for wish in req.wishes:
         matching_vars: list[cp_model.IntVar] = []
         for p in req.shiftProfiles:
-            if w.shiftProfileId and p.id != w.shiftProfileId:
+            if wish.shiftProfileId and p.id != wish.shiftProfileId:
                 continue
-            if w.shiftType and p.shiftType != w.shiftType:
+            if wish.shiftType and p.shiftType != wish.shiftType:
                 continue
-            key = (w.employeeId, w.date, p.id)
+            key = (wish.employeeId, wish.date, p.id)
             if key in shift:
                 matching_vars.append(shift[key])
 
         if not matching_vars:
             continue
 
-        fulfilled = model.NewBoolVar(f"wish_{w.id}")
+        fulfilled = model.NewBoolVar(f"wish_{wish.id}")
         model.Add(sum(matching_vars) >= 1).OnlyEnforceIf(fulfilled)
         model.Add(sum(matching_vars) == 0).OnlyEnforceIf(fulfilled.Not())
 
-        weight = W_WISH_STRONG if w.priority == "STRONG" else W_WISH_NORMAL
-        miss = model.NewBoolVar(f"wish_miss_{w.id}")
+        weight = w.W_WISH_STRONG if wish.priority == "STRONG" else w.W_WISH_NORMAL
+        miss = model.NewBoolVar(f"wish_miss_{wish.id}")
         model.Add(miss == 1 - fulfilled)
         terms.append((miss, weight))
 
@@ -703,6 +659,7 @@ def add_fairness(
     model: cp_model.CpModel,
     shift: ShiftVar,
     req: SolveRequest,
+    w: Weights = Weights(),
 ) -> list[tuple[cp_model.IntVar, int]]:
     """Minimax: minimize the maximum absolute deviation across employees."""
     terms: list[tuple[cp_model.IntVar, int]] = []
@@ -742,7 +699,7 @@ def add_fairness(
     if dev_vars:
         max_dev = model.NewIntVar(0, 744 * SCALE, "max_dev")
         model.AddMaxEquality(max_dev, dev_vars)
-        terms.append((max_dev, W_FAIRNESS))
+        terms.append((max_dev, w.W_FAIRNESS))
 
     return terms
 
@@ -751,6 +708,7 @@ def add_preference_bonus(
     model: cp_model.CpModel,
     shift: ShiftVar,
     req: SolveRequest,
+    w: Weights = Weights(),
 ) -> list[tuple[cp_model.IntVar, int]]:
     """Small penalty for non-preferred shift types."""
     terms: list[tuple[cp_model.IntVar, int]] = []
@@ -766,7 +724,7 @@ def add_preference_bonus(
             for d in dates:
                 key = (emp.id, d.isoformat(), p.id)
                 if key in shift:
-                    terms.append((shift[key], W_PREFERENCE))
+                    terms.append((shift[key], w.W_PREFERENCE))
 
     return terms
 
@@ -778,6 +736,7 @@ def add_shift_distribution_soft(
     model: cp_model.CpModel,
     shift: ShiftVar,
     req: SolveRequest,
+    w: Weights = Weights(),
 ) -> list[tuple[cp_model.IntVar, int]]:
     """Penalize deviation from employee's preferred shift profile distribution."""
     terms: list[tuple[cp_model.IntVar, int]] = []
@@ -821,7 +780,7 @@ def add_shift_distribution_soft(
             dev = model.NewIntVar(0, len(profile_vars), f"dist_dev_{emp.id}_{profile_id}")
             model.Add(dev >= actual - target_count)
             model.Add(dev >= target_count - actual)
-            terms.append((dev, W_DISTRIBUTION))
+            terms.append((dev, w.W_DISTRIBUTION))
 
     return terms
 
@@ -837,6 +796,7 @@ def add_consecutive_days_boundary_soft(
     model: cp_model.CpModel,
     works_day: WorksDay,
     req: SolveRequest,
+    w: Weights = Weights(),
 ) -> list[tuple[cp_model.IntVar, int]]:
     """Soft penalty for cross-month consecutive day streaks exceeding maxConsecutiveDays.
 
@@ -892,7 +852,7 @@ def add_consecutive_days_boundary_soft(
             key = (emp.id, ds)
             if key in works_day:
                 # Higher penalty for days that definitively break the limit
-                terms.append((works_day[key], W_CONSEC_DAYS_BOUNDARY))
+                terms.append((works_day[key], w.W_CONSEC_DAYS_BOUNDARY))
 
     return terms
 
@@ -901,6 +861,7 @@ def add_rest_after_streak_boundary_soft(
     model: cp_model.CpModel,
     works_day: WorksDay,
     req: SolveRequest,
+    w: Weights = Weights(),
 ) -> list[tuple[cp_model.IntVar, int]]:
     """Soft penalty for missing rest days after a 6+ day streak that spans
     the month boundary.
@@ -948,7 +909,7 @@ def add_rest_after_streak_boundary_soft(
             ds = dates[i].isoformat()
             key = (emp.id, ds)
             if key in works_day:
-                terms.append((works_day[key], W_REST_AFTER_6_BOUNDARY))
+                terms.append((works_day[key], w.W_REST_AFTER_6_BOUNDARY))
 
     return terms
 
@@ -957,6 +918,7 @@ def add_alternating_weekends_boundary_soft(
     model: cp_model.CpModel,
     works_day: WorksDay,
     req: SolveRequest,
+    w: Weights = Weights(),
 ) -> list[tuple[cp_model.IntVar, int]]:
     """Soft penalty for employees who worked the previous month's last weekend
     and are also scheduled on the first weekend of the current period.
@@ -1017,6 +979,6 @@ def add_alternating_weekends_boundary_soft(
         for ds in first_weekend_days:
             key = (emp.id, ds)
             if key in works_day:
-                terms.append((works_day[key], W_WEEKEND_BOUNDARY))
+                terms.append((works_day[key], w.W_WEEKEND_BOUNDARY))
 
     return terms

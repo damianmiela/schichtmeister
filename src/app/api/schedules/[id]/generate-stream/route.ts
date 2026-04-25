@@ -21,6 +21,7 @@ import {
   logGenerationComplete,
   logGenerationError,
 } from "@/lib/logging/generationLogger";
+import { parseStoredWeights } from "@/lib/solver/weights";
 
 type RouteCtx = { params: Promise<{ id: string }> };
 
@@ -250,6 +251,7 @@ export async function POST(request: Request, context: RouteCtx) {
       miniJobMaxMonthlyHours: true,
       maxSolveTimeSeconds: true,
       ruleOverridesJson: true,
+      solverWeightsJson: true,
     },
   });
 
@@ -298,6 +300,13 @@ export async function POST(request: Request, context: RouteCtx) {
   // Allow client to override solve time limit per generation
   if (clientMaxSolveTime != null) {
     payload.maxSolveTimeSeconds = clientMaxSolveTime;
+  }
+
+  // Inject facility-level solver weight overrides (set in admin-tools).
+  // Empty / null = solver uses factory defaults from solver/config.py.
+  const facilityWeights = parseStoredWeights(facility.solverWeightsJson);
+  if (Object.keys(facilityWeights).length > 0) {
+    payload.weights = facilityWeights;
   }
 
   // ── System log: generation start ──
