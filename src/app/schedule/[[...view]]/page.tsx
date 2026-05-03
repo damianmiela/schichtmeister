@@ -3147,60 +3147,22 @@ export default function SchedulePage() {
         </DialogActions>
       </Dialog>
 
-      {/* Warnings sidebar */}
-      <Drawer
-        anchor="right"
+      {/* Warnings sidebar (severity-tiered) */}
+      <WarningsDrawer
         open={warningsOpen}
         onClose={() => setWarningsOpen(false)}
-        variant="temporary"
-        PaperProps={{
-          sx: { width: { xs: "100%", sm: 380 }, p: 0 },
-        }}
-      >
-        <Box
-          sx={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            px: 2,
-            py: 1.5,
-            borderBottom: "1px solid",
-            borderColor: "divider",
-          }}
-        >
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            <WarningAmberIcon color="warning" />
-            <Typography variant="h6" sx={{ fontSize: "1rem" }}>
-              {viewState.type === "employee" && viewState.employeeId && employeesById[viewState.employeeId]
-                ? `Warnungen — ${employeesById[viewState.employeeId].firstName} ${employeesById[viewState.employeeId].lastName}`
-                : "Warnungen"}
-            </Typography>
-          </Box>
-          <IconButton size="small" onClick={() => setWarningsOpen(false)}>
-            <CloseIcon fontSize="small" />
-          </IconButton>
-        </Box>
-        <Divider />
-        <Box sx={{ p: 2, overflow: "auto", flex: 1 }}>
-          {displayWarnings.length === 0 ? (
-            <Typography variant="body2" color="text.secondary">
-              {viewState.type === "employee"
-                ? "Keine Warnungen für diesen Mitarbeiter."
-                : "Keine Warnungen für diesen Monat."}
-            </Typography>
-          ) : (
-            displayWarnings.map((w, i) => (
-              <Alert
-                key={i}
-                severity="warning"
-                sx={{ mb: 1, fontSize: "0.8rem", "& .MuiAlert-message": { py: 0.5 } }}
-              >
-                {w}
-              </Alert>
-            ))
-          )}
-        </Box>
-      </Drawer>
+        title={
+          viewState.type === "employee" && viewState.employeeId && employeesById[viewState.employeeId]
+            ? `Warnungen — ${employeesById[viewState.employeeId].firstName} ${employeesById[viewState.employeeId].lastName}`
+            : "Warnungen"
+        }
+        emptyText={
+          viewState.type === "employee"
+            ? "Keine Warnungen für diesen Mitarbeiter."
+            : "Keine Warnungen für diesen Monat."
+        }
+        warnings={displayWarnings}
+      />
 
       {/* Versions sidebar */}
       <Drawer
