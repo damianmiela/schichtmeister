@@ -319,15 +319,61 @@ function renderGroup(
   );
 }
 
+/**
+ * A single bullet line parsed from an aggregated multi-employee/multi-station
+ * warning. Format expected: "• <label>: <stats> — <dates>" (the em-dash and
+ * stats are optional). The drawer renders these as structured mini-rows
+ * instead of plain pre-line text so dense lists stay scannable.
+ */
+type BulletEntry = {
+  label: string;
+  stats?: string;
+  dates?: string;
+};
+
+function parseBulletLine(line: string): BulletEntry | null {
+  if (!line.startsWith("•")) return null;
+  const rest = line.slice(1).trim(); // drop the • and surrounding space
+  if (!rest) return null;
+
+  // Split off " — <dates>" if present.
+  const emDashIdx = rest.indexOf(" — ");
+  const beforeDash = emDashIdx >= 0 ? rest.slice(0, emDashIdx) : rest;
+  const dates = emDashIdx >= 0 ? rest.slice(emDashIdx + 3).trim() : undefined;
+
+  // Split off "<label>: <stats>" if a colon is present in the head.
+  const colonIdx = beforeDash.indexOf(":");
+  if (colonIdx >= 0) {
+    return {
+      label: beforeDash.slice(0, colonIdx).trim(),
+      stats: beforeDash.slice(colonIdx + 1).trim() || undefined,
+      dates,
+    };
+  }
+  return { label: beforeDash, dates };
+}
+
 function WarningCard({ sev, text }: { sev: WarningSeverity; text: string }) {
   const tokens = SEVERITY_TOKENS[sev];
   // Multi-line aggregations use "\n" between header and bullet entries.
-  // Render the first line bold and the rest as a smaller body block so the
-  // hierarchy is visible without extra UI.
   const newlineIdx = text.indexOf("\n");
   const hasMultiline = newlineIdx >= 0;
   const head = hasMultiline ? text.slice(0, newlineIdx) : text;
   const body = hasMultiline ? text.slice(newlineIdx + 1) : "";
+
+  // Try to parse the body as a list of "• ..." bullets. If every non-empty
+  // line is a bullet, we render a structured layout; otherwise we fall back
+  // to the original whiteSpace: "pre-line" rendering.
+  const bulletEntries: BulletEntry[] = [];
+  let allBullets = false;
+  if (hasMultiline) {
+    const lines = body.split("\n").map((l) => l.trim()).filter(Boolean);
+    const parsed = lines.map(parseBulletLine);
+    if (lines.length > 0 && parsed.every((e) => e !== null)) {
+      allBullets = true;
+      for (const e of parsed) bulletEntries.push(e!);
+    }
+  }
 
   return (
     <Box
@@ -356,7 +402,23 @@ function WarningCard({ sev, text }: { sev: WarningSeverity; text: string }) {
         >
           {head}
         </Typography>
-        {hasMultiline && (
+
+        {hasMultiline && allBullets && (
+          <Box
+            sx={{
+              mt: 0.6,
+              display: "flex",
+              flexDirection: "column",
+              gap: 0.6,
+            }}
+          >
+            {bulletEntries.map((e, i) => (
+              <BulletRow key={i} sev={sev} entry={e} />
+            ))}
+          </Box>
+        )}
+
+        {hasMultiline && !allBullets && (
           <Typography
             variant="body2"
             component="div"
@@ -373,6 +435,108 @@ function WarningCard({ sev, text }: { sev: WarningSeverity; text: string }) {
           </Typography>
         )}
       </Box>
+    </Box>
+  );
+}
+
+/**
+ * One row inside an aggregated card. Layout:
+ *
+ *   ┌─────────────────────────────────────────────────────┐
+ *   │  Name                              [stats badge]    │
+ *   │  09.05. (Sa+So) · 16.05. (Sa) · 23.05. …            │
+ *   └─────────────────────────────────────────────────────┘
+ *
+ * The stats badge is omitted when there is no stats text. The dates row is
+ * omitted when there are no dates.
+ */
+function BulletRow({ sev, entry }: { sev: WarningSeverity; entry: BulletEntry }) {
+  const tokens = SEVERITY_TOKENS[sev];
+  // Render each comma-separated date as its own pill so a long list still
+  // wraps cleanly across the card width.
+  const dateChunks = entry.dates
+    ? entry.dates.split(",").map((c) => c.trim()).filter(Boolean)
+    : [];
+
+  return (
+    <Box
+      sx={{
+        // A subtle inset stripe so each entry is visually separated without
+        // looking too boxy inside an already-tinted card.
+        pl: 0.75,
+        borderLeft: `2px solid ${alpha(tokens.main, 0.35)}`,
+      }}
+    >
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "baseline",
+          justifyContent: "space-between",
+          gap: 1,
+        }}
+      >
+        <Typography
+          component="span"
+          sx={{
+            fontSize: "0.74rem",
+            fontWeight: 600,
+            color: "text.primary",
+            lineHeight: 1.3,
+            wordBreak: "break-word",
+          }}
+        >
+          {entry.label}
+        </Typography>
+        {entry.stats && (
+          <Typography
+            component="span"
+            sx={{
+              flexShrink: 0,
+              fontSize: "0.68rem",
+              fontWeight: 600,
+              color: tokens.main,
+              bgcolor: alpha(tokens.main, 0.1),
+              border: `1px solid ${alpha(tokens.main, 0.25)}`,
+              borderRadius: "10px",
+              px: 0.75,
+              py: "1px",
+              lineHeight: 1.3,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {entry.stats}
+          </Typography>
+        )}
+      </Box>
+      {dateChunks.length > 0 && (
+        <Box
+          sx={{
+            mt: 0.25,
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 0.4,
+          }}
+        >
+          {dateChunks.map((d, i) => (
+            <Typography
+              key={i}
+              component="span"
+              sx={{
+                fontSize: "0.68rem",
+                lineHeight: 1.3,
+                color: "text.secondary",
+                bgcolor: "rgba(0,0,0,0.04)",
+                borderRadius: "6px",
+                px: 0.6,
+                py: "1px",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {d}
+            </Typography>
+          ))}
+        </Box>
+      )}
     </Box>
   );
 }
