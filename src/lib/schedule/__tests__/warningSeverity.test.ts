@@ -107,3 +107,33 @@ describe("severityForCode", () => {
     expect(severityForCode("UNKNOWN_RULE_NEW")).toBe("yellow");
   });
 });
+
+
+describe("classifier covers every aggregated card header", () => {
+  // If formatRuleViolations.ts changes an aggregated header, this test catches
+  // the regression where the new header no longer matches the classifier.
+  const cases: Array<{ message: string; severity: "red" | "yellow" | "green" }> = [
+    // Kritisch — empty slot / data conflict
+    { message: "Unterbesetzung: 2 Schichten, 4 Tag(e) gesamt:",                              severity: "red" },
+    { message: "Unterbesetzung Frühdienst Station 1: 1 Tag(e) unterbesetzt — 07.05.",        severity: "red" },
+    { message: 'Fehlende Qualifikation: 2 Stellen, 2 Tag(e) gesamt:',                        severity: "red" },
+    { message: 'Qualifikation "PFK" fehlt — Spätdienst Station 1: 1 Tag(e) betroffen — 07.05.', severity: "red" },
+    { message: "Schichtüberlappung: 3 Mitarbeiter mit überlappenden Schichten:",             severity: "red" },
+    { message: "Abwesenheitskonflikt: 2 Mitarbeiter mit Schichten trotz Abwesenheit:",       severity: "red" },
+    { message: "Fehlende Schichtprofile: 1 Zuweisung(en) ohne gültiges Schichtprofil.",      severity: "red" },
+
+    // Regelverstoss — legal/contractual
+    { message: "Soll-Stunden: 6 Mitarbeiter außerhalb des Sollbereichs:",                    severity: "yellow" },
+    { message: "Max. Arbeitstage: 3 Mitarbeiter über dem Limit:",                            severity: "yellow" },
+    { message: "Ruhezeit: 2 Mitarbeiter unter Mindestruhezeit (mind. 10h):",                 severity: "yellow" },
+    { message: "Wochenendregelung: 21 Mitarbeiter arbeiten an aufeinanderfolgenden Wochenenden:", severity: "yellow" },
+
+    // Hinweise — informational
+    { message: "Abdeckungslücke 3 Stationen, 19 Tag(e) gesamt:",                             severity: "green" },
+  ];
+  for (const { message, severity } of cases) {
+    it(`classifies '${message.slice(0, 48)}…' as ${severity}`, () => {
+      expect(classifyWarning(message).severity).toBe(severity);
+    });
+  }
+});
