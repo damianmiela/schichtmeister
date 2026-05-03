@@ -9,6 +9,8 @@ import MonthTableView, { type CellEdit } from "@/components/schedule/MonthTableV
 import WeekView from "@/components/schedule/WeekView";
 import DayView from "@/components/schedule/DayView";
 import EmployeeView from "@/components/schedule/EmployeeView";
+import WarningsDrawer from "@/components/schedule/WarningsDrawer";
+import { highestSeverity, SEVERITY_TOKENS } from "@/lib/schedule/warningSeverity";
 import {
   Box,
   Button,
@@ -1575,6 +1577,13 @@ export default function SchedulePage() {
     ? employeeWarnings
     : (schedule?.warnings ?? []);
 
+  /* ── Severity-aware visuals (single source of truth: warningSeverity.ts) ── */
+  const warnSeverity = useMemo(
+    () => highestSeverity(displayWarnings),
+    [displayWarnings],
+  );
+  const warnIconColor = warnSeverity ? SEVERITY_TOKENS[warnSeverity].main : undefined;
+
   const addPreGenEntry = (type: "shift" | "frei" | "absence") => {
     const first = planningEmployees[0];
     if (!first || daysInMonth.length === 0) return;
@@ -2058,12 +2067,20 @@ export default function SchedulePage() {
                       py: 0.75,
                       borderRadius: "8px",
                       cursor: "pointer",
-                      color: "warning.main",
+                      color: warnIconColor ?? "warning.main",
                       transition: "background-color 0.15s",
                       "&:hover": { bgcolor: "action.hover" },
                     }}
                   >
-                    <Badge badgeContent={displayWarnings.length} color="warning">
+                    <Badge
+                      badgeContent={displayWarnings.length}
+                      sx={{
+                        "& .MuiBadge-badge": {
+                          bgcolor: warnIconColor ?? "warning.main",
+                          color: "#fff",
+                        },
+                      }}
+                    >
                       <WarningAmberIcon sx={{ fontSize: 20 }} />
                     </Badge>
                     <Typography sx={{ fontSize: "0.62rem", lineHeight: 1.2, color: "inherit" }}>

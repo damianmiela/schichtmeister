@@ -28,6 +28,7 @@ import { localIsoFromParts } from "@/lib/schedule/monthSchedule";
 import type { AssignmentJson, EmployeeJson, ShiftProfileJson, StaffingJson } from "@/lib/schedule/scheduleTypes";
 import QualificationPills from "@/components/schedule/QualificationPills";
 import { monthlyWorkingDaysWithHolidays, isWorkingDayIso } from "@/lib/holidays";
+import { highestSeverity, SEVERITY_TOKENS } from "@/lib/schedule/warningSeverity";
 import { formatHours } from "@/lib/schedule/viewUtils";
 
 /* ──────────────────────── exported type ──────────────────────── */
@@ -762,6 +763,8 @@ export default function MonthTableView({
                 const hName = holidayMap?.get(iso);
                 const dayWarnings = warningsByDay?.[iso];
                 const hasWarning = dayWarnings && dayWarnings.length > 0;
+                const daySev = hasWarning ? highestSeverity(dayWarnings) : undefined;
+                const dayWarnColor = daySev ? SEVERITY_TOKENS[daySev].main : "#ed6c02";
 
                 // Live staffing counters for this day + station section
                 let staffingLabel: React.ReactNode = null;
@@ -819,7 +822,7 @@ export default function MonthTableView({
                           display: "block",
                           mx: "auto",
                           fontSize: 14,
-                          color: "#ed6c02",
+                          color: dayWarnColor,
                           mt: "1px",
                         }}
                       />

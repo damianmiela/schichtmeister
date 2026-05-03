@@ -1,0 +1,346 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import {
+  Box,
+  Chip,
+  Collapse,
+  Divider,
+  Drawer,
+  IconButton,
+  Typography,
+  alpha,
+} from "@mui/material";
+import CloseIcon from "@mui/icons-material/Close";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import ExpandLessIcon from "@mui/icons-material/ExpandLess";
+import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
+import WarningAmberIcon from "@mui/icons-material/WarningAmber";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
+import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
+import {
+  countBySeverity,
+  groupWarningsBySeverity,
+  SEVERITY_LABEL,
+  SEVERITY_ORDER,
+  SEVERITY_TOKENS,
+  type WarningSeverity,
+  type ClassifiedWarning,
+} from "@/lib/schedule/warningSeverity";
+
+export interface WarningsDrawerProps {
+  open: boolean;
+  onClose: () => void;
+  /** Title for the drawer header. */
+  title: string;
+  /** Empty-state text shown when `warnings` is []. */
+  emptyText: string;
+  /** Already-formatted German warning strings (existing schedule.warnings). */
+  warnings: readonly string[];
+}
+
+const severityIcon = (s: WarningSeverity, fontSize = 18) => {
+  const sx = { fontSize, color: SEVERITY_TOKENS[s].main };
+  if (s === "red") return <ErrorOutlineIcon sx={sx} />;
+  if (s === "yellow") return <WarningAmberIcon sx={sx} />;
+  return <InfoOutlinedIcon sx={sx} />;
+};
+
+/**
+ * Active-filter state. `null` means "all severities visible".
+ * Set to a single severity to filter to just that one.
+ */
+type SeverityFilter = WarningSeverity | null;
+
+export default function WarningsDrawer({
+  open,
+  onClose,
+  title,
+  emptyText,
+  warnings,
+}: WarningsDrawerProps) {
+  const counts = useMemo(() => countBySeverity(warnings), [warnings]);
+  const grouped = useMemo(() => groupWarningsBySeverity(warnings), [warnings]);
+
+  const [filter, setFilter] = useState<SeverityFilter>(null);
+
+  // Per-section + per-group collapse state. Defaults: severity sections open,
+  // category groups open. Stored by composite key.
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const isCollapsed = (key: string) => collapsed.has(key);
+  const toggleCollapsed = (key: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
+  const total = counts.red + counts.yellow + counts.green;
+
+  return (
+    <Drawer
+      anchor="right"
+      open={open}
+      onClose={onClose}
+      variant="temporary"
+      PaperProps={{
+        sx: { width: { xs: "100%", sm: 420 }, p: 0, display: "flex", flexDirection: "column" },
+      }}
+    >
+      {/* Header */}
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          px: 2,
+          py: 1.5,
+          borderBottom: "1px solid",
+          borderColor: "divider",
+        }}
+      >
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <WarningAmberIcon sx={{ color: "text.secondary" }} />
+          <Typography variant="h6" sx={{ fontSize: "1rem" }}>
+            {title}
+          </Typography>
+        </Box>
+        <IconButton size="small" onClick={onClose}>
+          <CloseIcon fontSize="small" />
+        </IconButton>
+      </Box>
+
+      {/* Filter chips */}
+      {total > 0 && (
+        <>
+          <Box
+            sx={{
+              display: "flex",
+              gap: 0.75,
+              alignItems: "center",
+              px: 2,
+              py: 1,
+              flexWrap: "wrap",
+            }}
+          >
+            <SeverityChip
+              active={filter === null}
+              onClick={() => setFilter(null)}
+              label={`Alle ${total}`}
+              color={null}
+            />
+            {SEVERITY_ORDER.map((s) =>
+              counts[s] > 0 ? (
+                <SeverityChip
+                  key={s}
+                  active={filter === s}
+                  onClick={() => setFilter((prev) => (prev === s ? null : s))}
+                  label={`${SEVERITY_LABEL[s]} ${counts[s]}`}
+                  color={s}
+                />
+              ) : null,
+            )}
+          </Box>
+          <Divider />
+        </>
+      )}
+
+      {/* Body */}
+      <Box sx={{ p: 2, overflow: "auto", flex: 1 }}>
+        {total === 0 ? (
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 1,
+              p: 2,
+              borderRadius: 1,
+              bgcolor: (t) => alpha(t.palette.success.main, 0.08),
+              color: "success.dark",
+            }}
+          >
+            <CheckCircleOutlineIcon sx={{ color: "success.main" }} />
+            <Typography variant="body2">{emptyText}</Typography>
+          </Box>
+        ) : (
+          SEVERITY_ORDER.map((sev) => {
+            if (filter !== null && filter !== sev) return null;
+            const groups = grouped[sev];
+            if (groups.size === 0) return null;
+            const sectionKey = `sec:${sev}`;
+            const sectionOpen = !isCollapsed(sectionKey);
+            const tokens = SEVERITY_TOKENS[sev];
+            return (
+              <Box key={sev} sx={{ mb: 1.5 }}>
+                {/* Section header */}
+                <Box
+                  onClick={() => toggleCollapsed(sectionKey)}
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    cursor: "pointer",
+                    px: 1,
+                    py: 0.75,
+                    borderRadius: 1,
+                    bgcolor: tokens.bg,
+                    border: `1px solid ${tokens.border}`,
+                    "&:hover": { filter: "brightness(0.97)" },
+                  }}
+                >
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                    {severityIcon(sev, 18)}
+                    <Typography
+                      variant="subtitle2"
+                      sx={{ color: tokens.main, fontWeight: 700, fontSize: "0.85rem" }}
+                    >
+                      {SEVERITY_LABEL[sev]} ({counts[sev]})
+                    </Typography>
+                  </Box>
+                  {sectionOpen ? (
+                    <ExpandLessIcon sx={{ fontSize: 18, color: tokens.main }} />
+                  ) : (
+                    <ExpandMoreIcon sx={{ fontSize: 18, color: tokens.main }} />
+                  )}
+                </Box>
+
+                <Collapse in={sectionOpen} unmountOnExit>
+                  <Box sx={{ mt: 0.75, display: "flex", flexDirection: "column", gap: 0.5 }}>
+                    {[...groups.entries()].map(([groupKey, items]) =>
+                      renderGroup(sev, groupKey, items, isCollapsed, toggleCollapsed),
+                    )}
+                  </Box>
+                </Collapse>
+              </Box>
+            );
+          })
+        )}
+      </Box>
+    </Drawer>
+  );
+}
+
+/* ─────────────────────────── pieces ─────────────────────────── */
+
+function SeverityChip({
+  active,
+  onClick,
+  label,
+  color,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  color: WarningSeverity | null;
+}) {
+  const tokens = color ? SEVERITY_TOKENS[color] : null;
+  return (
+    <Chip
+      size="small"
+      label={label}
+      onClick={onClick}
+      sx={{
+        fontWeight: 700,
+        fontSize: "0.72rem",
+        height: 24,
+        cursor: "pointer",
+        ...(active
+          ? {
+              bgcolor: tokens?.main ?? "primary.main",
+              color: "#fff",
+              "&:hover": { bgcolor: tokens?.main ?? "primary.dark", filter: "brightness(0.95)" },
+            }
+          : {
+              bgcolor: tokens?.bg ?? "grey.100",
+              color: tokens?.main ?? "text.primary",
+              border: `1px solid ${tokens?.border ?? "rgba(0,0,0,0.12)"}`,
+              "&:hover": { bgcolor: tokens?.bg ?? "grey.200", filter: "brightness(0.97)" },
+            }),
+      }}
+    />
+  );
+}
+
+function renderGroup(
+  sev: WarningSeverity,
+  groupKey: string,
+  items: ClassifiedWarning[],
+  isCollapsed: (k: string) => boolean,
+  toggleCollapsed: (k: string) => void,
+) {
+  const tokens = SEVERITY_TOKENS[sev];
+  const composite = `grp:${sev}:${groupKey}`;
+  const open = !isCollapsed(composite);
+  // Single-item groups don't need a collapsible wrapper — render the message directly.
+  if (items.length === 1) {
+    return (
+      <WarningCard key={composite} sev={sev} text={items[0]!.message} />
+    );
+  }
+  const cat = items[0]!.category;
+  return (
+    <Box key={composite}>
+      <Box
+        onClick={() => toggleCollapsed(composite)}
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          cursor: "pointer",
+          px: 1,
+          py: 0.5,
+          borderRadius: 1,
+          bgcolor: alpha(tokens.main, 0.06),
+          border: `1px dashed ${tokens.border}`,
+          "&:hover": { bgcolor: alpha(tokens.main, 0.1) },
+        }}
+      >
+        <Typography
+          variant="caption"
+          sx={{ color: tokens.main, fontWeight: 700, fontSize: "0.72rem" }}
+        >
+          {cat} ({items.length})
+        </Typography>
+        {open ? (
+          <ExpandLessIcon sx={{ fontSize: 16, color: tokens.main }} />
+        ) : (
+          <ExpandMoreIcon sx={{ fontSize: 16, color: tokens.main }} />
+        )}
+      </Box>
+      <Collapse in={open} unmountOnExit>
+        <Box sx={{ mt: 0.5, ml: 1, display: "flex", flexDirection: "column", gap: 0.5 }}>
+          {items.map((it, i) => (
+            <WarningCard key={`${composite}:${i}`} sev={sev} text={it.message} />
+          ))}
+        </Box>
+      </Collapse>
+    </Box>
+  );
+}
+
+function WarningCard({ sev, text }: { sev: WarningSeverity; text: string }) {
+  const tokens = SEVERITY_TOKENS[sev];
+  return (
+    <Box
+      sx={{
+        display: "flex",
+        alignItems: "flex-start",
+        gap: 0.75,
+        bgcolor: tokens.bg,
+        border: `1px solid ${tokens.border}`,
+        borderRadius: 1,
+        px: 1,
+        py: 0.6,
+      }}
+    >
+      <Box sx={{ pt: "1px" }}>{severityIcon(sev, 16)}</Box>
+      <Typography
+        variant="body2"
+        sx={{ fontSize: "0.78rem", lineHeight: 1.35, color: "text.primary" }}
+      >
+        {text}
+      </Typography>
+    </Box>
+  );
+}

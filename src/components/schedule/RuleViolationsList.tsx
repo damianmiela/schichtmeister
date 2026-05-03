@@ -1,14 +1,24 @@
 "use client";
 
+import { useMemo } from "react";
 import {
   Box,
   Typography,
-  Alert,
   CircularProgress,
   alpha,
 } from "@mui/material";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
+import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
+import WarningAmberIcon from "@mui/icons-material/WarningAmber";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import type { RuleMessage } from "@/lib/planning/types";
+import {
+  SEVERITY_LABEL,
+  SEVERITY_ORDER,
+  SEVERITY_TOKENS,
+  severityForCode,
+  type WarningSeverity,
+} from "@/lib/schedule/warningSeverity";
 
 export interface RuleViolationsListProps {
   errors: RuleMessage[];
@@ -19,9 +29,11 @@ export interface RuleViolationsListProps {
 }
 
 /**
- * Reusable component that displays rule validation results.
- * Shows hard errors (red) and soft warnings (amber).
- * Designed to be used across different views in the app.
+ * Reusable component that displays rule validation results using the same
+ * 3-tier severity visuals as the main warnings drawer (red/yellow/green).
+ * `errors` and `warnings` are merged and re-classified by their RuleMessage.code,
+ * because the engine's hard/soft split doesn't always map to the user-facing
+ * severity (e.g. INSUFFICIENT_REST is hard but yellow; OVERSTAFFED is soft but green).
  */
 export default function RuleViolationsList({
   errors,
@@ -29,6 +41,13 @@ export default function RuleViolationsList({
   loading,
   compact,
 }: RuleViolationsListProps) {
+  const grouped = useMemo(() => {
+    const out: Record<WarningSeverity, RuleMessage[]> = { red: [], yellow: [], green: [] };
+    for (const m of errors)   out[severityForCode(m.code)].push(m);
+    for (const m of warnings) out[severityForCode(m.code)].push(m);
+    return out;
+  }, [errors, warnings]);
+
   if (loading) {
     return (
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, py: 2 }}>
@@ -40,9 +59,9 @@ export default function RuleViolationsList({
     );
   }
 
-  const hasViolations = errors.length > 0 || warnings.length > 0;
+  const total = grouped.red.length + grouped.yellow.length + grouped.green.length;
 
-  if (!hasViolations) {
+  if (total === 0) {
     return (
       <Box
         sx={{
@@ -63,35 +82,89 @@ export default function RuleViolationsList({
     );
   }
 
-  const py = compact ? 0 : 0.25;
-  const fontSize = compact ? 12 : undefined;
-
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
-      {errors.map((e, i) => (
-        <Alert
-          key={`err-${e.ruleId}-${i}`}
-          severity="error"
-          sx={{
-            py,
-            "& .MuiAlert-message": { fontSize },
-          }}
+    <Box sx={{ display: "flex", flexDirection: "column", gap: compact ? 0.75 : 1 }}>
+      {SEVERITY_ORDER.map((sev) => {
+        const items = grouped[sev];
+        if (items.length === 0) return null;
+        return (
+          <SeverityGroup key={sev} severity={sev} items={items} compact={!!compact} />
+        );
+      })}
+    </Box>
+  );
+}
+
+/* ─────────────────────────── pieces ─────────────────────────── */
+
+function severityIcon(s: WarningSeverity, fontSize: number) {
+  const sx = { fontSize, color: SEVERITY_TOKENS[s].main };
+  if (s === "red") return <ErrorOutlineIcon sx={sx} />;
+  if (s === "yellow") return <WarningAmberIcon sx={sx} />;
+  return <InfoOutlinedIcon sx={sx} />;
+}
+
+function SeverityGroup({
+  severity,
+  items,
+  compact,
+}: {
+  severity: WarningSeverity;
+  items: RuleMessage[];
+  compact: boolean;
+}) {
+  const tokens = SEVERITY_TOKENS[severity];
+  const fontSize = compact ? 11.5 : 12.5;
+  return (
+    <Box>
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          gap: 0.75,
+          mb: 0.5,
+        }}
+      >
+        {severityIcon(severity, compact ? 14 : 16)}
+        <Typography
+          variant="caption"
+          sx={{ color: tokens.main, fontWeight: 700, fontSize: compact ? 11 : 12 }}
         >
-          {e.message}
-        </Alert>
-      ))}
-      {warnings.map((w, i) => (
-        <Alert
-          key={`warn-${w.ruleId}-${i}`}
-          severity="warning"
-          sx={{
-            py,
-            "& .MuiAlert-message": { fontSize },
-          }}
-        >
-          {w.message}
-        </Alert>
-      ))}
+          {SEVERITY_LABEL[severity]} ({items.length})
+        </Typography>
+      </Box>
+      <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
+        {items.map((m, i) => (
+          <Box
+            key={`${m.ruleId}-${i}`}
+            sx={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 0.75,
+              bgcolor: tokens.bg,
+              border: `1px solid ${tokens.border}`,
+              borderRadius: 1,
+              px: 1,
+              py: 0.5,
+            }}
+          >
+            <Box sx={{ pt: "1px", flexShrink: 0 }}>
+              {severityIcon(severity, compact ? 13 : 14)}
+            </Box>
+            <Typography
+              variant="body2"
+              sx={{
+                fontSize,
+                lineHeight: 1.35,
+                color: "text.primary",
+                wordBreak: "break-word",
+              }}
+            >
+              {m.message}
+            </Typography>
+          </Box>
+        ))}
+      </Box>
     </Box>
   );
 }
