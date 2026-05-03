@@ -111,13 +111,15 @@ async function loadBoundaryAssignments(
     },
   });
 
-  return rows.map((a: { id: string; date: Date; shiftProfileId: string; employeeId: string; stationNumber: number | null }) => ({
-    id: a.id,
-    date: a.date,
-    shiftProfileId: a.shiftProfileId,
-    employeeId: a.employeeId,
-    ...(a.stationNumber != null && a.stationNumber >= 1 && a.stationNumber <= 3 && { stationNumber: a.stationNumber }),
-  } as AssignmentInput));
+  return rows
+    .filter((a: { shiftProfileId: string | null }) => a.shiftProfileId != null)
+    .map((a: { id: string; date: Date; shiftProfileId: string | null; employeeId: string; stationNumber: number | null }) => ({
+      id: a.id,
+      date: a.date,
+      shiftProfileId: a.shiftProfileId as string,
+      employeeId: a.employeeId,
+      ...(a.stationNumber != null && a.stationNumber >= 1 && a.stationNumber <= 3 && { stationNumber: a.stationNumber }),
+    } as AssignmentInput));
 }
 
 export async function validateScheduleAssignments(

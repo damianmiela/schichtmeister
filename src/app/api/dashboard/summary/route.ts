@@ -86,7 +86,7 @@ export async function GET() {
         employee: { select: { firstName: true, lastName: true, assignedStations: true } },
       },
     }) as unknown as Promise<Array<{
-      id: string; scheduleId: string; date: Date; shiftProfileId: string;
+      id: string; scheduleId: string; date: Date; shiftProfileId: string | null;
       employeeId: string; stationNumber: number | null; dayStatus: string | null;
       shiftProfile: { shiftType: string; name: string };
       employee: { firstName: string; lastName: string; mainStation: number | null; assignedStations: number[] };
@@ -167,7 +167,7 @@ export async function GET() {
   const todayStations: StationData[] = stationNumbers.map((st) => {
     const shifts: StationShift[] = shiftOrder.map((shiftType) => {
       const matching = todayAssignments.filter((a) => {
-        if (a.shiftProfile.shiftType !== shiftType) return false;
+        if (a.shiftProfile?.shiftType !== shiftType) return false;
         const aStation = a.stationNumber ?? a.employee.mainStation ?? (a.employee.assignedStations?.length === 1 ? a.employee.assignedStations[0] : null);
         if (shiftType === "NIGHT") return true; // night is facility-wide, counted separately
         return aStation === st;
@@ -203,7 +203,7 @@ export async function GET() {
   });
 
   // Night shifts (facility-wide)
-  const nightAssignments = todayAssignments.filter((a) => a.shiftProfile.shiftType === "NIGHT");
+  const nightAssignments = todayAssignments.filter((a) => a.shiftProfile?.shiftType === "NIGHT");
   const todayNight = {
     shiftType: "NIGHT",
     shiftTypeLabel: shiftTypeLabel("NIGHT"),
@@ -252,12 +252,12 @@ export async function GET() {
 
     for (const st of stationNumbers) {
       const early = dayAssignments.filter((a) => {
-        if (a.shiftProfile.shiftType !== "EARLY") return false;
+        if (a.shiftProfile?.shiftType !== "EARLY") return false;
         const aStation = a.stationNumber ?? a.employee.mainStation ?? (a.employee.assignedStations?.length === 1 ? a.employee.assignedStations[0] : null);
         return aStation === st;
       }).length;
       const late = dayAssignments.filter((a) => {
-        if (a.shiftProfile.shiftType !== "LATE") return false;
+        if (a.shiftProfile?.shiftType !== "LATE") return false;
         const aStation = a.stationNumber ?? a.employee.mainStation ?? (a.employee.assignedStations?.length === 1 ? a.employee.assignedStations[0] : null);
         return aStation === st;
       }).length;
@@ -266,7 +266,7 @@ export async function GET() {
       dayTotalReq += (reqMap.get(`EARLY|${st}`) ?? 0) + (reqMap.get(`LATE|${st}`) ?? 0);
     }
 
-    nightCount = dayAssignments.filter((a) => a.shiftProfile.shiftType === "NIGHT").length;
+    nightCount = dayAssignments.filter((a) => a.shiftProfile?.shiftType === "NIGHT").length;
     dayTotalReq += nightRequired;
 
     const wd = d.toLocaleDateString("de-DE", { weekday: "short", timeZone: "UTC" });

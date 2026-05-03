@@ -43,7 +43,8 @@ export function assignmentAuditSnapshot(a: {
   id: string;
   scheduleId: string;
   date: Date;
-  shiftProfileId: string;
+  /** Nullable since the Assignment row may be a pure absence marker. */
+  shiftProfileId: string | null;
   employeeId: string;
 }) {
   return {

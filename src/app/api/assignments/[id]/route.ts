@@ -25,7 +25,7 @@ function serializeAssignment(a: {
   id: string;
   scheduleId: string;
   date: Date;
-  shiftProfileId: string;
+  shiftProfileId: string | null;
   employeeId: string;
   createdAt: Date;
   updatedAt: Date;

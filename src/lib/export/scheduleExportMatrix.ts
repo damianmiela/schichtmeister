@@ -91,7 +91,7 @@ export function plannedHoursByEmployee(
 ): Map<string, number> {
   const hours = new Map<string, number>();
   for (const a of assignments) {
-    if (a.dayStatus) continue;
+    if (a.dayStatus || !a.shiftProfile) continue;
     hours.set(a.employeeId, (hours.get(a.employeeId) ?? 0) + paidHoursForShift(a.shiftProfile));
   }
   return hours;
@@ -138,7 +138,7 @@ export function getNightEmployees(
 ): Employee[] {
   const nightIds = new Set<string>();
   for (const a of assignments) {
-    if (a.shiftProfile.shiftType === "NIGHT") nightIds.add(a.employeeId);
+    if (a.shiftProfile?.shiftType === "NIGHT") nightIds.add(a.employeeId);
   }
   return employees.filter((e) => nightIds.has(e.id));
 }
@@ -151,7 +151,7 @@ export function exportMatrixCellText(
     return EMP_STATUS_MAP[emp.status]!;
   }
   if (!assignment) return "X";
-  const primary = assignment.dayStatus ? assignment.dayStatus : assignment.shiftProfile.name;
+  const primary = assignment.dayStatus ? assignment.dayStatus : (assignment.shiftProfile?.name ?? "");
   const mark = [assignment.markingRow2, assignment.markingRow3].filter(Boolean);
   if (mark.length) return `${primary} (${mark.join(", ")})`;
   return primary;

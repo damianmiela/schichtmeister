@@ -142,6 +142,7 @@ export async function POST(request: NextRequest, context: RouteCtx) {
     if (a.dayStatus) {
       dayStatusRows.push({ employeeId: a.employeeId, date: a.date, dayStatus: a.dayStatus });
     } else {
+      if (!a.shiftProfileId) continue; // skip pure absence rows
       assignmentInputs.push({
         id: a.id,
         date: a.date,

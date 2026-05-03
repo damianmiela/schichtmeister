@@ -94,6 +94,7 @@ export async function buildEmployeePdfBuffer(bundle: ExportBundle): Promise<Buff
   // Profiles map
   const profilesById: Record<string, ShiftProfile> = {};
   for (const a of assignments) {
+    if (!a.shiftProfileId || !a.shiftProfile) continue; // pure absence row
     if (!profilesById[a.shiftProfileId]) profilesById[a.shiftProfileId] = a.shiftProfile;
   }
 
@@ -167,7 +168,7 @@ export async function buildEmployeePdfBuffer(bundle: ExportBundle): Promise<Buff
       if (a) {
         if (a.dayStatus && ABSENCE_CODES.has(a.dayStatus) && isWorkingDayIso(iso)) {
           absWorkDays++;
-        } else if (!a.dayStatus) {
+        } else if (!a.dayStatus && a.shiftProfile) {
           basePlanned += paidHoursForShift(a.shiftProfile);
         }
       }

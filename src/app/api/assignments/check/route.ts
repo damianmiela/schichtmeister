@@ -127,12 +127,14 @@ export async function POST(request: NextRequest) {
   }
 
   const assignments: AssignmentInput[] = [
-    ...rawAssignments.map((a) => ({
-      id: a.id,
-      date: a.date,
-      shiftProfileId: a.shiftProfileId,
-      employeeId: a.employeeId,
-    })),
+    ...rawAssignments
+      .filter((a) => a.shiftProfileId != null)
+      .map((a) => ({
+        id: a.id,
+        date: a.date,
+        shiftProfileId: a.shiftProfileId as string,
+        employeeId: a.employeeId,
+      })),
     // Add the proposed assignment
     {
       id: "__proposed__",

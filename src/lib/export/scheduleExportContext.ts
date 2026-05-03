@@ -3,7 +3,8 @@ import { prisma } from "@/lib/db/prisma";
 
 export type AssignmentWithRelations = Assignment & {
   employee: Employee;
-  shiftProfile: ShiftProfile;
+  /** Null for pure absence rows (dayStatus K/U/... without a shift profile). */
+  shiftProfile: ShiftProfile | null;
 };
 
 export type ExportQualification = {

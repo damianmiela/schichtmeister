@@ -165,6 +165,7 @@ export async function GET(_request: Request, context: RouteCtx) {
         where: { scheduleId: prevSchedule.id, date: { gte: cutoff, lt: schedule.periodStart }, dayStatus: null },
       });
       for (const a of prevRows) {
+        if (!a.shiftProfileId) continue; // skip pure absence rows
         previousAssignments.push({
           employeeId: a.employeeId,
           date: toIsoDateOnly(a.date),
@@ -253,9 +254,9 @@ export async function GET(_request: Request, context: RouteCtx) {
     employeeId: a.employeeId,
     employeeName: employeeNames[a.employeeId] ?? "?",
     date: toIsoDateOnly(a.date),
-    shiftProfileId: a.shiftProfileId,
-    shiftProfileName: profileNames[a.shiftProfileId] ?? "?",
-    shiftType: profileShiftTypes[a.shiftProfileId] ?? "?",
+    shiftProfileId: a.shiftProfileId ?? "",
+    shiftProfileName: a.shiftProfileId ? (profileNames[a.shiftProfileId] ?? "?") : "(absence)",
+    shiftType: a.shiftProfileId ? (profileShiftTypes[a.shiftProfileId] ?? "?") : "ABSENCE",
     stationNumber: a.stationNumber,
   }));
 

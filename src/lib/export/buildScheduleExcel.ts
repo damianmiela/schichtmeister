@@ -49,14 +49,14 @@ export async function buildScheduleExcelBuffer(
       date: toIsoDateOnly(a.date),
       ln: a.employee.lastName,
       fn: a.employee.firstName,
-      profile: a.shiftProfile.name,
+      profile: a.shiftProfile?.name ?? "",
       dayStatus: a.dayStatus ?? "",
       m2: a.markingRow2 ?? "",
       m3: a.markingRow3 ?? "",
       station: a.stationNumber ?? "",
-      type: shiftTypeLabel(a.shiftProfile.shiftType),
-      from: a.shiftProfile.startTime,
-      to: a.shiftProfile.endTime,
+      type: a.shiftProfile ? shiftTypeLabel(a.shiftProfile.shiftType) : "",
+      from: a.shiftProfile?.startTime ?? "",
+      to: a.shiftProfile?.endTime ?? "",
     });
   }
 

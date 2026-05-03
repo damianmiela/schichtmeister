@@ -33,7 +33,7 @@ export async function POST(_request: Request, context: RouteCtx) {
   // Parse the stored assignments
   let storedAssignments: Array<{
     date: string;
-    shiftProfileId: string;
+    shiftProfileId: string | null;
     employeeId: string;
     createdByUserId: string;
     stationNumber: number | null;

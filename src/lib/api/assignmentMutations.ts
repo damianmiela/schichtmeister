@@ -11,13 +11,17 @@ export type AssignmentOpFailure =
   | { kind: "rules"; result: PlanningValidationResult };
 
 function toInputs(rows: Assignment[]): AssignmentInput[] {
-  return rows.map((a) => ({
-    id: a.id,
-    date: a.date,
-    shiftProfileId: a.shiftProfileId,
-    employeeId: a.employeeId,
-    ...(a.stationNumber != null && a.stationNumber >= 1 && a.stationNumber <= 3 && { stationNumber: a.stationNumber }),
-  } as AssignmentInput));
+  // Pure absence rows (shiftProfileId === null) are not part of the planning
+  // engine's input domain — skip them so the engine only sees real shifts.
+  return rows
+    .filter((a) => a.shiftProfileId != null)
+    .map((a) => ({
+      id: a.id,
+      date: a.date,
+      shiftProfileId: a.shiftProfileId as string,
+      employeeId: a.employeeId,
+      ...(a.stationNumber != null && a.stationNumber >= 1 && a.stationNumber <= 3 && { stationNumber: a.stationNumber }),
+    } as AssignmentInput));
 }
 
 /** Load a schedule for the facility. */
@@ -139,22 +143,25 @@ export async function validatePatchedAssignmentInTx(
       failure: { kind: "http", status: 404, error: "Zuweisung nicht gefunden." },
     };
   }
-  const proposed = existing.map((a) =>
-    a.id === assignmentId
-      ? {
-          id: a.id,
-          date: patch.date ?? a.date,
-          shiftProfileId: patch.shiftProfileId ?? a.shiftProfileId,
-          employeeId: patch.employeeId ?? a.employeeId,
-          ...(a.stationNumber != null && a.stationNumber >= 1 && a.stationNumber <= 3 && { stationNumber: a.stationNumber }),
-        }
-      : {
-          id: a.id,
-          date: a.date,
-          shiftProfileId: a.shiftProfileId,
-          employeeId: a.employeeId,
-          ...(a.stationNumber != null && a.stationNumber >= 1 && a.stationNumber <= 3 && { stationNumber: a.stationNumber }),
-        },
-  ) as AssignmentInput[];
+  const proposed = existing
+    // Drop pure absence rows — engine input requires a shift profile.
+    .filter((a) => a.id === assignmentId || a.shiftProfileId != null)
+    .map((a) =>
+      a.id === assignmentId
+        ? {
+            id: a.id,
+            date: patch.date ?? a.date,
+            shiftProfileId: patch.shiftProfileId ?? a.shiftProfileId,
+            employeeId: patch.employeeId ?? a.employeeId,
+            ...(a.stationNumber != null && a.stationNumber >= 1 && a.stationNumber <= 3 && { stationNumber: a.stationNumber }),
+          }
+        : {
+            id: a.id,
+            date: a.date,
+            shiftProfileId: a.shiftProfileId,
+            employeeId: a.employeeId,
+            ...(a.stationNumber != null && a.stationNumber >= 1 && a.stationNumber <= 3 && { stationNumber: a.stationNumber }),
+          },
+    ) as AssignmentInput[];
   return runPlanningValidation(tx, facilityId, schedule, proposed);
 }

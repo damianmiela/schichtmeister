@@ -176,7 +176,8 @@ export async function buildSchedulePdfBuffer(
   const nonNightAssignedIds = new Set<string>();
   for (const a of assignments) {
     assignedIds.add(a.employeeId);
-    if (a.shiftProfile.shiftType !== "NIGHT") {
+    // Pure absence rows (no shift profile) don't contribute to night/non-night categorisation.
+    if (a.shiftProfile && a.shiftProfile.shiftType !== "NIGHT") {
       nonNightAssignedIds.add(a.employeeId);
     }
   }
@@ -439,7 +440,7 @@ export async function buildSchedulePdfBuffer(
       const isWe = weekendSet.has(iso);
       const isHol = hMap.has(iso);
       const a = byEmpDay.get(`${emp.id}|${iso}`);
-      const isNightShift = a?.shiftProfile.shiftType === "NIGHT";
+      const isNightShift = a?.shiftProfile?.shiftType === "NIGHT";
 
       // Determine whether to show the assignment in this section.
       // - Night section: only show NIGHT shifts (and status dayStatus on any cell? keep status visible for sick/vacation info)
@@ -493,7 +494,7 @@ export async function buildSchedulePdfBuffer(
         }
 
         // Row 1: shift name or status
-        const row1 = status ?? a.shiftProfile.name;
+        const row1 = status ?? a.shiftProfile?.name ?? "";
         doc.fontSize(5).font(status ? "Helvetica-Bold" : "Helvetica").fillColor(textColor);
 
         if (badgeKind === "night") {

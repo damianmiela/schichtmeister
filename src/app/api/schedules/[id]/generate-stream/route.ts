@@ -301,6 +301,7 @@ export async function POST(request: Request, context: RouteCtx) {
       });
       console.log("[generate-stream] boundary assignments loaded:", prevRows.length);
       for (const a of prevRows) {
+        if (!a.shiftProfileId) continue; // skip pure absence rows
         previousAssignments.push({
           employeeId: a.employeeId,
           date: toIsoDateOnly(a.date),
@@ -802,12 +803,15 @@ export async function POST(request: Request, context: RouteCtx) {
           orderBy: [{ date: "asc" }, { id: "asc" }],
         });
 
-        const assignmentInputs: AssignmentInput[] = rows.map((a) => ({
-          id: a.id,
-          date: a.date,
-          shiftProfileId: a.shiftProfileId,
-          employeeId: a.employeeId,
-        }));
+        // Pure absence rows are not part of the planning input.
+        const assignmentInputs: AssignmentInput[] = rows
+          .filter((a) => a.shiftProfileId != null)
+          .map((a) => ({
+            id: a.id,
+            date: a.date,
+            shiftProfileId: a.shiftProfileId as string,
+            employeeId: a.employeeId,
+          }));
 
         let ruleWarnings: string[] = [];
         const v = await validateScheduleAssignments(
@@ -872,11 +876,12 @@ export async function POST(request: Request, context: RouteCtx) {
           ].map(([key, entry]) => ({ key, ...entry }));
           const currentAssignments = rows
             .filter((a) => !a.dayStatus) // Exclude absence markers from scoring
+            .filter((a) => a.shiftProfileId != null)
             .map((a) => ({
               employeeId: a.employeeId,
               date: toIsoDateOnly(a.date),
-              shiftProfileId: a.shiftProfileId,
-              shiftType: profileShiftTypes[a.shiftProfileId] ?? "?",
+              shiftProfileId: a.shiftProfileId as string,
+              shiftType: profileShiftTypes[a.shiftProfileId as string] ?? "?",
               stationNumber: a.stationNumber,
             }));
           const debugJson = {
