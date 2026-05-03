@@ -595,34 +595,78 @@ export function formatRuleViolations(
       return aName.localeCompare(bName, "de");
     });
 
-    const fmtSummaryFor = (empId: string, sum: WeekendSummary): string => {
-      const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
-      const sortedPattern = [...sum.pattern].sort((a, b) => a.iso.localeCompare(b.iso));
-      // Each weekend renders as "<date> (<pattern>)" with a "!" suffix when it's
-      // part of a violation pair — the drawer's BulletRow strips the "!" and
-      // renders that pill with a red border so the violations are visible at a glance.
-      const datePills = sortedPattern.map((p) => {
-        const base = `${fmtDate(p.iso)}${p.pattern && p.pattern !== "?" ? ` (${p.pattern})` : ""}`;
-        return p.inViolation ? `${base}!` : base;
-      });
-      // If the previous month's last weekend was also worked we prepend a
-      // visible "(vorher) →" pill so the planner sees the boundary violation.
-      const prefixed = sum.boundaryWorked ? ["(vorher) →!", ...datePills] : datePills;
-      const dateList = prefixed.join(", ");
-      // Stats: just "X von Y WE" — violations are now visible from the date pills.
-      const ratio = sum.totalWeekends > 0
-        ? `${sum.workedCount} von ${sum.totalWeekends} WE`
-        : `${sum.workedCount} WE`;
-      return `${name}: ${ratio} — ${dateList}`;
+    // Run-based output: instead of listing every worked weekend, show only the
+    // *violation runs* — sequences of consecutive worked weekends. Each run is
+    // rendered as a [length] chip + a "FROM → TO" date range. If the run starts
+    // from the previous month (boundary worked + first weekend adjacent), the
+    // FROM is rendered as "Vor.WE".
+    type WkRun = { entries: WeekendEntry[]; startsFromBoundary: boolean };
+    const isoAdjacent = (a: string, b: string): boolean => {
+      const ms = Math.abs(
+        Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`),
+      );
+      return ms / (24 * 60 * 60 * 1000) <= 8;
+    };
+    const buildRuns = (sortedPattern: WeekendEntry[], boundaryWorked: boolean): WkRun[] => {
+      const grouped: WeekendEntry[][] = [];
+      let cur: WeekendEntry[] = [];
+      for (let i = 0; i < sortedPattern.length; i++) {
+        const e = sortedPattern[i]!;
+        if (i === 0) cur = [e];
+        else if (isoAdjacent(sortedPattern[i - 1]!.iso, e.iso)) cur.push(e);
+        else {
+          grouped.push(cur);
+          cur = [e];
+        }
+      }
+      if (cur.length > 0) grouped.push(cur);
+
+      const runs: WkRun[] = grouped.map((entries) => ({ entries, startsFromBoundary: false }));
+      // The first run starts from boundary iff the boundary weekend was worked
+      // AND the first entry is marked inViolation (= adjacent to boundary).
+      if (boundaryWorked && runs.length > 0 && runs[0]!.entries[0]!.inViolation) {
+        runs[0]!.startsFromBoundary = true;
+      }
+      // Only keep runs that actually represent a violation: length ≥ 2, or
+      // length 1 anchored to the boundary (which makes the *logical* length 2).
+      return runs.filter((r) => r.entries.length >= 2 || r.startsFromBoundary);
+    };
+    const runLength = (r: WkRun): number =>
+      r.entries.length + (r.startsFromBoundary ? 1 : 0);
+    const runRange = (r: WkRun): string => {
+      const fromTxt = r.startsFromBoundary ? "Vor.WE" : fmtDate(r.entries[0]!.iso);
+      const toTxt = fmtDate(r.entries[r.entries.length - 1]!.iso);
+      return `${fromTxt} → ${toTxt}`;
     };
 
-    if (sortedEmps.length === 1) {
-      const [empId, sum] = sortedEmps[0]!;
-      out.push(`Wochenendregelung: ${fmtSummaryFor(empId, sum)}.`);
-    } else {
-      const lines = sortedEmps.map(([empId, sum]) => `• ${fmtSummaryFor(empId, sum)}`);
+    const fmtSummaryFor = (empId: string, sum: WeekendSummary): string | null => {
+      const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
+      const sortedPattern = [...sum.pattern].sort((a, b) => a.iso.localeCompare(b.iso));
+      const runs = buildRuns(sortedPattern, sum.boundaryWorked);
+      if (runs.length === 0) return null; // defensive: no actual run to report
+
+      // Stats chip: e.g. "4 in Folge" or "3+2 in Folge" for multi-run.
+      const lengths = runs.map(runLength);
+      const inFolge = lengths.length === 1
+        ? `${lengths[0]} in Folge`
+        : `${lengths.join("+")} in Folge`;
+
+      // Each run becomes a date-range pill marked "!" so the drawer renders it
+      // in red — every run is by definition a violation.
+      const datePills = runs.map((r) => `${runRange(r)}!`);
+      return `${name}: ${inFolge} — ${datePills.join(", ")}`;
+    };
+
+    const summaries = sortedEmps
+      .map(([empId, sum]) => ({ empId, summary: fmtSummaryFor(empId, sum) }))
+      .filter((x): x is { empId: string; summary: string } => x.summary !== null);
+
+    if (summaries.length === 1) {
+      out.push(`Wochenendregelung: ${summaries[0]!.summary}.`);
+    } else if (summaries.length > 1) {
+      const lines = summaries.map((s) => `• ${s.summary}`);
       out.push(
-        `Wochenendregelung: ${sortedEmps.length} Mitarbeiter arbeiten an aufeinanderfolgenden Wochenenden:\n${lines.join("\n")}`,
+        `Wochenendregelung: ${summaries.length} Mitarbeiter arbeiten an aufeinanderfolgenden Wochenenden:\n${lines.join("\n")}`,
       );
     }
   }

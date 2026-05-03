@@ -308,13 +308,12 @@ describe("formatRuleViolations", () => {
 
   // ── ALTERNATING_WEEKEND_VIOLATION (Wochenendregelung) ──
 
-  it("renders single-employee summary with ratio + per-weekend pattern; '!' marks violation pills", () => {
+  it("renders single-employee summary as run-of-consecutive-weekends", () => {
     const msgs: RuleMessage[] = [
       {
         ruleId: "alternatingWeekends",
         code: "ALTERNATING_WEEKEND_VIOLATION",
-        // New format: "[<B|->|iso:pattern[!],…]". "!" = this weekend is in a violation pair.
-        // Here: all 4 are "!", boundary not worked.
+        // 4 consecutive worked weekends, no boundary.
         message: "Anna Schmidt: weekends worked 4/4, 3 violations [-|2026-05-02:Sa+So!,2026-05-09:Sa+So!,2026-05-16:Sa!,2026-05-23:Sa!].",
         employeeIds: ["e2"],
       },
@@ -322,15 +321,16 @@ describe("formatRuleViolations", () => {
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
     expect(result[0]).toBe(
-      "Wochenendregelung: Anna Schmidt: 4 von 4 WE — 02.05. (Sa+So)!, 09.05. (Sa+So)!, 16.05. (Sa)!, 23.05. (Sa)!.",
+      "Wochenendregelung: Anna Schmidt: 4 in Folge — 02.05. → 23.05.!.",
     );
   });
 
-  it("prepends '(vorher) →' boundary pill when previous month last weekend was worked", () => {
+  it("uses 'Vor.WE' anchor when the run extends from the previous month", () => {
     const msgs: RuleMessage[] = [
       {
         ruleId: "alternatingWeekends",
         code: "ALTERNATING_WEEKEND_VIOLATION",
+        // Worked only 02.05; boundary worked → run length 2 starting from previous month.
         message: "Anna Schmidt: weekends worked 1/4, 1 violations [B|2026-05-02:Sa!].",
         employeeIds: ["e2"],
       },
@@ -338,21 +338,19 @@ describe("formatRuleViolations", () => {
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
     expect(result[0]).toBe(
-      "Wochenendregelung: Anna Schmidt: 1 von 4 WE — (vorher) →!, 02.05. (Sa)!.",
+      "Wochenendregelung: Anna Schmidt: 2 in Folge — Vor.WE → 02.05.!.",
     );
   });
 
-  it("aggregates multiple employees into ONE multi-line warning with violation-marked pills", () => {
+  it("aggregates multiple employees into ONE multi-line warning, run-based per row", () => {
     const msgs: RuleMessage[] = [
       {
-        // Max worked 2 weekends in a row — both marked as violation pair (!).
         ruleId: "alternatingWeekends",
         code: "ALTERNATING_WEEKEND_VIOLATION",
         message: "Max Müller: weekends worked 2/4, 1 violations [-|2026-05-09:Sa!,2026-05-16:Sa+So!].",
         employeeIds: ["e1"],
       },
       {
-        // Anna worked only one weekend, but boundary was also worked — boundary marker (B) flags violation.
         ruleId: "alternatingWeekends",
         code: "ALTERNATING_WEEKEND_VIOLATION",
         message: "Anna Schmidt: weekends worked 1/4, 1 violations [B|2026-05-02:Sa!].",
@@ -361,15 +359,16 @@ describe("formatRuleViolations", () => {
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
-    const text = result[0]!;
-    const lines = text.split("\n");
+    const lines = result[0]!.split("\n");
     expect(lines[0]).toContain("Wochenendregelung: 2 Mitarbeiter arbeiten an aufeinanderfolgenden Wochenenden:");
-    expect(lines[1]).toBe("• Anna Schmidt: 1 von 4 WE — (vorher) →!, 02.05. (Sa)!");
-    expect(lines[2]).toBe("• Max Müller: 2 von 4 WE — 09.05. (Sa)!, 16.05. (Sa+So)!");
+    expect(lines[1]).toBe("• Anna Schmidt: 2 in Folge — Vor.WE → 02.05.!");
+    expect(lines[2]).toBe("• Max Müller: 2 in Folge — 09.05. → 16.05.!");
   });
 
-  it("falls back gracefully on legacy short message", () => {
+  it("ignores legacy short messages that lack adjacency info (no crash, no fake data)", () => {
     // Legacy rule output (pre-summary): just an isolated date in the message.
+    // We can\'t infer a run from a single isolated date, so drop these silently
+    // rather than fabricating a "1 in Folge" entry that is not actually a violation.
     const msgs: RuleMessage[] = [
       {
         ruleId: "alternatingWeekends",
@@ -379,9 +378,7 @@ describe("formatRuleViolations", () => {
       },
     ];
     const result = formatRuleViolations(msgs, empNames);
-    expect(result).toHaveLength(1);
-    expect(result[0]).toContain("Anna Schmidt");
-    expect(result[0]).toContain("09.05.");
+    expect(result).toEqual([]);
   });
 
   // ── STATION_COVERAGE_GAP (Abdeckungslücke) ──
