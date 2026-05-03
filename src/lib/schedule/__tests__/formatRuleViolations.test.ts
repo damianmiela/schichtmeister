@@ -216,7 +216,7 @@ describe("formatRuleViolations", () => {
     );
   });
 
-  it("keeps separate MAX_CONSECUTIVE_DAYS entries for different employees", () => {
+  it("aggregates MAX_CONSECUTIVE_DAYS across employees into ONE multi-line warning", () => {
     const msgs: RuleMessage[] = [
       {
         ruleId: "maxConsecutiveDays",
@@ -232,13 +232,12 @@ describe("formatRuleViolations", () => {
       },
     ];
     const result = formatRuleViolations(msgs, empNames);
-    expect(result).toHaveLength(2);
-    expect(result[0]).toContain("Max Müller");
-    expect(result[0]).toContain("9 aufeinanderfolgende");
-    expect(result[0]).toContain("vom 01.05. bis 09.05.");
-    expect(result[1]).toContain("Anna Schmidt");
-    expect(result[1]).toContain("10 aufeinanderfolgende");
-    expect(result[1]).toContain("vom 10.05. bis 19.05.");
+    expect(result).toHaveLength(1);
+    const lines = result[0]!.split("\n");
+    expect(lines[0]).toBe("Max. Arbeitstage: 2 Mitarbeiter über dem Limit:");
+    // Names sorted alphabetically (Anna before Max in de locale).
+    expect(lines[1]).toBe("• Anna Schmidt: 10/7 Tage — 10.05. → 19.05.");
+    expect(lines[2]).toBe("• Max Müller: 9/7 Tage — 01.05. → 09.05.");
   });
 
   // ── INSUFFICIENT_REST_AFTER_MAX_DAYS ──
@@ -402,6 +401,73 @@ describe("formatRuleViolations", () => {
     expect(lines[1]).toBe("• Station 1: 1 Tag(e) — 15.05.");
     expect(lines[2]).toBe("• Station 2: 2 Tag(e) — 15.05., 20.05.");
     expect(lines[3]).toBe("• Station 3: 1 Tag(e) — 15.05.");
+  });
+
+  // ── SOLL_UNDER / SOLL_OVER aggregation ──
+
+  it("emits a single line when only one employee has a Soll-Stunden violation", () => {
+    const msgs: RuleMessage[] = [
+      {
+        ruleId: "sollDelta",
+        code: "SOLL_OVER",
+        message: "Anna Schmidt: 168h geplant, Soll 144h (max. 152h erlaubt).",
+        employeeIds: ["e2"],
+      },
+    ];
+    const result = formatRuleViolations(msgs, empNames);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toBe(
+      "Soll-Stunden: Anna Schmidt hat 168h geplant, über dem Höchstbereich (Soll: 144h).",
+    );
+  });
+
+  it("aggregates Soll-Stunden across employees with signed delta + value pills", () => {
+    const msgs: RuleMessage[] = [
+      {
+        ruleId: "sollDelta",
+        code: "SOLL_OVER",
+        message: "Anna Schmidt: 168h geplant, Soll 144h (max. 152h erlaubt).",
+        employeeIds: ["e2"],
+      },
+      {
+        ruleId: "sollDelta",
+        code: "SOLL_UNDER",
+        message: "Max Müller: 0h geplant, Soll 24.48h (min. 20.48h erlaubt).",
+        employeeIds: ["e1"],
+      },
+    ];
+    const result = formatRuleViolations(msgs, empNames);
+    expect(result).toHaveLength(1);
+    const lines = result[0]!.split("\n");
+    expect(lines[0]).toBe("Soll-Stunden: 2 Mitarbeiter außerhalb des Sollbereichs:");
+    // Names sorted alphabetically (de): Anna before Max.
+    expect(lines[1]).toBe("• Anna Schmidt: über (+24h) — 168h geplant, Soll 144h");
+    expect(lines[2]).toBe("• Max Müller: unter (-24.48h) — 0h geplant, Soll 24.48h");
+  });
+
+  // ── Ruhezeit aggregation across employees ──
+
+  it("aggregates Ruhezeit across employees into ONE multi-row card", () => {
+    const msgs: RuleMessage[] = [
+      {
+        ruleId: "minRestBetweenShifts",
+        code: "INSUFFICIENT_REST",
+        message: "Less than 10h rest between shifts: 8.5h from 2026-05-14 to 2026-05-15.",
+        employeeIds: ["e2"],
+      },
+      {
+        ruleId: "minRestBetweenShifts",
+        code: "INSUFFICIENT_REST",
+        message: "Less than 10h rest between shifts: 9h from 2026-05-28 to 2026-05-29.",
+        employeeIds: ["e1"],
+      },
+    ];
+    const result = formatRuleViolations(msgs, empNames);
+    expect(result).toHaveLength(1);
+    const lines = result[0]!.split("\n");
+    expect(lines[0]).toBe("Ruhezeit: 2 Mitarbeiter unter Mindestruhezeit (mind. 10h):");
+    expect(lines[1]).toBe("• Anna Schmidt: 8.5h — 14.05. → 15.05.");
+    expect(lines[2]).toBe("• Max Müller: 9h — 28.05. → 29.05.");
   });
 
   // ── Mixed messages ──

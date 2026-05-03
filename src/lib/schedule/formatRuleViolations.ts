@@ -321,25 +321,65 @@ export function formatRuleViolations(
     );
   }
 
-  for (const [empId, { minHours, violations }] of restByEmp) {
-    const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
-    // Sort by from-date so output is chronological.
-    const sorted = [...violations].sort((a, b) => a.fromIso.localeCompare(b.fromIso));
-    if (sorted.length === 1) {
-      const v = sorted[0]!;
-      out.push(
-        v.fromIso && v.toIso
-          ? `Ruhezeit: ${name} hat nur ${fmtH(v.gapH)}h Ruhezeit zwischen ${fmtDate(v.fromIso)} und ${fmtDate(v.toIso)} (mind. ${minHours}h).`
-          : `Ruhezeit: ${name} hat einen Verstoß gegen die Mindestruhezeit von ${minHours}h zwischen Schichten.`,
-      );
+  // Ruhezeit: aggregate across employees when 2+ are affected. Single employee
+  // renders as one line (single violation) or as a "1 employee multi-violation"
+  // bullet list (existing behaviour) so the card stays compact.
+  if (restByEmp.size > 0) {
+    const empMinHours = (() => {
+      // All entries share the same minHours in practice; pick the first.
+      for (const v of restByEmp.values()) return v.minHours;
+      return 11;
+    })();
+    const sortedEmps = [...restByEmp.entries()].sort(([aId], [bId]) => {
+      const aName = aId === "__none__" ? "" : (employeeNames.get(aId) ?? aId);
+      const bName = bId === "__none__" ? "" : (employeeNames.get(bId) ?? bId);
+      return aName.localeCompare(bName, "de");
+    });
+
+    if (sortedEmps.length === 1) {
+      const [empId, { minHours, violations }] = sortedEmps[0]!;
+      const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
+      const sorted = [...violations].sort((a, b) => a.fromIso.localeCompare(b.fromIso));
+      if (sorted.length === 1) {
+        const v = sorted[0]!;
+        out.push(
+          v.fromIso && v.toIso
+            ? `Ruhezeit: ${name} hat nur ${fmtH(v.gapH)}h Ruhezeit zwischen ${fmtDate(v.fromIso)} und ${fmtDate(v.toIso)} (mind. ${minHours}h).`
+            : `Ruhezeit: ${name} hat einen Verstoß gegen die Mindestruhezeit von ${minHours}h zwischen Schichten.`,
+        );
+      } else {
+        // One employee, multiple violations → one bullet per violation under a header.
+        const lines = sorted.map((v) =>
+          v.fromIso && v.toIso
+            ? `• ${fmtH(v.gapH)}h zwischen ${fmtDate(v.fromIso)} und ${fmtDate(v.toIso)}`
+            : "• (Datum unbekannt)",
+        );
+        out.push(
+          `Ruhezeit: ${name} hat ${sorted.length} Verstöße (mind. ${minHours}h):\n${lines.join("\n")}`,
+        );
+      }
     } else {
-      const lines = sorted.map((v) =>
-        v.fromIso && v.toIso
-          ? `• ${fmtH(v.gapH)}h zwischen ${fmtDate(v.fromIso)} und ${fmtDate(v.toIso)}`
-          : "• (Datum unbekannt)",
-      );
+      // Multiple employees → one structured aggregated card.
+      const lines = sortedEmps.map(([empId, { violations }]) => {
+        const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
+        const sorted = [...violations].sort((a, b) => a.fromIso.localeCompare(b.fromIso));
+        if (sorted.length === 1) {
+          const v = sorted[0]!;
+          if (v.fromIso && v.toIso) {
+            return `• ${name}: ${fmtH(v.gapH)}h — ${fmtDate(v.fromIso)} → ${fmtDate(v.toIso)}`;
+          }
+          return `• ${name}: 1 Verstoß`;
+        }
+        // Multiple violations for one employee within the multi-emp aggregation.
+        const dateChunks = sorted.map((v) =>
+          v.fromIso && v.toIso
+            ? `${fmtH(v.gapH)}h ${fmtDate(v.fromIso)}→${fmtDate(v.toIso)}`
+            : "?",
+        );
+        return `• ${name}: ${sorted.length} Verstöße — ${dateChunks.join(", ")}`;
+      });
       out.push(
-        `Ruhezeit: ${name} hat ${sorted.length} Verstöße (mind. ${minHours}h):\n${lines.join("\n")}`,
+        `Ruhezeit: ${sortedEmps.length} Mitarbeiter unter Mindestruhezeit (mind. ${empMinHours}h):\n${lines.join("\n")}`,
       );
     }
   }
@@ -377,12 +417,33 @@ export function formatRuleViolations(
     );
   }
 
-  for (const [empId, { maxStreak, limit, fromIso, toIso }] of daysByEmp) {
-    const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
-    const range = fromIso && toIso ? ` vom ${fmtDate(fromIso)} bis ${fmtDate(toIso)}` : "";
-    out.push(
-      `Max. Arbeitstage: ${name} hat ${maxStreak} aufeinanderfolgende Arbeitstage${range} (max. ${limit} erlaubt).`,
-    );
+  // Max. Arbeitstage: aggregate when 2+ employees, one structured row each.
+  if (daysByEmp.size > 0) {
+    const sortedEmps = [...daysByEmp.entries()].sort(([aId], [bId]) => {
+      const aName = aId === "__none__" ? "" : (employeeNames.get(aId) ?? aId);
+      const bName = bId === "__none__" ? "" : (employeeNames.get(bId) ?? bId);
+      return aName.localeCompare(bName, "de");
+    });
+
+    if (sortedEmps.length === 1) {
+      const [empId, { maxStreak, limit, fromIso, toIso }] = sortedEmps[0]!;
+      const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
+      const range = fromIso && toIso ? ` vom ${fmtDate(fromIso)} bis ${fmtDate(toIso)}` : "";
+      out.push(
+        `Max. Arbeitstage: ${name} hat ${maxStreak} aufeinanderfolgende Arbeitstage${range} (max. ${limit} erlaubt).`,
+      );
+    } else {
+      const lines = sortedEmps.map(([empId, { maxStreak, limit, fromIso, toIso }]) => {
+        const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
+        const range = fromIso && toIso ? `${fmtDate(fromIso)} → ${fmtDate(toIso)}` : "";
+        return range
+          ? `• ${name}: ${maxStreak}/${limit} Tage — ${range}`
+          : `• ${name}: ${maxStreak}/${limit} Tage`;
+      });
+      out.push(
+        `Max. Arbeitstage: ${sortedEmps.length} Mitarbeiter über dem Limit:\n${lines.join("\n")}`,
+      );
+    }
   }
 
   for (const [empId, { dates, restDays, maxDays }] of restAfterMaxByEmp) {
@@ -403,15 +464,35 @@ export function formatRuleViolations(
     );
   }
 
-  for (const [empId, { hours, soll, direction }] of sollByEmp) {
-    const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
-    if (direction === "under") {
+  // Soll-Stunden: aggregate when 2+ employees, one structured row each
+  // showing direction + signed delta as the stats badge.
+  if (sollByEmp.size > 0) {
+    const sortedEmps = [...sollByEmp.entries()].sort(([aId], [bId]) => {
+      const aName = aId === "__none__" ? "" : (employeeNames.get(aId) ?? aId);
+      const bName = bId === "__none__" ? "" : (employeeNames.get(bId) ?? bId);
+      return aName.localeCompare(bName, "de");
+    });
+
+    if (sortedEmps.length === 1) {
+      const [empId, { hours, soll, direction }] = sortedEmps[0]!;
+      const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
       out.push(
-        `Soll-Stunden: ${name} hat ${fmtH(hours)}h geplant, unter dem Mindestbereich (Soll: ${fmtH(soll)}h).`,
+        direction === "under"
+          ? `Soll-Stunden: ${name} hat ${fmtH(hours)}h geplant, unter dem Mindestbereich (Soll: ${fmtH(soll)}h).`
+          : `Soll-Stunden: ${name} hat ${fmtH(hours)}h geplant, über dem Höchstbereich (Soll: ${fmtH(soll)}h).`,
       );
     } else {
+      const lines = sortedEmps.map(([empId, { hours, soll, direction }]) => {
+        const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
+        const delta = hours - soll;
+        const sign = delta > 0 ? "+" : "";
+        const dir = direction === "under" ? "unter" : "über";
+        // Stats: "über (+24h)" or "unter (-24.48h)" — concise, the chip slot.
+        // Dates pills (after em-dash, comma-separated): "168h geplant", "Soll 144h"
+        return `• ${name}: ${dir} (${sign}${fmtH(delta)}h) — ${fmtH(hours)}h geplant, Soll ${fmtH(soll)}h`;
+      });
       out.push(
-        `Soll-Stunden: ${name} hat ${fmtH(hours)}h geplant, über dem Höchstbereich (Soll: ${fmtH(soll)}h).`,
+        `Soll-Stunden: ${sortedEmps.length} Mitarbeiter außerhalb des Sollbereichs:\n${lines.join("\n")}`,
       );
     }
   }

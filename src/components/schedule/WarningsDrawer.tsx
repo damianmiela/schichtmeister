@@ -406,14 +406,18 @@ function WarningCard({ sev, text }: { sev: WarningSeverity; text: string }) {
         {hasMultiline && allBullets && (
           <Box
             sx={{
-              mt: 0.6,
+              mt: 0.5,
               display: "flex",
               flexDirection: "column",
-              gap: 0.6,
             }}
           >
             {bulletEntries.map((e, i) => (
-              <BulletRow key={i} sev={sev} entry={e} />
+              <BulletRow
+                key={i}
+                sev={sev}
+                entry={e}
+                divider={i < bulletEntries.length - 1}
+              />
             ))}
           </Box>
         )}
@@ -450,9 +454,17 @@ function WarningCard({ sev, text }: { sev: WarningSeverity; text: string }) {
  * The stats badge is omitted when there is no stats text. The dates row is
  * omitted when there are no dates.
  */
-function BulletRow({ sev, entry }: { sev: WarningSeverity; entry: BulletEntry }) {
+function BulletRow({
+  sev,
+  entry,
+  divider,
+}: {
+  sev: WarningSeverity;
+  entry: BulletEntry;
+  divider: boolean;
+}) {
   const tokens = SEVERITY_TOKENS[sev];
-  // Render each comma-separated date as its own pill so a long list still
+  // Render each comma-separated entry as its own pill so a long list still
   // wraps cleanly across the card width.
   const dateChunks = entry.dates
     ? entry.dates.split(",").map((c) => c.trim()).filter(Boolean)
@@ -461,18 +473,20 @@ function BulletRow({ sev, entry }: { sev: WarningSeverity; entry: BulletEntry })
   return (
     <Box
       sx={{
-        // A subtle inset stripe so each entry is visually separated without
-        // looking too boxy inside an already-tinted card.
-        pl: 0.75,
-        borderLeft: `2px solid ${alpha(tokens.main, 0.35)}`,
+        py: 0.45,
+        // Hairline divider between rows (drawn via top border on rows 2+ would
+        // also work; using bottom border on all but last keeps padding tidy).
+        borderBottom: divider ? `1px solid ${alpha(tokens.main, 0.18)}` : "none",
       }}
     >
+      {/* Name + inline stats chip on the same wrap-line. */}
       <Box
         sx={{
           display: "flex",
-          alignItems: "baseline",
-          justifyContent: "space-between",
-          gap: 1,
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: 0.6,
+          rowGap: 0.25,
         }}
       >
         <Typography
@@ -491,17 +505,17 @@ function BulletRow({ sev, entry }: { sev: WarningSeverity; entry: BulletEntry })
           <Typography
             component="span"
             sx={{
-              flexShrink: 0,
-              fontSize: "0.68rem",
-              fontWeight: 600,
+              fontSize: "0.66rem",
+              fontWeight: 700,
               color: tokens.main,
-              bgcolor: alpha(tokens.main, 0.1),
-              border: `1px solid ${alpha(tokens.main, 0.25)}`,
-              borderRadius: "10px",
-              px: 0.75,
+              bgcolor: alpha(tokens.main, 0.12),
+              border: `1px solid ${alpha(tokens.main, 0.3)}`,
+              borderRadius: "9px",
+              px: 0.7,
               py: "1px",
-              lineHeight: 1.3,
+              lineHeight: 1.25,
               whiteSpace: "nowrap",
+              letterSpacing: 0.1,
             }}
           >
             {entry.stats}
@@ -511,10 +525,10 @@ function BulletRow({ sev, entry }: { sev: WarningSeverity; entry: BulletEntry })
       {dateChunks.length > 0 && (
         <Box
           sx={{
-            mt: 0.25,
+            mt: 0.3,
             display: "flex",
             flexWrap: "wrap",
-            gap: 0.4,
+            gap: 0.35,
           }}
         >
           {dateChunks.map((d, i) => (
@@ -522,12 +536,12 @@ function BulletRow({ sev, entry }: { sev: WarningSeverity; entry: BulletEntry })
               key={i}
               component="span"
               sx={{
-                fontSize: "0.68rem",
+                fontSize: "0.66rem",
                 lineHeight: 1.3,
                 color: "text.secondary",
-                bgcolor: "rgba(0,0,0,0.04)",
+                bgcolor: "rgba(0,0,0,0.045)",
                 borderRadius: "6px",
-                px: 0.6,
+                px: 0.55,
                 py: "1px",
                 whiteSpace: "nowrap",
               }}
