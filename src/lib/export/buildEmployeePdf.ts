@@ -241,7 +241,7 @@ export async function buildEmployeePdfBuffer(bundle: ExportBundle): Promise<Buff
       const isHol = hMap.has(iso);
       const a = byEmpDay.get(`${emp.id}|${iso}`);
       const status = a?.dayStatus ?? null;
-      const prof = a ? profilesById[a.shiftProfileId] : undefined;
+      const prof = a?.shiftProfileId ? profilesById[a.shiftProfileId] : undefined;
 
       // Compute row hours
       let rowHours = 0;

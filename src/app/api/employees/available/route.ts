@@ -81,6 +81,7 @@ export async function GET(request: NextRequest) {
       continue;
     }
 
+    if (!a.shiftProfileId) continue; // pure absence row, no shift to count
     const prof = profilesById.get(a.shiftProfileId);
     if (!prof) continue;
 
