@@ -531,24 +531,33 @@ function BulletRow({
             gap: 0.35,
           }}
         >
-          {dateChunks.map((d, i) => (
-            <Typography
-              key={i}
-              component="span"
-              sx={{
-                fontSize: "0.66rem",
-                lineHeight: 1.3,
-                color: "text.secondary",
-                bgcolor: "rgba(0,0,0,0.045)",
-                borderRadius: "6px",
-                px: 0.55,
-                py: "1px",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {d}
-            </Typography>
-          ))}
+          {dateChunks.map((d, i) => {
+            // "!" suffix = this entry is a violation (e.g. consecutive worked
+            // weekend) and should be rendered in red so it's spottable.
+            const isViolation = d.endsWith("!");
+            const text = isViolation ? d.slice(0, -1) : d;
+            const redTokens = SEVERITY_TOKENS.red;
+            return (
+              <Typography
+                key={i}
+                component="span"
+                sx={{
+                  fontSize: "0.66rem",
+                  lineHeight: 1.3,
+                  color: isViolation ? redTokens.main : "text.secondary",
+                  bgcolor: isViolation ? alpha(redTokens.main, 0.12) : "rgba(0,0,0,0.045)",
+                  border: isViolation ? `1px solid ${redTokens.border}` : "1px solid transparent",
+                  fontWeight: isViolation ? 600 : 400,
+                  borderRadius: "6px",
+                  px: 0.55,
+                  py: "1px",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {text}
+              </Typography>
+            );
+          })}
         </Box>
       )}
     </Box>

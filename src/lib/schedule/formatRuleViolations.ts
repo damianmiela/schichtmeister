@@ -88,14 +88,15 @@ export function formatRuleViolations(
   // ── INSUFFICIENT_REST_AFTER_MAX_DAYS: group by employee, collect dates ──
   const restAfterMaxByEmp = new Map<string, { dates: string[]; restDays: number; maxDays: number }>();
 
-  // ── ALTERNATING_WEEKEND_VIOLATION: per-employee summary
-  // (each rule message is already one summary; parse it here.) ──
+  // ── ALTERNATING_WEEKEND_VIOLATION: per-employee summary ──
+  type WeekendEntry = { iso: string; pattern: string; inViolation: boolean };
   type WeekendSummary = {
     workedCount: number;
     totalWeekends: number;
     violations: number;
-    /** [{ iso: "2026-05-09", pattern: "Sa" | "So" | "Sa+So" }, …] */
-    pattern: { iso: string; pattern: string }[];
+    /** True if last weekend of previous month was also worked. */
+    boundaryWorked: boolean;
+    pattern: WeekendEntry[];
   };
   const weekendByEmp = new Map<string, WeekendSummary>();
 
@@ -228,23 +229,36 @@ export function formatRuleViolations(
       }
       case "ALTERNATING_WEEKEND_VIOLATION": {
         // New format (preferred):
-        //   "<Name>: weekends worked W/T, V violations [iso:pattern,iso:pattern,…]."
-        // Legacy format we still tolerate:
-        //   "<Name> works consecutive weekends around <iso>."
+        //   "<Name>: weekends worked W/T, V violations [<B|->|iso:pattern,iso:pattern!,…]."
+        //   "B" = boundary weekend was also worked, "-" otherwise.
+        //   "!" suffix on a pattern entry = this weekend is part of a violation pair.
+        // Legacy format still tolerated: "<Name> works consecutive weekends around <iso>."
         const workedCount = parseNumber(msg.message, /worked\s+(\d+)\//) ?? 0;
         const totalWeekends = parseNumber(msg.message, /\/(\d+),/) ?? 0;
         const violations = parseNumber(msg.message, /,\s*(\d+)\s+violations?/) ?? 0;
 
         const bracketMatch = msg.message.match(/\[([^\]]+)\]/);
-        const pattern: { iso: string; pattern: string }[] = [];
+        const pattern: WeekendEntry[] = [];
+        let boundaryWorked = false;
         if (bracketMatch) {
-          for (const entry of bracketMatch[1]!.split(",")) {
+          let body = bracketMatch[1]!;
+          // Optional "B|" or "-|" prefix carries the boundary flag.
+          const pipeIdx = body.indexOf("|");
+          if (pipeIdx >= 0 && pipeIdx <= 2) {
+            boundaryWorked = body.slice(0, pipeIdx).trim() === "B";
+            body = body.slice(pipeIdx + 1);
+          }
+          for (const entry of body.split(",")) {
             const trimmed = entry.trim();
             const idx = trimmed.indexOf(":");
             if (idx > 0) {
+              let pat = trimmed.slice(idx + 1);
+              const inViolation = pat.endsWith("!");
+              if (inViolation) pat = pat.slice(0, -1);
               pattern.push({
                 iso: trimmed.slice(0, idx),
-                pattern: trimmed.slice(idx + 1),
+                pattern: pat,
+                inViolation,
               });
             }
           }
@@ -255,6 +269,7 @@ export function formatRuleViolations(
             workedCount: workedCount || pattern.length,
             totalWeekends,
             violations,
+            boundaryWorked,
             pattern,
           });
         } else {
@@ -263,7 +278,7 @@ export function formatRuleViolations(
           const prev = weekendByEmp.get(empKey);
           if (prev) {
             if (!prev.pattern.some((p) => p.iso === date)) {
-              prev.pattern.push({ iso: date, pattern: "?" });
+              prev.pattern.push({ iso: date, pattern: "?", inViolation: true });
               prev.workedCount = prev.pattern.length;
             }
           } else if (date) {
@@ -271,7 +286,8 @@ export function formatRuleViolations(
               workedCount: 1,
               totalWeekends: 0,
               violations: 1,
-              pattern: [{ iso: date, pattern: "?" }],
+              boundaryWorked: false,
+              pattern: [{ iso: date, pattern: "?", inViolation: true }],
             });
           }
         }
@@ -312,13 +328,29 @@ export function formatRuleViolations(
     out.push(`Fehlende Schichtprofile: ${missingProfileCount} Zuweisung(en) ohne gültiges Schichtprofil.`);
   }
 
-  for (const [empId, count] of overlapByEmp) {
-    const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
-    out.push(
-      count === 1
-        ? `Schichtüberlappung: ${name} hat eine überlappende Schichtzuweisung.`
-        : `Schichtüberlappung: ${name} hat ${count} überlappende Schichtzuweisungen.`,
-    );
+  if (overlapByEmp.size > 0) {
+    const sortedEmps = [...overlapByEmp.entries()].sort(([aId], [bId]) => {
+      const aName = aId === "__none__" ? "" : (employeeNames.get(aId) ?? aId);
+      const bName = bId === "__none__" ? "" : (employeeNames.get(bId) ?? bId);
+      return aName.localeCompare(bName, "de");
+    });
+    if (sortedEmps.length === 1) {
+      const [empId, count] = sortedEmps[0]!;
+      const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
+      out.push(
+        count === 1
+          ? `Schichtüberlappung: ${name} hat eine überlappende Schichtzuweisung.`
+          : `Schichtüberlappung: ${name} hat ${count} überlappende Schichtzuweisungen.`,
+      );
+    } else {
+      const lines = sortedEmps.map(([empId, count]) => {
+        const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
+        return `• ${name}: ${count} ${count === 1 ? "Überlappung" : "Überlappungen"}`;
+      });
+      out.push(
+        `Schichtüberlappung: ${sortedEmps.length} Mitarbeiter mit überlappenden Schichten:\n${lines.join("\n")}`,
+      );
+    }
   }
 
   // Ruhezeit: aggregate across employees when 2+ are affected. Single employee
@@ -391,23 +423,60 @@ export function formatRuleViolations(
     );
   }
 
-  for (const bucket of staffingBuckets.values()) {
-    const sortedDates = [...bucket.dates.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-    const dateList = sortedDates.map(([d]) => fmtDate(d)).join(", ");
-    out.push(
-      `Unterbesetzung ${shiftDe(bucket.shiftType)} Station ${bucket.station}: ` +
-        `${sortedDates.length} Tag(e) unterbesetzt (min. ${bucket.min} Mitarbeiter benötigt) — ${dateList}`,
-    );
+  if (staffingBuckets.size > 0) {
+    const sortedBuckets = [...staffingBuckets.values()].sort((a, b) => {
+      const t = a.shiftType.localeCompare(b.shiftType);
+      return t !== 0 ? t : a.station - b.station;
+    });
+    if (sortedBuckets.length === 1) {
+      const bucket = sortedBuckets[0]!;
+      const sortedDates = [...bucket.dates.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+      const dateList = sortedDates.map(([d]) => fmtDate(d)).join(", ");
+      out.push(
+        `Unterbesetzung ${shiftDe(bucket.shiftType)} Station ${bucket.station}: ` +
+          `${sortedDates.length} Tag(e) unterbesetzt (min. ${bucket.min} Mitarbeiter benötigt) — ${dateList}`,
+      );
+    } else {
+      const totalDays = sortedBuckets.reduce((sum, b) => sum + b.dates.size, 0);
+      const lines = sortedBuckets.map((bucket) => {
+        const sortedDates = [...bucket.dates.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+        const dateList = sortedDates.map(([d]) => fmtDate(d)).join(", ");
+        return `• ${shiftDe(bucket.shiftType)} Station ${bucket.station}: ${sortedDates.length} Tag(e) — ${dateList}`;
+      });
+      out.push(
+        `Unterbesetzung: ${sortedBuckets.length} Schichten, ${totalDays} Tag(e) gesamt:\n${lines.join("\n")}`,
+      );
+    }
   }
 
-  for (const bucket of qualBuckets.values()) {
-    const sortedDates = [...bucket.dates.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-    const dateList = sortedDates.map(([d]) => fmtDate(d)).join(", ");
-    const tagDisplay = bucket.tag.split(",").map((t) => t.trim()).join("/");
-    out.push(
-      `Qualifikation "${tagDisplay}" fehlt — ${shiftDe(bucket.shiftType)} Station ${bucket.station}: ` +
-        `${sortedDates.length} Tag(e) betroffen — ${dateList}`,
-    );
+  if (qualBuckets.size > 0) {
+    const sortedBuckets = [...qualBuckets.values()].sort((a, b) => {
+      const t = a.tag.localeCompare(b.tag);
+      if (t !== 0) return t;
+      const st = a.shiftType.localeCompare(b.shiftType);
+      return st !== 0 ? st : a.station - b.station;
+    });
+    if (sortedBuckets.length === 1) {
+      const bucket = sortedBuckets[0]!;
+      const sortedDates = [...bucket.dates.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+      const dateList = sortedDates.map(([d]) => fmtDate(d)).join(", ");
+      const tagDisplay = bucket.tag.split(",").map((t) => t.trim()).join("/");
+      out.push(
+        `Qualifikation "${tagDisplay}" fehlt — ${shiftDe(bucket.shiftType)} Station ${bucket.station}: ` +
+          `${sortedDates.length} Tag(e) betroffen — ${dateList}`,
+      );
+    } else {
+      const totalDays = sortedBuckets.reduce((sum, b) => sum + b.dates.size, 0);
+      const lines = sortedBuckets.map((bucket) => {
+        const sortedDates = [...bucket.dates.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+        const dateList = sortedDates.map(([d]) => fmtDate(d)).join(", ");
+        const tagDisplay = bucket.tag.split(",").map((t) => t.trim()).join("/");
+        return `• "${tagDisplay}" — ${shiftDe(bucket.shiftType)} Station ${bucket.station}: ${sortedDates.length} Tag(e) — ${dateList}`;
+      });
+      out.push(
+        `Fehlende Qualifikation: ${sortedBuckets.length} Stellen, ${totalDays} Tag(e) gesamt:\n${lines.join("\n")}`,
+      );
+    }
   }
 
   for (const [empId, { maxStreak, limit }] of nightsByEmp) {
@@ -455,13 +524,31 @@ export function formatRuleViolations(
     );
   }
 
-  for (const [empId, { dates, type }] of absenceByEmp) {
-    const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
-    const sortedDates = [...dates].sort();
-    const dateList = sortedDates.map(fmtDate).join(", ");
-    out.push(
-      `Abwesenheitskonflikt: ${name} ist als "${type}" eingetragen, hat aber Schichtzuweisungen am ${dateList}.`,
-    );
+  if (absenceByEmp.size > 0) {
+    const sortedEmps = [...absenceByEmp.entries()].sort(([aId], [bId]) => {
+      const aName = aId === "__none__" ? "" : (employeeNames.get(aId) ?? aId);
+      const bName = bId === "__none__" ? "" : (employeeNames.get(bId) ?? bId);
+      return aName.localeCompare(bName, "de");
+    });
+    if (sortedEmps.length === 1) {
+      const [empId, { dates, type }] = sortedEmps[0]!;
+      const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
+      const sortedDates = [...dates].sort();
+      const dateList = sortedDates.map(fmtDate).join(", ");
+      out.push(
+        `Abwesenheitskonflikt: ${name} ist als "${type}" eingetragen, hat aber Schichtzuweisungen am ${dateList}.`,
+      );
+    } else {
+      const lines = sortedEmps.map(([empId, { dates, type }]) => {
+        const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
+        const sortedDates = [...dates].sort();
+        const dateList = sortedDates.map(fmtDate).join(", ");
+        return `• ${name}: "${type}" — ${dateList}`;
+      });
+      out.push(
+        `Abwesenheitskonflikt: ${sortedEmps.length} Mitarbeiter mit Schichten trotz Abwesenheit:\n${lines.join("\n")}`,
+      );
+    }
   }
 
   // Soll-Stunden: aggregate when 2+ employees, one structured row each
@@ -511,18 +598,22 @@ export function formatRuleViolations(
     const fmtSummaryFor = (empId: string, sum: WeekendSummary): string => {
       const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
       const sortedPattern = [...sum.pattern].sort((a, b) => a.iso.localeCompare(b.iso));
-      const dateList = sortedPattern
-        .map((p) => `${fmtDate(p.iso)}${p.pattern && p.pattern !== "?" ? ` (${p.pattern})` : ""}`)
-        .join(", ");
-      // Total of 0 means the legacy/fallback path didn't have it; omit ratio then.
+      // Each weekend renders as "<date> (<pattern>)" with a "!" suffix when it's
+      // part of a violation pair — the drawer's BulletRow strips the "!" and
+      // renders that pill with a red border so the violations are visible at a glance.
+      const datePills = sortedPattern.map((p) => {
+        const base = `${fmtDate(p.iso)}${p.pattern && p.pattern !== "?" ? ` (${p.pattern})` : ""}`;
+        return p.inViolation ? `${base}!` : base;
+      });
+      // If the previous month's last weekend was also worked we prepend a
+      // visible "(vorher) →" pill so the planner sees the boundary violation.
+      const prefixed = sum.boundaryWorked ? ["(vorher) →!", ...datePills] : datePills;
+      const dateList = prefixed.join(", ");
+      // Stats: just "X von Y WE" — violations are now visible from the date pills.
       const ratio = sum.totalWeekends > 0
         ? `${sum.workedCount} von ${sum.totalWeekends} WE`
         : `${sum.workedCount} WE`;
-      const vio = sum.violations > 0
-        ? `${sum.violations} ${sum.violations === 1 ? "Verstoß" : "Verstöße"}`
-        : "";
-      const head = vio ? `${ratio}, ${vio}` : ratio;
-      return `${name}: ${head} — ${dateList}`;
+      return `${name}: ${ratio} — ${dateList}`;
     };
 
     if (sortedEmps.length === 1) {

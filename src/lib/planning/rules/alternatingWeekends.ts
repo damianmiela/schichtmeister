@@ -99,37 +99,73 @@ export function alternatingWeekendsRule(ctx: RuleContext): RuleResult {
     const emp = ctx.employeesById.get(empId);
     if (!emp) continue;
 
-    // Build per-weekend pattern + count violations (consecutive worked weekends).
-    type WeekendInfo = { iso: string; pattern: "Sa" | "So" | "Sa+So" };
+    // Pass 1: compute the per-weekend pattern (worked? which days?).
+    type WeekendInfo = {
+      iso: string;
+      pattern: "Sa" | "So" | "Sa+So";
+      /** True if this worked weekend is in a violation pair with the previous OR next worked weekend (or boundary). */
+      inViolation: boolean;
+    };
     const worked: WeekendInfo[] = [];
-    let violations = 0;
 
-    // Boundary check: if previous month's last weekend was worked AND first weekend
-    // of this period is also worked, count it as a violation.
-    const prevWorked = prevWeekend ? empWorkedWeekend(empId, prevWeekend) : false;
-    let prevAdjacentWorked = prevWorked;
+    // Boundary: was the last weekend of the previous month also worked?
+    const boundaryWorked = prevWeekend ? empWorkedWeekend(empId, prevWeekend) : false;
 
     for (const wk of weekends) {
-      const p = dayPattern(empId, wk);
-      if (p) {
-        worked.push({ iso: anchor(wk), pattern: p });
-        if (prevAdjacentWorked) violations++;
-        prevAdjacentWorked = true;
-      } else {
-        prevAdjacentWorked = false;
+      const pat = dayPattern(empId, wk);
+      if (pat) worked.push({ iso: anchor(wk), pattern: pat, inViolation: false });
+    }
+
+    if (worked.length === 0) continue;
+
+    // Pass 2: mark violation pairs.
+    // A worked weekend at index i is "in violation" if either the previous or
+    // next entry in `worked` is the very next calendar weekend (≤ 8 days apart
+    // — Saturday-to-Saturday is 7d, Sunday-to-Sunday is 7d, edge cases ≤ 8d).
+    function adjacent(aIso: string, bIso: string): boolean {
+      const a = new Date(aIso + "T00:00:00Z").getTime();
+      const b = new Date(bIso + "T00:00:00Z").getTime();
+      const diffDays = Math.abs(b - a) / DAY_MS;
+      return diffDays <= 8;
+    }
+
+    let violations = 0;
+
+    // Boundary contributes 1 violation if boundaryWorked AND first entry's date
+    // is adjacent (≤ 8 days) to the boundary weekend's anchor.
+    if (boundaryWorked && prevWeekend) {
+      const boundaryIso = anchor(prevWeekend);
+      const first = worked[0]!;
+      if (adjacent(boundaryIso, first.iso)) {
+        first.inViolation = true;
+        violations++;
+      }
+    }
+
+    for (let i = 1; i < worked.length; i++) {
+      if (adjacent(worked[i - 1]!.iso, worked[i]!.iso)) {
+        worked[i - 1]!.inViolation = true;
+        worked[i]!.inViolation = true;
+        violations++;
       }
     }
 
     if (violations === 0) continue;
 
     const name = emp.displayName ?? empId;
-    const patternStr = worked.map((w) => `${w.iso}:${w.pattern}`).join(",");
+    // Encode marker "!" on weekends that are in a violation pair so the
+    // formatter / drawer can render them differently.
+    const patternStr = worked
+      .map((w) => `${w.iso}:${w.pattern}${w.inViolation ? "!" : ""}`)
+      .join(",");
+    // Boundary flag goes BEFORE the bracket so the formatter can detect it.
+    const bFlag = boundaryWorked ? "B" : "-";
     errors.push({
       ruleId: "alternatingWeekends",
       code: "ALTERNATING_WEEKEND_VIOLATION",
       message: ctx.targetFilter
-        ? `${name}: ${worked.length} von ${totalWeekends} Wochenenden gearbeitet, ${violations} Verstöße — ${patternStr}.`
-        : `${name}: weekends worked ${worked.length}/${totalWeekends}, ${violations} violations [${patternStr}].`,
+        ? `${name}: ${worked.length} von ${totalWeekends} Wochenenden gearbeitet, ${violations} Verstöße [${bFlag}|${patternStr}].`
+        : `${name}: weekends worked ${worked.length}/${totalWeekends}, ${violations} violations [${bFlag}|${patternStr}].`,
       employeeIds: [empId],
     });
   }

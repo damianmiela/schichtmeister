@@ -136,15 +136,17 @@ describe("formatRuleViolations", () => {
     expect(result[0]).toContain("15.03.");
   });
 
-  it("separates UNDERSTAFFED for different shift types", () => {
+  it("aggregates UNDERSTAFFED across shift/station buckets into ONE multi-line warning", () => {
     const msgs: RuleMessage[] = [
       { ruleId: "staffingMinimum", code: "UNDERSTAFFED", message: "Need at least 2 for EARLY station 1 on 2026-03-08 (got 1)." },
       { ruleId: "staffingMinimum", code: "UNDERSTAFFED", message: "Need at least 3 for NIGHT station 2 on 2026-03-09 (got 1)." },
     ];
     const result = formatRuleViolations(msgs, empNames);
-    expect(result).toHaveLength(2);
-    expect(result[0]).toContain("Frühdienst Station 1");
-    expect(result[1]).toContain("Nachtdienst Station 2");
+    expect(result).toHaveLength(1);
+    const lines = result[0]!.split("\n");
+    expect(lines[0]).toBe("Unterbesetzung: 2 Schichten, 2 Tag(e) gesamt:");
+    expect(lines[1]).toContain("Frühdienst Station 1");
+    expect(lines[2]).toContain("Nachtdienst Station 2");
   });
 
   // ── MISSING_QUALIFICATION ──
@@ -306,35 +308,54 @@ describe("formatRuleViolations", () => {
 
   // ── ALTERNATING_WEEKEND_VIOLATION (Wochenendregelung) ──
 
-  it("renders single-employee summary line with day pattern + ratio + violations", () => {
+  it("renders single-employee summary with ratio + per-weekend pattern; '!' marks violation pills", () => {
     const msgs: RuleMessage[] = [
       {
         ruleId: "alternatingWeekends",
         code: "ALTERNATING_WEEKEND_VIOLATION",
-        // New summary format: name + worked/total + violations + per-weekend day pattern.
-        message: "Anna Schmidt: weekends worked 4/4, 3 violations [2026-05-02:Sa+So,2026-05-09:Sa+So,2026-05-16:Sa,2026-05-23:Sa].",
+        // New format: "[<B|->|iso:pattern[!],…]". "!" = this weekend is in a violation pair.
+        // Here: all 4 are "!", boundary not worked.
+        message: "Anna Schmidt: weekends worked 4/4, 3 violations [-|2026-05-02:Sa+So!,2026-05-09:Sa+So!,2026-05-16:Sa!,2026-05-23:Sa!].",
         employeeIds: ["e2"],
       },
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
     expect(result[0]).toBe(
-      "Wochenendregelung: Anna Schmidt: 4 von 4 WE, 3 Verstöße — 02.05. (Sa+So), 09.05. (Sa+So), 16.05. (Sa), 23.05. (Sa).",
+      "Wochenendregelung: Anna Schmidt: 4 von 4 WE — 02.05. (Sa+So)!, 09.05. (Sa+So)!, 16.05. (Sa)!, 23.05. (Sa)!.",
     );
   });
 
-  it("aggregates multiple employees into ONE multi-line warning with rich detail", () => {
+  it("prepends '(vorher) →' boundary pill when previous month last weekend was worked", () => {
     const msgs: RuleMessage[] = [
       {
         ruleId: "alternatingWeekends",
         code: "ALTERNATING_WEEKEND_VIOLATION",
-        message: "Max Müller: weekends worked 2/4, 1 violations [2026-05-09:Sa,2026-05-16:Sa+So].",
+        message: "Anna Schmidt: weekends worked 1/4, 1 violations [B|2026-05-02:Sa!].",
+        employeeIds: ["e2"],
+      },
+    ];
+    const result = formatRuleViolations(msgs, empNames);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toBe(
+      "Wochenendregelung: Anna Schmidt: 1 von 4 WE — (vorher) →!, 02.05. (Sa)!.",
+    );
+  });
+
+  it("aggregates multiple employees into ONE multi-line warning with violation-marked pills", () => {
+    const msgs: RuleMessage[] = [
+      {
+        // Max worked 2 weekends in a row — both marked as violation pair (!).
+        ruleId: "alternatingWeekends",
+        code: "ALTERNATING_WEEKEND_VIOLATION",
+        message: "Max Müller: weekends worked 2/4, 1 violations [-|2026-05-09:Sa!,2026-05-16:Sa+So!].",
         employeeIds: ["e1"],
       },
       {
+        // Anna worked only one weekend, but boundary was also worked — boundary marker (B) flags violation.
         ruleId: "alternatingWeekends",
         code: "ALTERNATING_WEEKEND_VIOLATION",
-        message: "Anna Schmidt: weekends worked 1/4, 1 violations [2026-05-23:So].",
+        message: "Anna Schmidt: weekends worked 1/4, 1 violations [B|2026-05-02:Sa!].",
         employeeIds: ["e2"],
       },
     ];
@@ -343,9 +364,8 @@ describe("formatRuleViolations", () => {
     const text = result[0]!;
     const lines = text.split("\n");
     expect(lines[0]).toContain("Wochenendregelung: 2 Mitarbeiter arbeiten an aufeinanderfolgenden Wochenenden:");
-    // Names sorted alphabetically (Anna before Max in de locale).
-    expect(lines[1]).toBe("• Anna Schmidt: 1 von 4 WE, 1 Verstoß — 23.05. (So)");
-    expect(lines[2]).toBe("• Max Müller: 2 von 4 WE, 1 Verstoß — 09.05. (Sa), 16.05. (Sa+So)");
+    expect(lines[1]).toBe("• Anna Schmidt: 1 von 4 WE — (vorher) →!, 02.05. (Sa)!");
+    expect(lines[2]).toBe("• Max Müller: 2 von 4 WE — 09.05. (Sa)!, 16.05. (Sa+So)!");
   });
 
   it("falls back gracefully on legacy short message", () => {
