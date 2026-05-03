@@ -57,7 +57,10 @@ coverage/
 deploy/*
 !deploy/post-receive
 
-# Local documentation (not deployed)
+# Local documentation (not deployed) — fully ignored, including the
+# prüfstand sweep harness and its LEDGER (kept off git per user's
+# decision — the post-receive deploy hook means any push triggers a
+# deploy, which we don't want for benchmark output).
 _LOCAL_DOCS/
 
 # Generator debug logs (root-level only, not src/app/api/generate-logs)

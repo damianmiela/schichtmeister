@@ -839,6 +839,380 @@ def _run(data: dict) -> None:
     print("=" * 80)
 
 
+# ── Violation counter (for benchmark harness CSV export) ──────────────────────
+
+
+def compute_violations(data: dict) -> dict[str, int]:
+    """Compute per-rule violation counts without printing.
+
+    Takes the same debug-export dict shape as _run() and returns a flat dict
+    with violation counts. Matches _run() logic exactly.
+
+    Returns dict with keys:
+      - consec_days_violations: employees exceeding maxConsecutiveDays
+      - consec_nights_violations: employees exceeding maxConsecutiveNights
+      - rest_after_6_violations: "after 6+ consecutive work days, < 2 rest days" events
+      - min_rest_violations: < minRestHours rest-between-shifts events
+      - alt_weekend_violations: "worked consecutive weekends" events
+      - alt_weekend_violations_boundary: subset crossing previous-month boundary
+      - wbl_weekend_violations: WBL employees exceeding 3 weekend-days
+      - station_understaffed: (date, shiftType, station) tuples below minTotalCount
+      - station_overstaffed: (date, shiftType, station) tuples exceeding maxTotalCount
+      - qualification_gaps: station-day gaps where required qualification couldn't be met
+      - non_wbl_bl_assignments: BL assignments given to non-WBL employees
+    """
+    period_start = data["schedule"]["periodStart"]
+    period_end = data["schedule"]["periodEnd"]
+    dates = _dates_in_range(period_start, period_end)
+    emp_names: dict[str, str] = data["employeeNames"]
+    prof_names: dict[str, str] = data.get("profileNames", {})
+    staffing = data["staffingRequirements"]
+    assignments: list[dict] = data["currentAssignments"]
+    solver = data.get("solverPayload") or {}
+    employees: list[dict] = solver.get("employees") or []
+    profiles: list[dict] = solver.get("shiftProfiles") or []
+    previous_assignments: list[dict] = data.get("previousAssignments") or solver.get("previousAssignments") or []
+    employee_absences: list[dict] = data.get("employeeAbsences") or []
+    rules: dict = solver.get("rules") or data.get("planningRules") or {}
+
+    prof_type = {p["id"]: p["shiftType"] for p in profiles}
+    prof_hours = {p["id"]: p["paidHours"] for p in profiles}
+    emp_stations = {e["id"]: set(e.get("assignedStations", [])) for e in employees}
+    emp_is_wbl = {e["id"]: e.get("isWbl", False) for e in employees}
+    emp_quals = {e["id"]: set(e.get("qualificationTags", [])) for e in employees}
+    sh_emp_ids = {e["id"] for e in employees if "SH" in e.get("qualificationTags", [])}
+    bl_profile_ids = {p["id"] for p in profiles if p.get("shiftType") == "BL"}
+
+    # Build absence date sets per employee
+    absent_dates: dict[str, set[date]] = collections.defaultdict(set)
+    for ab in employee_absences:
+        eid = ab["employeeId"]
+        for d in _dates_in_range(ab["startDate"], ab["endDate"]):
+            absent_dates[eid].add(d)
+    for bd in solver.get("blockedDates") or data.get("blockedDates") or []:
+        try:
+            d = date.fromisoformat(bd["date"])
+        except (KeyError, ValueError):
+            continue
+        absent_dates[bd["employeeId"]].add(d)
+
+    # Build previous assignments index
+    prev_by_emp: dict[str, list[dict]] = collections.defaultdict(list)
+    for pa in previous_assignments:
+        prev_by_emp[pa["employeeId"]].append(pa)
+
+    # Build work-date index
+    by_date_type: dict[tuple[str, str], list[dict]] = collections.defaultdict(list)
+    by_emp: dict[str, list[dict]] = collections.defaultdict(list)
+    for a in assignments:
+        st = a.get("shiftType") or prof_type.get(a["shiftProfileId"], "?")
+        by_date_type[(a["date"], st)].append(a)
+        by_emp[a["employeeId"]].append(a)
+
+    # ── 1b. Station violations ──────────────────────────────────────────────
+    station_reqs: dict[tuple[str, int], dict] = {}
+    all_stations: set[int] = set()
+    for sr in staffing:
+        if sr.get("isFacilityWide"):
+            continue
+        parts = sr["key"].split(":")
+        if len(parts) < 2 or not parts[1].isdigit():
+            continue
+        stype, snum = parts[0], int(parts[1])
+        all_stations.add(snum)
+        station_reqs[(stype, snum)] = {
+            "min": sr["minTotalCount"],
+            "max": sr.get("maxTotalCount"),
+            "quals": sr.get("qualificationRequirements", []),
+        }
+
+    stations_list = sorted(all_stations) if all_stations else [1, 2, 3]
+    shift_types_with_stations = sorted(set(st for st, _ in station_reqs.keys()))
+
+    station_violations_under: list[tuple] = []
+    station_violations_over: list[tuple] = []
+    qual_violations: list[tuple] = []
+
+    for d in dates:
+        ds = d.isoformat()
+        for stype in shift_types_with_stations:
+            assigned_list = by_date_type.get((ds, stype), [])
+            counts: dict[int, int] = {s: 0 for s in stations_list}
+            qual_counts: dict[tuple[int, str], dict[str, int]] = collections.defaultdict(
+                lambda: collections.defaultdict(int)
+            )
+
+            for a in assigned_list:
+                eid = a["employeeId"]
+                # SH employees and BL profiles don't count toward station coverage
+                if eid in sh_emp_ids:
+                    continue
+                if a.get("shiftProfileId") in bl_profile_ids:
+                    continue
+                sn = a.get("stationNumber")
+                if sn is not None:
+                    try:
+                        sn = int(sn)
+                    except (TypeError, ValueError):
+                        sn = None
+                if sn is None:
+                    es = emp_stations.get(eid, set())
+                    if len(es) == 1:
+                        sn = next(iter(es))
+
+                if sn in counts:
+                    counts[sn] += 1
+                    for tag in emp_quals.get(eid, set()):
+                        qual_counts[(sn, tag)][eid] = 1
+
+            for s in stations_list:
+                req = station_reqs.get((stype, s))
+                if req:
+                    if counts[s] < req["min"]:
+                        station_violations_under.append((ds, stype, s, req["min"], counts[s]))
+                    if req["max"] is not None and counts[s] > req["max"]:
+                        station_violations_over.append((ds, stype, s, req["max"], counts[s]))
+                    for qr in req.get("quals", []):
+                        tags = qr["qualificationTag"].split(",")
+                        qualified: set[str] = set()
+                        for tag in tags:
+                            tag = tag.strip()
+                            for q_eid in qual_counts.get((s, tag), {}):
+                                qualified.add(q_eid)
+                        if len(qualified) < qr["minCount"]:
+                            qual_violations.append(
+                                (ds, stype, s, qr["qualificationTag"], qr["minCount"], len(qualified))
+                            )
+                        qr_max = qr.get("maxCount")
+                        if qr_max is not None and len(qualified) > qr_max:
+                            qual_violations.append(
+                                (ds, stype, s, qr["qualificationTag"], f"max {qr_max}", len(qualified))
+                            )
+
+    # ── 3. BL (non-WBL assignments) ─────────────────────────────────────────
+    wbl_ids = [eid for eid, v in emp_is_wbl.items() if v]
+    non_wbl_bl: list[dict] = []
+    for a in assignments:
+        st = a.get("shiftType") or prof_type.get(a["shiftProfileId"], "?")
+        if st != "BL":
+            continue
+        eid = a["employeeId"]
+        if eid not in wbl_ids:
+            non_wbl_bl.append(a)
+
+    # ── 7. Consecutive days (with cross-month boundary) ─────────────────────
+    max_consec_limit = int(rules.get("maxConsecutiveDays", 7))
+    violations: list[tuple[str, int, str]] = []
+    rest_after_6_violations: list[tuple[str, int, str, int]] = []
+
+    prev_work_dates_by_emp: dict[str, set[date]] = collections.defaultdict(set)
+    for pa in previous_assignments:
+        prev_work_dates_by_emp[pa["employeeId"]].add(date.fromisoformat(pa["date"]))
+
+    boundary_start = dates[0] - timedelta(days=BOUNDARY_DAYS) if dates else date.today()
+    extended_dates = _dates_in_range(boundary_start.isoformat(), period_end) if dates else []
+
+    for eid, name in emp_names.items():
+        work_dates: set[date] = set()
+        for a in by_emp.get(eid, []):
+            work_dates.add(date.fromisoformat(a["date"]))
+        prev_dates = prev_work_dates_by_emp.get(eid, set())
+        all_work = work_dates | prev_dates
+        if not all_work:
+            continue
+
+        consec = 0
+        max_consec = 0
+        max_consec_end = ""
+        for i, d in enumerate(extended_dates):
+            if d in all_work:
+                consec += 1
+                if consec > max_consec:
+                    max_consec = consec
+                    max_consec_end = d.isoformat()
+            else:
+                # Check rest-after-6 only for days within the actual period
+                if consec >= 6 and d >= dates[0]:
+                    rest_count = 0
+                    for j in range(0, 2):
+                        check_d = d + timedelta(days=j)
+                        if check_d not in all_work and check_d <= dates[-1]:
+                            rest_count += 1
+                        else:
+                            break
+                    if rest_count < 2:
+                        rest_after_6_violations.append((name, consec, d.isoformat(), rest_count))
+                consec = 0
+        if max_consec > max_consec_limit:
+            violations.append((name, max_consec, f"ending {max_consec_end}"))
+
+    # ── 8. Alternating weekends (with cross-month boundary) ──────────────────
+    prev_weekend: tuple[date | None, date | None] | None = None
+    if previous_assignments:
+        first_date = dates[0]
+        prev_sat = None
+        for offset in range(1, 8):
+            d = first_date - timedelta(days=offset)
+            if d.isoweekday() == 6:
+                prev_sat = d
+                break
+        if prev_sat:
+            prev_sun = prev_sat + timedelta(days=1)
+            prev_weekend = (prev_sat, prev_sun)
+
+    weekends: list[tuple[date | None, date | None]] = []
+    if prev_weekend:
+        weekends.append(prev_weekend)
+
+    i = 0
+    while i < len(dates):
+        d = dates[i]
+        if d.isoweekday() == 6:
+            sat = d
+            sun = dates[i + 1] if i + 1 < len(dates) and dates[i + 1].isoweekday() == 7 else None
+            weekends.append((sat, sun))
+            i += 2 if sun else 1
+        elif d.isoweekday() == 7:
+            weekends.append((None, d))
+            i += 1
+        else:
+            i += 1
+
+    alt_wknd_violations: list[tuple] = []
+    for eid, name in emp_names.items():
+        work_dates: set[date] = set()
+        for a in by_emp.get(eid, []):
+            work_dates.add(date.fromisoformat(a["date"]))
+        prev_dates = prev_work_dates_by_emp.get(eid, set())
+        all_work = work_dates | prev_dates
+
+        for wi in range(len(weekends) - 1):
+            sat_k, sun_k = weekends[wi]
+            sat_next, sun_next = weekends[wi + 1]
+            worked_this = (sat_k and sat_k in all_work) or (sun_k and sun_k in all_work)
+            worked_next = (sat_next and sat_next in all_work) or (sun_next and sun_next in all_work)
+            if worked_this and worked_next:
+                is_boundary = prev_weekend and weekends[wi] == prev_weekend
+                alt_wknd_violations.append((name, weekends[wi], weekends[wi + 1], is_boundary))
+
+    alt_wknd_boundary_count = sum(1 for _, _, _, b in alt_wknd_violations if b)
+
+    # ── 9. WBL weekend limit ────────────────────────────────────────────────
+    wbl_wknd_violations: list[tuple[str, int]] = []
+    weekend_dates_list = [d for d in dates if d.isoweekday() in (6, 7)]
+    for eid in wbl_ids:
+        name = emp_names.get(eid, eid[:8])
+        work_dates_set: set[date] = set()
+        for a in by_emp.get(eid, []):
+            work_dates_set.add(date.fromisoformat(a["date"]))
+        wknd_worked = sum(1 for d in weekend_dates_list if d in work_dates_set)
+        if wknd_worked > 3:
+            wbl_wknd_violations.append((name, wknd_worked))
+
+    # ── 10. Max consecutive nights (with cross-month boundary) ───────────────
+    max_consec_nights_limit = int(rules.get("maxConsecutiveNights", 3))
+    night_violations: list[tuple[str, int, str]] = []
+    for eid, name in emp_names.items():
+        night_dates: set[date] = set()
+        for a in by_emp.get(eid, []):
+            st = a.get("shiftType") or prof_type.get(a["shiftProfileId"], "?")
+            if st == "NIGHT":
+                night_dates.add(date.fromisoformat(a["date"]))
+        prev_night_dates: set[date] = set()
+        for pa in prev_by_emp.get(eid, []):
+            pid = pa.get("shiftProfileId", "")
+            st = prof_type.get(pid, "?")
+            if st == "NIGHT":
+                prev_night_dates.add(date.fromisoformat(pa["date"]))
+        all_nights = night_dates | prev_night_dates
+        if not all_nights:
+            continue
+
+        consec = 0
+        max_n = 0
+        max_n_end = ""
+        for d in extended_dates:
+            if d in all_nights:
+                consec += 1
+                if consec > max_n:
+                    max_n = consec
+                    max_n_end = d.isoformat()
+            else:
+                consec = 0
+        if max_n > max_consec_nights_limit:
+            night_violations.append((name, max_n, f"ending {max_n_end}"))
+
+    # ── 11. Min rest hours between shifts ───────────────────────────────────
+    min_rest = float(rules.get("minRestHours", 11))
+    prof_start_end: dict[str, tuple[str, str]] = {}
+    for p in profiles:
+        prof_start_end[p["id"]] = (p.get("startTime", "06:00"), p.get("endTime", "14:00"))
+
+    def _time_to_minutes(t: str) -> int:
+        parts = t.split(":")
+        return int(parts[0]) * 60 + (int(parts[1]) if len(parts) > 1 else 0)
+
+    rest_violations: list[tuple[str, str, str, str, float]] = []
+    for eid, name in emp_names.items():
+        emp_shifts: list[tuple[date, str, str, str]] = []
+        for a in by_emp.get(eid, []):
+            pid = a["shiftProfileId"]
+            se = prof_start_end.get(pid, ("06:00", "14:00"))
+            emp_shifts.append((date.fromisoformat(a["date"]), pid, se[0], se[1]))
+        for pa in prev_by_emp.get(eid, []):
+            pid = pa.get("shiftProfileId", "")
+            se = prof_start_end.get(pid, ("06:00", "14:00"))
+            emp_shifts.append((date.fromisoformat(pa["date"]), pid, se[0], se[1]))
+
+        emp_shifts.sort(key=lambda x: (x[0], _time_to_minutes(x[2])))
+        for i in range(len(emp_shifts) - 1):
+            d1, pid1, start1, end1 = emp_shifts[i]
+            d2, pid2, start2, end2 = emp_shifts[i + 1]
+            start1_min = _time_to_minutes(start1)
+            end1_min = _time_to_minutes(end1)
+            start2_min = _time_to_minutes(start2)
+            day_diff = (d2 - d1).days
+            if day_diff == 0 or day_diff > 2:
+                continue
+
+            shift1_crosses_midnight = end1_min < start1_min
+
+            if day_diff == 1:
+                if shift1_crosses_midnight:
+                    rest_min = start2_min - end1_min
+                else:
+                    rest_min = (1440 - end1_min) + start2_min
+            else:  # day_diff == 2
+                if shift1_crosses_midnight:
+                    rest_min = (1440 - end1_min) + start2_min
+                else:
+                    continue
+
+            rest_hours = rest_min / 60.0
+            if rest_hours < min_rest:
+                rest_violations.append((
+                    name,
+                    d1.isoformat(),
+                    prof_names.get(pid1, pid1[:8]),
+                    prof_names.get(pid2, pid2[:8]),
+                    rest_hours,
+                ))
+
+    return {
+        "consec_days_violations": len(violations),
+        "consec_nights_violations": len(night_violations),
+        "rest_after_6_violations": len(rest_after_6_violations),
+        "min_rest_violations": len(rest_violations),
+        "alt_weekend_violations": len(alt_wknd_violations),
+        "alt_weekend_violations_boundary": alt_wknd_boundary_count,
+        "wbl_weekend_violations": len(wbl_wknd_violations),
+        "station_understaffed": len(station_violations_under),
+        "station_overstaffed": len(station_violations_over),
+        "qualification_gaps": len(qual_violations),
+        "non_wbl_bl_assignments": len(non_wbl_bl),
+    }
+
+
 # ── Headline metrics helper (used by the engine, not the text report) ────────
 
 
