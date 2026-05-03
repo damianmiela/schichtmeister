@@ -71,46 +71,67 @@ export function alternatingWeekendsRule(ctx: RuleContext): RuleResult {
     return false;
   }
 
-  // Check each employee
+  // Per-weekend day-pattern helper: returns "Sa", "So", "Sa+So", or null if free.
+  function dayPattern(empId: string, wk: Weekend): "Sa" | "So" | "Sa+So" | null {
+    const worked = workedByEmp.get(empId);
+    if (!worked) return null;
+    const sat = !!(wk.sat && worked.has(utcDayKey(wk.sat)));
+    const sun = !!(wk.sun && worked.has(utcDayKey(wk.sun)));
+    if (sat && sun) return "Sa+So";
+    if (sat) return "Sa";
+    if (sun) return "So";
+    return null;
+  }
+
+  // Anchor date for a weekend (the Saturday if present, else the Sunday).
+  function anchor(wk: Weekend): string {
+    return wk.sat ? utcDayKey(wk.sat) : utcDayKey(wk.sun!);
+  }
+
+  // Check each employee, emitting ONE summary per affected employee.
   const employeeIds = ctx.targetFilter
     ? [ctx.targetFilter.employeeId]
     : [...ctx.employeesById.keys()];
+
+  const totalWeekends = weekends.length;
 
   for (const empId of employeeIds) {
     const emp = ctx.employeesById.get(empId);
     if (!emp) continue;
 
-    // Check boundary: previous weekend worked → first weekend must be free
-    if (prevWeekend && empWorkedWeekend(empId, prevWeekend) && empWorkedWeekend(empId, weekends[0]!)) {
-      const name = emp.displayName ?? empId;
-      const wk = weekends[0]!;
-      const dayStr = wk.sat ? utcDayKey(wk.sat) : utcDayKey(wk.sun!);
-      errors.push({
-        ruleId: "alternatingWeekends",
-        code: "ALTERNATING_WEEKEND_VIOLATION",
-        message: ctx.targetFilter
-          ? `${name}: Arbeitet zwei Wochenenden hintereinander (${dayStr}).`
-          : `${name} works consecutive weekends around ${dayStr}.`,
-        employeeIds: [empId],
-      });
-    }
+    // Build per-weekend pattern + count violations (consecutive worked weekends).
+    type WeekendInfo = { iso: string; pattern: "Sa" | "So" | "Sa+So" };
+    const worked: WeekendInfo[] = [];
+    let violations = 0;
 
-    // Check within period
-    for (let wi = 0; wi < weekends.length - 1; wi++) {
-      if (empWorkedWeekend(empId, weekends[wi]!) && empWorkedWeekend(empId, weekends[wi + 1]!)) {
-        const name = emp.displayName ?? empId;
-        const wk = weekends[wi + 1]!;
-        const dayStr = wk.sat ? utcDayKey(wk.sat) : utcDayKey(wk.sun!);
-        errors.push({
-          ruleId: "alternatingWeekends",
-          code: "ALTERNATING_WEEKEND_VIOLATION",
-          message: ctx.targetFilter
-            ? `${name}: Arbeitet zwei Wochenenden hintereinander (${dayStr}).`
-            : `${name} works consecutive weekends around ${dayStr}.`,
-          employeeIds: [empId],
-        });
+    // Boundary check: if previous month's last weekend was worked AND first weekend
+    // of this period is also worked, count it as a violation.
+    const prevWorked = prevWeekend ? empWorkedWeekend(empId, prevWeekend) : false;
+    let prevAdjacentWorked = prevWorked;
+
+    for (const wk of weekends) {
+      const p = dayPattern(empId, wk);
+      if (p) {
+        worked.push({ iso: anchor(wk), pattern: p });
+        if (prevAdjacentWorked) violations++;
+        prevAdjacentWorked = true;
+      } else {
+        prevAdjacentWorked = false;
       }
     }
+
+    if (violations === 0) continue;
+
+    const name = emp.displayName ?? empId;
+    const patternStr = worked.map((w) => `${w.iso}:${w.pattern}`).join(",");
+    errors.push({
+      ruleId: "alternatingWeekends",
+      code: "ALTERNATING_WEEKEND_VIOLATION",
+      message: ctx.targetFilter
+        ? `${name}: ${worked.length} von ${totalWeekends} Wochenenden gearbeitet, ${violations} Verstöße — ${patternStr}.`
+        : `${name}: weekends worked ${worked.length}/${totalWeekends}, ${violations} violations [${patternStr}].`,
+      employeeIds: [empId],
+    });
   }
 
   return { errors, warnings: [] };

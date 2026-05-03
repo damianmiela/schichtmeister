@@ -82,14 +82,22 @@ export function formatRuleViolations(
   // ── MAX_CONSECUTIVE_NIGHTS: group by employee, keep max streak ──
   const nightsByEmp = new Map<string, { maxStreak: number; limit: number }>();
 
-  // ── MAX_CONSECUTIVE_DAYS: group by employee, keep max streak ──
-  const daysByEmp = new Map<string, { maxStreak: number; limit: number }>();
+  // ── MAX_CONSECUTIVE_DAYS: group by employee, keep longest streak + its date range ──
+  const daysByEmp = new Map<string, { maxStreak: number; limit: number; fromIso?: string; toIso?: string }>();
 
   // ── INSUFFICIENT_REST_AFTER_MAX_DAYS: group by employee, collect dates ──
   const restAfterMaxByEmp = new Map<string, { dates: string[]; restDays: number; maxDays: number }>();
 
-  // ── ALTERNATING_WEEKEND_VIOLATION: group by employee, collect dates ──
-  const weekendByEmp = new Map<string, string[]>();
+  // ── ALTERNATING_WEEKEND_VIOLATION: per-employee summary
+  // (each rule message is already one summary; parse it here.) ──
+  type WeekendSummary = {
+    workedCount: number;
+    totalWeekends: number;
+    violations: number;
+    /** [{ iso: "2026-05-09", pattern: "Sa" | "So" | "Sa+So" }, …] */
+    pattern: { iso: string; pattern: string }[];
+  };
+  const weekendByEmp = new Map<string, WeekendSummary>();
 
   // ── ABSENCE_CONFLICT: group by employee, collect dates ──
   const absenceByEmp = new Map<string, { dates: string[]; type: string }>();
@@ -169,9 +177,11 @@ export function formatRuleViolations(
       case "MAX_CONSECUTIVE_DAYS": {
         const streak = parseNumber(msg.message, /has (\d+) consecutive/) ?? 0;
         const limit = parseNumber(msg.message, /max (\d+)/) ?? 7;
+        const fromIso = parseString(msg.message, /from (\d{4}-\d{2}-\d{2})/);
+        const toIso = parseString(msg.message, /to (\d{4}-\d{2}-\d{2})/);
         const prev = daysByEmp.get(empKey);
         if (!prev || streak > prev.maxStreak) {
-          daysByEmp.set(empKey, { maxStreak: streak, limit });
+          daysByEmp.set(empKey, { maxStreak: streak, limit, fromIso, toIso });
         }
         break;
       }
@@ -217,12 +227,53 @@ export function formatRuleViolations(
         break;
       }
       case "ALTERNATING_WEEKEND_VIOLATION": {
-        const date = parseString(msg.message, /(\d{4}-\d{2}-\d{2})/) ?? "";
-        const prev = weekendByEmp.get(empKey);
-        if (prev) {
-          if (!prev.includes(date)) prev.push(date);
+        // New format (preferred):
+        //   "<Name>: weekends worked W/T, V violations [iso:pattern,iso:pattern,…]."
+        // Legacy format we still tolerate:
+        //   "<Name> works consecutive weekends around <iso>."
+        const workedCount = parseNumber(msg.message, /worked\s+(\d+)\//) ?? 0;
+        const totalWeekends = parseNumber(msg.message, /\/(\d+),/) ?? 0;
+        const violations = parseNumber(msg.message, /,\s*(\d+)\s+violations?/) ?? 0;
+
+        const bracketMatch = msg.message.match(/\[([^\]]+)\]/);
+        const pattern: { iso: string; pattern: string }[] = [];
+        if (bracketMatch) {
+          for (const entry of bracketMatch[1]!.split(",")) {
+            const trimmed = entry.trim();
+            const idx = trimmed.indexOf(":");
+            if (idx > 0) {
+              pattern.push({
+                iso: trimmed.slice(0, idx),
+                pattern: trimmed.slice(idx + 1),
+              });
+            }
+          }
+        }
+
+        if (workedCount > 0 || pattern.length > 0) {
+          weekendByEmp.set(empKey, {
+            workedCount: workedCount || pattern.length,
+            totalWeekends,
+            violations,
+            pattern,
+          });
         } else {
-          weekendByEmp.set(empKey, [date]);
+          // Legacy: just an isolated date — fall back to a minimal summary.
+          const date = parseString(msg.message, /(\d{4}-\d{2}-\d{2})/) ?? "";
+          const prev = weekendByEmp.get(empKey);
+          if (prev) {
+            if (!prev.pattern.some((p) => p.iso === date)) {
+              prev.pattern.push({ iso: date, pattern: "?" });
+              prev.workedCount = prev.pattern.length;
+            }
+          } else if (date) {
+            weekendByEmp.set(empKey, {
+              workedCount: 1,
+              totalWeekends: 0,
+              violations: 1,
+              pattern: [{ iso: date, pattern: "?" }],
+            });
+          }
         }
         break;
       }
@@ -326,10 +377,11 @@ export function formatRuleViolations(
     );
   }
 
-  for (const [empId, { maxStreak, limit }] of daysByEmp) {
+  for (const [empId, { maxStreak, limit, fromIso, toIso }] of daysByEmp) {
     const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
+    const range = fromIso && toIso ? ` vom ${fmtDate(fromIso)} bis ${fmtDate(toIso)}` : "";
     out.push(
-      `Max. Arbeitstage: ${name} hat ${maxStreak} aufeinanderfolgende Arbeitstage (max. ${limit} erlaubt).`,
+      `Max. Arbeitstage: ${name} hat ${maxStreak} aufeinanderfolgende Arbeitstage${range} (max. ${limit} erlaubt).`,
     );
   }
 
@@ -364,42 +416,67 @@ export function formatRuleViolations(
     }
   }
 
-  // Aggregate ALL Wochenendregelung violations into a single multi-line warning.
-  // Reasoning: typically many employees trigger this on the same weekends; a
-  // flat list of N cards drowns the drawer. The drawer renders \n as line
-  // breaks (whiteSpace: "pre-line") so this string becomes a header followed
-  // by a bullet list.
+  // Aggregate ALL Wochenendregelung violations into a single multi-line warning,
+  // showing per employee: ratio of worked-to-total weekends, violation count,
+  // and which day(s) each weekend was worked. The drawer renders "\n" as line
+  // breaks (whiteSpace: "pre-line") so the bullets keep their indentation.
   if (weekendByEmp.size > 0) {
     const sortedEmps = [...weekendByEmp.entries()].sort(([aId], [bId]) => {
       const aName = aId === "__none__" ? "" : (employeeNames.get(aId) ?? aId);
       const bName = bId === "__none__" ? "" : (employeeNames.get(bId) ?? bId);
       return aName.localeCompare(bName, "de");
     });
-    if (sortedEmps.length === 1) {
-      const [empId, dates] = sortedEmps[0]!;
+
+    const fmtSummaryFor = (empId: string, sum: WeekendSummary): string => {
       const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
-      const dateList = [...dates].sort().map(fmtDate).join(", ");
-      out.push(
-        `Wochenendregelung: ${name} arbeitet an aufeinanderfolgenden Wochenenden (${dateList}).`,
-      );
+      const sortedPattern = [...sum.pattern].sort((a, b) => a.iso.localeCompare(b.iso));
+      const dateList = sortedPattern
+        .map((p) => `${fmtDate(p.iso)}${p.pattern && p.pattern !== "?" ? ` (${p.pattern})` : ""}`)
+        .join(", ");
+      // Total of 0 means the legacy/fallback path didn't have it; omit ratio then.
+      const ratio = sum.totalWeekends > 0
+        ? `${sum.workedCount} von ${sum.totalWeekends} WE`
+        : `${sum.workedCount} WE`;
+      const vio = sum.violations > 0
+        ? `${sum.violations} ${sum.violations === 1 ? "Verstoß" : "Verstöße"}`
+        : "";
+      const head = vio ? `${ratio}, ${vio}` : ratio;
+      return `${name}: ${head} — ${dateList}`;
+    };
+
+    if (sortedEmps.length === 1) {
+      const [empId, sum] = sortedEmps[0]!;
+      out.push(`Wochenendregelung: ${fmtSummaryFor(empId, sum)}.`);
     } else {
-      const lines = sortedEmps.map(([empId, dates]) => {
-        const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
-        const dateList = [...dates].sort().map(fmtDate).join(", ");
-        return `• ${name}: ${dateList}`;
-      });
+      const lines = sortedEmps.map(([empId, sum]) => `• ${fmtSummaryFor(empId, sum)}`);
       out.push(
         `Wochenendregelung: ${sortedEmps.length} Mitarbeiter arbeiten an aufeinanderfolgenden Wochenenden:\n${lines.join("\n")}`,
       );
     }
   }
 
-  for (const [station, dates] of gapByStation) {
-    const sortedDates = [...dates].sort();
-    const dateList = sortedDates.map(fmtDate).join(", ");
-    out.push(
-      `Abdeckungslücke Station ${station}: ${sortedDates.length} Tag(e) mit Lücke zwischen frühschicht und spätschicht — ${dateList}`,
-    );
+  // Aggregate Abdeckungslücke across all stations into ONE multi-line warning.
+  // Each station gets a bullet line.
+  if (gapByStation.size > 0) {
+    const sortedStations = [...gapByStation.entries()].sort(([a], [b]) => a - b);
+    if (sortedStations.length === 1) {
+      const [station, dates] = sortedStations[0]!;
+      const sortedDates = [...dates].sort();
+      const dateList = sortedDates.map(fmtDate).join(", ");
+      out.push(
+        `Abdeckungslücke Station ${station}: ${sortedDates.length} Tag(e) mit Lücke zwischen frühschicht und spätschicht — ${dateList}`,
+      );
+    } else {
+      const totalDays = sortedStations.reduce((sum, [, d]) => sum + d.length, 0);
+      const lines = sortedStations.map(([station, dates]) => {
+        const sortedDates = [...dates].sort();
+        const dateList = sortedDates.map(fmtDate).join(", ");
+        return `• Station ${station}: ${sortedDates.length} Tag(e) — ${dateList}`;
+      });
+      out.push(
+        `Abdeckungslücke ${sortedStations.length} Stationen, ${totalDays} Tag(e) gesamt:\n${lines.join("\n")}`,
+      );
+    }
   }
 
   return out;

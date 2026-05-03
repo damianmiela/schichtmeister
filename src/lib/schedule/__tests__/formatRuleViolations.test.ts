@@ -189,30 +189,56 @@ describe("formatRuleViolations", () => {
 
   // ── MAX_CONSECUTIVE_DAYS ──
 
-  it("aggregates MAX_CONSECUTIVE_DAYS to max streak per employee", () => {
+  it("falls back to the no-range form for legacy MAX_CONSECUTIVE_DAYS messages", () => {
     const msgs: RuleMessage[] = [
       { ruleId: "maxConsecutiveDays", code: "MAX_CONSECUTIVE_DAYS", message: "Employee has 8 consecutive working days (max 7).", employeeIds: ["e2"] },
-      { ruleId: "maxConsecutiveDays", code: "MAX_CONSECUTIVE_DAYS", message: "Employee has 9 consecutive working days (max 7).", employeeIds: ["e2"] },
-      { ruleId: "maxConsecutiveDays", code: "MAX_CONSECUTIVE_DAYS", message: "Employee has 10 consecutive working days (max 7).", employeeIds: ["e2"] },
-      { ruleId: "maxConsecutiveDays", code: "MAX_CONSECUTIVE_DAYS", message: "Employee has 11 consecutive working days (max 7).", employeeIds: ["e2"] },
       { ruleId: "maxConsecutiveDays", code: "MAX_CONSECUTIVE_DAYS", message: "Employee has 12 consecutive working days (max 7).", employeeIds: ["e2"] },
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
+    // Picks the longest streak; no range info available in legacy form.
     expect(result[0]).toBe("Max. Arbeitstage: Anna Schmidt hat 12 aufeinanderfolgende Arbeitstage (max. 7 erlaubt).");
   });
 
-  it("keeps separate MAX_CONSECUTIVE_DAYS for different employees", () => {
+  it("includes the streak date range when the rule provides it", () => {
     const msgs: RuleMessage[] = [
-      { ruleId: "maxConsecutiveDays", code: "MAX_CONSECUTIVE_DAYS", message: "Employee has 9 consecutive working days (max 7).", employeeIds: ["e1"] },
-      { ruleId: "maxConsecutiveDays", code: "MAX_CONSECUTIVE_DAYS", message: "Employee has 10 consecutive working days (max 7).", employeeIds: ["e2"] },
+      {
+        ruleId: "maxConsecutiveDays",
+        code: "MAX_CONSECUTIVE_DAYS",
+        message: "Employee has 8 consecutive working days from 2026-05-02 to 2026-05-09 (max 7).",
+        employeeIds: ["e1"],
+      },
+    ];
+    const result = formatRuleViolations(msgs, empNames);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toBe(
+      "Max. Arbeitstage: Max Müller hat 8 aufeinanderfolgende Arbeitstage vom 02.05. bis 09.05. (max. 7 erlaubt).",
+    );
+  });
+
+  it("keeps separate MAX_CONSECUTIVE_DAYS entries for different employees", () => {
+    const msgs: RuleMessage[] = [
+      {
+        ruleId: "maxConsecutiveDays",
+        code: "MAX_CONSECUTIVE_DAYS",
+        message: "Employee has 9 consecutive working days from 2026-05-01 to 2026-05-09 (max 7).",
+        employeeIds: ["e1"],
+      },
+      {
+        ruleId: "maxConsecutiveDays",
+        code: "MAX_CONSECUTIVE_DAYS",
+        message: "Employee has 10 consecutive working days from 2026-05-10 to 2026-05-19 (max 7).",
+        employeeIds: ["e2"],
+      },
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(2);
     expect(result[0]).toContain("Max Müller");
     expect(result[0]).toContain("9 aufeinanderfolgende");
+    expect(result[0]).toContain("vom 01.05. bis 09.05.");
     expect(result[1]).toContain("Anna Schmidt");
     expect(result[1]).toContain("10 aufeinanderfolgende");
+    expect(result[1]).toContain("vom 10.05. bis 19.05.");
   });
 
   // ── INSUFFICIENT_REST_AFTER_MAX_DAYS ──
@@ -281,7 +307,50 @@ describe("formatRuleViolations", () => {
 
   // ── ALTERNATING_WEEKEND_VIOLATION (Wochenendregelung) ──
 
-  it("emits a single line for one employee with one violation", () => {
+  it("renders single-employee summary line with day pattern + ratio + violations", () => {
+    const msgs: RuleMessage[] = [
+      {
+        ruleId: "alternatingWeekends",
+        code: "ALTERNATING_WEEKEND_VIOLATION",
+        // New summary format: name + worked/total + violations + per-weekend day pattern.
+        message: "Anna Schmidt: weekends worked 4/4, 3 violations [2026-05-02:Sa+So,2026-05-09:Sa+So,2026-05-16:Sa,2026-05-23:Sa].",
+        employeeIds: ["e2"],
+      },
+    ];
+    const result = formatRuleViolations(msgs, empNames);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toBe(
+      "Wochenendregelung: Anna Schmidt: 4 von 4 WE, 3 Verstöße — 02.05. (Sa+So), 09.05. (Sa+So), 16.05. (Sa), 23.05. (Sa).",
+    );
+  });
+
+  it("aggregates multiple employees into ONE multi-line warning with rich detail", () => {
+    const msgs: RuleMessage[] = [
+      {
+        ruleId: "alternatingWeekends",
+        code: "ALTERNATING_WEEKEND_VIOLATION",
+        message: "Max Müller: weekends worked 2/4, 1 violations [2026-05-09:Sa,2026-05-16:Sa+So].",
+        employeeIds: ["e1"],
+      },
+      {
+        ruleId: "alternatingWeekends",
+        code: "ALTERNATING_WEEKEND_VIOLATION",
+        message: "Anna Schmidt: weekends worked 1/4, 1 violations [2026-05-23:So].",
+        employeeIds: ["e2"],
+      },
+    ];
+    const result = formatRuleViolations(msgs, empNames);
+    expect(result).toHaveLength(1);
+    const text = result[0]!;
+    const lines = text.split("\n");
+    expect(lines[0]).toContain("Wochenendregelung: 2 Mitarbeiter arbeiten an aufeinanderfolgenden Wochenenden:");
+    // Names sorted alphabetically (Anna before Max in de locale).
+    expect(lines[1]).toBe("• Anna Schmidt: 1 von 4 WE, 1 Verstoß — 23.05. (So)");
+    expect(lines[2]).toBe("• Max Müller: 2 von 4 WE, 1 Verstoß — 09.05. (Sa), 16.05. (Sa+So)");
+  });
+
+  it("falls back gracefully on legacy short message", () => {
+    // Legacy rule output (pre-summary): just an isolated date in the message.
     const msgs: RuleMessage[] = [
       {
         ruleId: "alternatingWeekends",
@@ -292,29 +361,47 @@ describe("formatRuleViolations", () => {
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
+    expect(result[0]).toContain("Anna Schmidt");
+    expect(result[0]).toContain("09.05.");
+  });
+
+  // ── STATION_COVERAGE_GAP (Abdeckungslücke) ──
+
+  it("emits a single line when only one station has a gap", () => {
+    const msgs: RuleMessage[] = [
+      {
+        ruleId: "stationCoverageGap",
+        code: "STATION_COVERAGE_GAP",
+        message: "Station 1 coverage gap on 2026-05-15.",
+      },
+      {
+        ruleId: "stationCoverageGap",
+        code: "STATION_COVERAGE_GAP",
+        message: "Station 1 coverage gap on 2026-05-20.",
+      },
+    ];
+    const result = formatRuleViolations(msgs, empNames);
+    expect(result).toHaveLength(1);
     expect(result[0]).toBe(
-      "Wochenendregelung: Anna Schmidt arbeitet an aufeinanderfolgenden Wochenenden (09.05.).",
+      "Abdeckungslücke Station 1: 2 Tag(e) mit Lücke zwischen frühschicht und spätschicht — 15.05., 20.05.",
     );
   });
 
-  it("aggregates multiple employees into ONE multi-line warning", () => {
+  it("aggregates Abdeckungslücke across multiple stations into ONE multi-line warning", () => {
     const msgs: RuleMessage[] = [
-      // e1 = Max Müller, two dates
-      { ruleId: "alternatingWeekends", code: "ALTERNATING_WEEKEND_VIOLATION", message: "Max Müller works consecutive weekends around 2026-05-09.", employeeIds: ["e1"] },
-      { ruleId: "alternatingWeekends", code: "ALTERNATING_WEEKEND_VIOLATION", message: "Max Müller works consecutive weekends around 2026-05-16.", employeeIds: ["e1"] },
-      // e2 = Anna Schmidt, one date
-      { ruleId: "alternatingWeekends", code: "ALTERNATING_WEEKEND_VIOLATION", message: "Anna Schmidt works consecutive weekends around 2026-05-23.", employeeIds: ["e2"] },
+      { ruleId: "stationCoverageGap", code: "STATION_COVERAGE_GAP", message: "Station 1 gap on 2026-05-15." },
+      { ruleId: "stationCoverageGap", code: "STATION_COVERAGE_GAP", message: "Station 2 gap on 2026-05-15." },
+      { ruleId: "stationCoverageGap", code: "STATION_COVERAGE_GAP", message: "Station 2 gap on 2026-05-20." },
+      { ruleId: "stationCoverageGap", code: "STATION_COVERAGE_GAP", message: "Station 3 gap on 2026-05-15." },
     ];
     const result = formatRuleViolations(msgs, empNames);
-    // Should produce ONE aggregated string, not three.
     expect(result).toHaveLength(1);
     const text = result[0]!;
-    expect(text).toContain("Wochenendregelung: 2 Mitarbeiter arbeiten an aufeinanderfolgenden Wochenenden:");
-    // Bullet entries — name comes first, sorted alphabetically.
     const lines = text.split("\n");
-    expect(lines[0]).toContain("Wochenendregelung: 2 Mitarbeiter");
-    expect(lines[1]).toBe("• Anna Schmidt: 23.05.");
-    expect(lines[2]).toBe("• Max Müller: 09.05., 16.05.");
+    expect(lines[0]).toBe("Abdeckungslücke 3 Stationen, 4 Tag(e) gesamt:");
+    expect(lines[1]).toBe("• Station 1: 1 Tag(e) — 15.05.");
+    expect(lines[2]).toBe("• Station 2: 2 Tag(e) — 15.05., 20.05.");
+    expect(lines[3]).toBe("• Station 3: 1 Tag(e) — 15.05.");
   });
 
   // ── Mixed messages ──

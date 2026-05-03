@@ -47,12 +47,14 @@ export function maxConsecutiveDaysRule(ctx: RuleContext): RuleResult {
       if (diffDays === 1) {
         const streakLength = i - streakStart + 1;
         if (streakLength > maxDays) {
+          const fromIso = sorted[streakStart]!;
+          const toIso = sorted[i]!;
           errors.push({
             ruleId: "maxConsecutiveDays",
             code: "MAX_CONSECUTIVE_DAYS",
             message: ctx.targetFilter
-              ? `${name}: ${streakLength} Tage am Stück (max. ${maxDays}).`
-              : `Employee has ${streakLength} consecutive working days (max ${maxDays}).`,
+              ? `${name}: ${streakLength} Tage am Stück vom ${fromIso} bis ${toIso} (max. ${maxDays}).`
+              : `Employee has ${streakLength} consecutive working days from ${fromIso} to ${toIso} (max ${maxDays}).`,
             employeeIds: [employeeId],
           });
         }
