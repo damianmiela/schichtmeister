@@ -39,6 +39,7 @@ import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import type { AssignmentJson, EmployeeJson, ShiftProfileJson } from "@/lib/schedule/scheduleTypes";
+import { formatHours } from "@/lib/schedule/viewUtils";
 import { localIsoFromParts } from "@/lib/schedule/monthSchedule";
 import { shiftTypeLabel } from "@/lib/schedule/viewUtils";
 import QualificationPills from "@/components/schedule/QualificationPills";
@@ -156,9 +157,9 @@ function paidHours(profile: ShiftProfileJson): number {
   return Math.max(0, (endMin - startMin - profile.breakMinutes) / 60);
 }
 
-function fmtHours(h: number): string {
-  return h % 1 === 0 ? String(h) : h.toFixed(1);
-}
+// Hour formatter shared across views (see lib/schedule/viewUtils.ts).
+// Local alias preserved so existing call sites don't change.
+const fmtHours = formatHours;
 
 const FULL_TIME_DAILY_HOURS = 8;
 const ABSENCE_STATUS_CODES = new Set(["K", "U"]);
@@ -235,7 +236,7 @@ export default function EmployeeView({
     for (const { iso } of days) {
       const dayAssignments = assignmentsByDate.get(iso) ?? [];
       for (const a of dayAssignments) {
-        if (a.dayStatus) continue;
+        if (a.dayStatus || !a.shiftProfileId) continue;
         const p = profilesById[a.shiftProfileId];
         if (p) cumulative += paidHours(p);
       }
@@ -251,7 +252,7 @@ export default function EmployeeView({
     for (const [, dayAssignments] of assignmentsByDate) {
       wDays++;
       for (const a of dayAssignments) {
-        if (a.dayStatus) continue;
+        if (a.dayStatus || !a.shiftProfileId) continue;
         const p = profilesById[a.shiftProfileId];
         if (p) hours += paidHours(p);
       }

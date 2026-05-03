@@ -14,9 +14,10 @@ const EMP_STATUS_MAP: Record<string, string> = {
 const FULL_TIME_DAILY_HOURS = 8;
 const AVG_WORKING_DAYS_PER_MONTH = 21.75;
 
-export function formatHours(h: number): string {
-  return h % 1 === 0 ? String(h) : h.toFixed(1);
-}
+// Re-exports the shared formatter so existing import sites keep working.
+// Source of truth: src/lib/schedule/viewUtils.ts
+import { formatHours } from "@/lib/schedule/viewUtils";
+export { formatHours };
 
 export function paidHoursForShift(profile: ShiftProfile): number {
   const [sh, sm] = profile.startTime.split(":").map(Number);

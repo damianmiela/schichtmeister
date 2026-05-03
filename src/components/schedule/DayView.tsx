@@ -263,6 +263,7 @@ function ColumnView({
     for (const a of dayAssignments) {
       // Skip absence entries (K, U) — these employees are not working
       if (a.dayStatus === "K" || a.dayStatus === "U") continue;
+      if (!a.shiftProfileId) continue;
       const profile = profilesById[a.shiftProfileId];
       if (!profile) continue;
       const employee = employeesById[a.employeeId];
@@ -1056,6 +1057,7 @@ function TimelineView({
     for (const a of dayAssignments) {
       // Skip absence/status markers — they aren't real shifts
       if (a.dayStatus) continue;
+      if (!a.shiftProfileId) continue;
       const profile = profilesById[a.shiftProfileId];
       if (!profile) continue;
       const employee = employeesById[a.employeeId];

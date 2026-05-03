@@ -1460,25 +1460,31 @@ export default function SchedulePage() {
     setActionDebugPayload(null);
     setActionAlertSeverity("info");
 
-    const merged: { employeeId: string; date: string; shiftProfileId: string; markingRow2?: string | null; markingRow3?: string | null; dayStatus?: string | null; stationNumber?: number | null }[] = [];
+    // shiftProfileId is nullable: a row may be a pure absence marker (dayStatus
+    // set, no shift). Per the agreed model, a shift and a dayStatus are mutually
+    // exclusive on the same cell — applying one clears the other in the UI.
+    const merged: { employeeId: string; date: string; shiftProfileId: string | null; markingRow2?: string | null; markingRow3?: string | null; dayStatus?: string | null; stationNumber?: number | null }[] = [];
     const seen = new Set<string>();
 
     for (const [key, cell] of editedCells) {
       seen.add(key);
       const [eid, date] = key.split("|");
       const original = assignments.find(a => a.employeeId === eid && a.date === date);
-      const pid = cell.shiftProfileId !== undefined ? cell.shiftProfileId : original?.shiftProfileId;
-      if (pid) {
-        merged.push({
-          employeeId: eid!,
-          date: date!,
-          shiftProfileId: pid,
-          markingRow2: cell.markingRow2 !== undefined ? cell.markingRow2 : (original?.markingRow2 ?? null),
-          markingRow3: cell.markingRow3 !== undefined ? cell.markingRow3 : (original?.markingRow3 ?? null),
-          dayStatus: cell.dayStatus !== undefined ? cell.dayStatus : (original?.dayStatus ?? null),
-          stationNumber: cell.stationNumber !== undefined ? cell.stationNumber : (original?.stationNumber ?? null),
-        });
-      }
+      const dayStatus = cell.dayStatus !== undefined ? cell.dayStatus : (original?.dayStatus ?? null);
+      // When a dayStatus is in effect, drop any shift profile (status replaces shift).
+      const pidRaw = cell.shiftProfileId !== undefined ? cell.shiftProfileId : original?.shiftProfileId;
+      const pid = dayStatus ? null : (pidRaw ?? null);
+      // Skip empty cells (no shift AND no status = nothing to persist → row is deleted).
+      if (!pid && !dayStatus) continue;
+      merged.push({
+        employeeId: eid!,
+        date: date!,
+        shiftProfileId: pid,
+        markingRow2: cell.markingRow2 !== undefined ? cell.markingRow2 : (original?.markingRow2 ?? null),
+        markingRow3: cell.markingRow3 !== undefined ? cell.markingRow3 : (original?.markingRow3 ?? null),
+        dayStatus,
+        stationNumber: cell.stationNumber !== undefined ? cell.stationNumber : (original?.stationNumber ?? null),
+      });
     }
     for (const a of assignments) {
       const key = `${a.employeeId}|${a.date}`;

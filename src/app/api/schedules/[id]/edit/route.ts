@@ -13,7 +13,8 @@ type RouteCtx = { params: Promise<{ id: string }> };
 type IncomingAssignment = {
   employeeId: string;
   date: string;
-  shiftProfileId: string;
+  /** Null when the row is a pure absence marker (dayStatus set, no shift). */
+  shiftProfileId: string | null;
   markingRow2?: string | null;
   markingRow3?: string | null;
   dayStatus?: string | null;
@@ -44,23 +45,31 @@ function parseAssignments(raw: unknown): IncomingAssignment[] {
   const out: IncomingAssignment[] = [];
   for (const item of raw) {
     if (
-      item &&
-      typeof item === "object" &&
-      typeof item.employeeId === "string" &&
-      typeof item.date === "string" &&
-      typeof item.shiftProfileId === "string" &&
-      /^\d{4}-\d{2}-\d{2}$/.test(item.date)
+      !item ||
+      typeof item !== "object" ||
+      typeof item.employeeId !== "string" ||
+      typeof item.date !== "string" ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(item.date)
     ) {
-      out.push({
-        employeeId: item.employeeId,
-        date: item.date,
-        shiftProfileId: item.shiftProfileId,
-        markingRow2: typeof item.markingRow2 === "string" ? item.markingRow2 : null,
-        markingRow3: typeof item.markingRow3 === "string" ? item.markingRow3 : null,
-        dayStatus: typeof item.dayStatus === "string" ? item.dayStatus : null,
-        stationNumber: typeof item.stationNumber === "number" ? item.stationNumber : null,
-      });
+      continue;
     }
+    const shiftProfileId =
+      typeof item.shiftProfileId === "string" && item.shiftProfileId.length > 0
+        ? item.shiftProfileId
+        : null;
+    const dayStatus = typeof item.dayStatus === "string" ? item.dayStatus : null;
+    // A row must carry either a shift profile or a dayStatus; otherwise it's empty
+    // (= delete) and should not be persisted.
+    if (!shiftProfileId && !dayStatus) continue;
+    out.push({
+      employeeId: item.employeeId,
+      date: item.date,
+      shiftProfileId,
+      markingRow2: typeof item.markingRow2 === "string" ? item.markingRow2 : null,
+      markingRow3: typeof item.markingRow3 === "string" ? item.markingRow3 : null,
+      dayStatus,
+      stationNumber: typeof item.stationNumber === "number" ? item.stationNumber : null,
+    });
   }
   return out;
 }
@@ -101,7 +110,7 @@ export async function POST(request: Request, context: RouteCtx) {
   }
 
   const toCreate: IncomingAssignment[] = [];
-  const toUpdate: { id: string; shiftProfileId: string; markingRow2: string | null; markingRow3: string | null; dayStatus: string | null; stationNumber: number | null }[] = [];
+  const toUpdate: { id: string; shiftProfileId: string | null; markingRow2: string | null; markingRow3: string | null; dayStatus: string | null; stationNumber: number | null }[] = [];
   const toDeleteIds: string[] = [];
 
   for (const [key, inc] of incomingByKey) {
@@ -210,13 +219,17 @@ export async function POST(request: Request, context: RouteCtx) {
     orderBy: [{ date: "asc" }, { id: "asc" }],
   });
 
-  const assignmentInputs = allRows.map((a) => ({
-    id: a.id,
-    date: a.date,
-    shiftProfileId: a.shiftProfileId,
-    employeeId: a.employeeId,
-    ...(a.stationNumber != null && a.stationNumber >= 1 && a.stationNumber <= 3 && { stationNumber: a.stationNumber }),
-  })) as AssignmentInput[];
+  // Status-only rows (no shift profile) are absence markers and are not part of the
+  // planning validation domain; skip them so the engine sees only real shifts.
+  const assignmentInputs = allRows
+    .filter((a) => a.shiftProfileId != null)
+    .map((a) => ({
+      id: a.id,
+      date: a.date,
+      shiftProfileId: a.shiftProfileId as string,
+      employeeId: a.employeeId,
+      ...(a.stationNumber != null && a.stationNumber >= 1 && a.stationNumber <= 3 && { stationNumber: a.stationNumber }),
+    })) as AssignmentInput[];
 
   const v = await validateScheduleAssignments(
     prisma,

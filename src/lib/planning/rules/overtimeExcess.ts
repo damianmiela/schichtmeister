@@ -3,6 +3,8 @@ import { isPlannable } from "@/lib/planning/types";
 import { assignmentPaidHours, utcMonthKey } from "@/lib/planning/time";
 import { computeSollHours } from "@/lib/holidays";
 
+import { formatHours as fmtH } from "@/lib/schedule/viewUtils";
+
 export function overtimeExcessRule(ctx: RuleContext): RuleResult {
   const warnings: RuleResult["warnings"] = [];
 
@@ -39,8 +41,8 @@ export function overtimeExcessRule(ctx: RuleContext): RuleResult {
         ruleId: "overtimeExcess",
         code: "OVERTIME_EXCESS",
         message: ctx.targetFilter
-          ? `${name}: ${hours.toFixed(1)}h geplant (Soll: ${soll.toFixed(1)}h, max +8h Überstunden).`
-          : `Employee ${empId} has ${hours.toFixed(1)}h planned (Soll: ${soll.toFixed(1)}h, max +8h overtime).`,
+          ? `${name}: ${fmtH(hours)}h geplant (Soll: ${fmtH(soll)}h, max +8h Überstunden).`
+          : `Employee ${empId} has ${fmtH(hours)}h planned (Soll: ${fmtH(soll)}h, max +8h overtime).`,
         employeeIds: [empId],
       });
     }

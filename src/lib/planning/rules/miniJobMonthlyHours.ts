@@ -2,6 +2,8 @@ import { ContractType } from "@prisma/client";
 import type { RuleContext, RuleResult } from "@/lib/planning/types";
 import { assignmentPaidHours, utcMonthKey } from "@/lib/planning/time";
 
+import { formatHours as fmtH } from "@/lib/schedule/viewUtils";
+
 export function miniJobMonthlyHoursRule(ctx: RuleContext): RuleResult {
   const errors: RuleResult["errors"] = [];
   const sums = new Map<string, number>();
@@ -37,7 +39,7 @@ export function miniJobMonthlyHoursRule(ctx: RuleContext): RuleResult {
         ruleId: "miniJobMonthlyHours",
         code: "MINI_JOB_CAP",
         message: ctx.targetFilter
-          ? `${name}: Minijob-Stunden ${total.toFixed(1)}h überschreiten Limit ${limit}h.`
+          ? `${name}: Minijob-Stunden ${fmtH(total)}h überschreiten Limit ${limit}h.`
           : `Mini-job hours in month exceed limit (${total.toFixed(2)}h > ${limit}h).`,
         employeeIds: [employeeId!],
       });

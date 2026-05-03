@@ -31,7 +31,8 @@ export type AssignmentJson = {
   id: string;
   scheduleId: string;
   date: string;
-  shiftProfileId: string;
+  /** May be null when the row only carries a dayStatus (K, U, ...) and no shift. */
+  shiftProfileId: string | null;
   employeeId: string;
   stationNumber?: number | null;
   markingRow2?: string | null;

@@ -1,5 +1,7 @@
 import type { RuleMessage } from "@/lib/planning/types";
 
+import { formatHours as fmtH } from "@/lib/schedule/viewUtils";
+
 type EmployeeLookup = Map<string, string>;
 
 const SHIFT_TYPE_DE: Record<string, string> = {
@@ -205,7 +207,7 @@ export function formatRuleViolations(
         const name = eName(msg.employeeIds, employeeNames);
         const hrs = parseNumber(msg.message, /has (\d+\.?\d*)h/) ?? 0;
         const soll = parseNumber(msg.message, /Soll: (\d+\.?\d*)h/) ?? 0;
-        out.push(`Überstunden: ${name} hat ${hrs.toFixed(1)}h geplant (Soll: ${soll.toFixed(1)}h, max. +8h Überstunden erlaubt).`);
+        out.push(`Überstunden: ${name} hat ${fmtH(hrs)}h geplant (Soll: ${fmtH(soll)}h, max. +8h Überstunden erlaubt).`);
         break;
       }
       case "ALTERNATING_WEEKEND_VIOLATION": {
@@ -274,7 +276,7 @@ export function formatRuleViolations(
   for (const [empId, { total, limit }] of miniJobByEmp) {
     const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
     out.push(
-      `Minijob-Stundengrenze: ${name} überschreitet das monatliche Limit (${total.toFixed(1)}h geplant, max. ${limit}h erlaubt).`,
+      `Minijob-Stundengrenze: ${name} überschreitet das monatliche Limit (${fmtH(total)}h geplant, max. ${limit}h erlaubt).`,
     );
   }
 
@@ -333,11 +335,11 @@ export function formatRuleViolations(
     const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
     if (direction === "under") {
       out.push(
-        `Soll-Stunden: ${name} hat ${hours.toFixed(1)}h geplant, unter dem Mindestbereich (Soll: ${soll.toFixed(1)}h).`,
+        `Soll-Stunden: ${name} hat ${fmtH(hours)}h geplant, unter dem Mindestbereich (Soll: ${fmtH(soll)}h).`,
       );
     } else {
       out.push(
-        `Soll-Stunden: ${name} hat ${hours.toFixed(1)}h geplant, über dem Höchstbereich (Soll: ${soll.toFixed(1)}h).`,
+        `Soll-Stunden: ${name} hat ${fmtH(hours)}h geplant, über dem Höchstbereich (Soll: ${fmtH(soll)}h).`,
       );
     }
   }

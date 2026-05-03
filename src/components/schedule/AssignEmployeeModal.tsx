@@ -23,6 +23,7 @@ import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import QualificationPills from "@/components/schedule/QualificationPills";
+import { formatHours } from "@/lib/schedule/viewUtils";
 import RuleViolationsList from "@/components/schedule/RuleViolationsList";
 import type { ShiftProfileJson } from "@/lib/schedule/scheduleTypes";
 import type { RuleMessage } from "@/lib/planning/types";
@@ -356,7 +357,7 @@ export default function AssignEmployeeModal({
           variant="caption"
           sx={{ flexShrink: 0, whiteSpace: "nowrap", color: "text.secondary" }}
         >
-          {emp.istHours.toFixed(1)}/{emp.sollHours != null ? emp.sollHours.toFixed(1) : "–"}h
+          {formatHours(emp.istHours)}/{emp.sollHours != null ? formatHours(emp.sollHours) : "–"}h
           {emp.deltaHours != null && (
             <Typography
               component="span"
@@ -367,7 +368,7 @@ export default function AssignEmployeeModal({
                 color: emp.deltaHours > 0 ? "error.main" : emp.deltaHours < 0 ? "info.main" : "text.secondary",
               }}
             >
-              ({emp.deltaHours > 0 ? "+" : ""}{emp.deltaHours.toFixed(1)}h)
+              ({emp.deltaHours > 0 ? "+" : ""}{formatHours(emp.deltaHours)}h)
             </Typography>
           )}
         </Typography>
@@ -585,10 +586,10 @@ export default function AssignEmployeeModal({
                   <InfoRow label="Soll-Stunden" value={selectedEmployee.targetHoursPercent != null ? `${selectedEmployee.targetHoursPercent}% (VZ)` : "–"} />
                   <InfoRow
                     label="Ist/Soll (Monat)"
-                    value={`${selectedEmployee.istHours.toFixed(1)}h / ${selectedEmployee.sollHours != null ? selectedEmployee.sollHours.toFixed(1) + "h" : "–"}`}
+                    value={`${formatHours(selectedEmployee.istHours)}h / ${selectedEmployee.sollHours != null ? formatHours(selectedEmployee.sollHours) + "h" : "–"}`}
                   />
                   {selectedEmployee.deltaHours != null && (
-                    <InfoRow label="Delta" value={`${selectedEmployee.deltaHours > 0 ? "+" : ""}${selectedEmployee.deltaHours.toFixed(1)}h`} />
+                    <InfoRow label="Delta" value={`${selectedEmployee.deltaHours > 0 ? "+" : ""}${formatHours(selectedEmployee.deltaHours)}h`} />
                   )}
                   {selectedEmployee.fixedWorkingDays.length > 0 && (
                     <InfoRow label="Feste Arbeitstage" value={selectedEmployee.fixedWorkingDays.map(dayLabel).join(", ")} />

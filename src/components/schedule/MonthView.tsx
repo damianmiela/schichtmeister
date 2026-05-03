@@ -110,6 +110,7 @@ export default function MonthView({
   const dayCounts = useMemo(() => {
     const counts = new Map<string, Record<string, number>>();
     for (const a of assignments) {
+      if (!a.shiftProfileId) continue;
       const prof = profilesById[a.shiftProfileId];
       if (!prof) continue;
       const st = prof.shiftType;

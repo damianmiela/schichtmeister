@@ -17,6 +17,7 @@ import {
 } from "@mui/material";
 import type { AssignmentJson, EmployeeJson, ShiftProfileJson } from "@/lib/schedule/scheduleTypes";
 import { weekLocalIsoDays } from "@/lib/schedule/monthSchedule";
+import { formatHours } from "@/lib/schedule/viewUtils";
 import QualificationPills from "@/components/schedule/QualificationPills";
 
 interface WeekViewProps {
@@ -67,9 +68,7 @@ function paidHoursForShift(profile: ShiftProfileJson): number {
   return Math.max(0, (endMin - startMin - profile.breakMinutes) / 60);
 }
 
-function formatHours(h: number): string {
-  return h % 1 === 0 ? String(h) : h.toFixed(1);
-}
+// Hour formatter shared across views; see src/lib/schedule/viewUtils.ts.
 
 function sortEmployees(emps: EmployeeJson[]): EmployeeJson[] {
   return [...emps].sort((a, b) => {
@@ -105,6 +104,7 @@ export default function WeekView({
     const nightIds = new Set<string>();
 
     for (const a of assignments) {
+      if (!a.shiftProfileId) continue;
       const prof = profilesById[a.shiftProfileId];
       if (!prof) continue;
       if (prof.shiftType === "NIGHT") {
@@ -241,7 +241,7 @@ export default function WeekView({
                     {dayIsos.map((iso) => {
                       const key = `${e.id}|${iso}`;
                       const a = byEmpDay.get(key);
-                      const prof = a ? profilesById[a.shiftProfileId] : undefined;
+                      const prof = a?.shiftProfileId ? profilesById[a.shiftProfileId] : undefined;
                       const [y, m, d] = iso.split("-").map(Number);
                       const isShiftWish = shiftWishSet?.has(key) && !!a;
                       const isFreiWish = freiWishSet?.has(key);
@@ -308,7 +308,7 @@ export default function WeekView({
                     <TableCell align="center" sx={{ fontSize: { xs: 10, sm: 12 }, fontWeight: 600 }}>
                       {formatHours(dayIsos.reduce((sum, iso) => {
                         const a = byEmpDay.get(`${e.id}|${iso}`);
-                        const p = a ? profilesById[a.shiftProfileId] : undefined;
+                        const p = a?.shiftProfileId ? profilesById[a.shiftProfileId] : undefined;
                         if (!p) return sum;
                         if (filterType === "station" && p.shiftType === "NIGHT") return sum;
                         if (filterType === "night" && p.shiftType !== "NIGHT") return sum;

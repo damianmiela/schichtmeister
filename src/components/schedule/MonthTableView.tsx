@@ -28,6 +28,7 @@ import { localIsoFromParts } from "@/lib/schedule/monthSchedule";
 import type { AssignmentJson, EmployeeJson, ShiftProfileJson, StaffingJson } from "@/lib/schedule/scheduleTypes";
 import QualificationPills from "@/components/schedule/QualificationPills";
 import { monthlyWorkingDaysWithHolidays, isWorkingDayIso } from "@/lib/holidays";
+import { formatHours } from "@/lib/schedule/viewUtils";
 
 /* ──────────────────────── exported type ──────────────────────── */
 
@@ -86,9 +87,9 @@ function paidHoursForShift(profile: ShiftProfileJson): number {
   return Math.max(0, (endMin - startMin - profile.breakMinutes) / 60);
 }
 
-function formatHours(h: number): string {
-  return h % 1 === 0 ? String(h) : h.toFixed(1);
-}
+// Hour formatter shared with WeekView/EmployeeView (handles 8.75h correctly,
+// where toFixed(1) used to round it to "8.8").
+// Defined in src/lib/schedule/viewUtils.ts.
 
 const FULL_TIME_DAILY_HOURS = 8;
 const ABSENCE_STATUS_CODES = new Set(["K", "U"]);
@@ -156,11 +157,12 @@ const STATUS_LABEL_MAP: Record<string, string> = Object.fromEntries(
   STATUS_CODES.map(({ code, label }) => [code, label]),
 );
 
-const SHIFT_TYPE_ORDER = ["EARLY", "LATE", "NIGHT"];
+const SHIFT_TYPE_ORDER = ["EARLY", "LATE", "NIGHT", "BL"];
 const SHIFT_TYPE_LABELS: Record<string, string> = {
   EARLY: "Früh",
   LATE: "Spät",
   NIGHT: "Nacht",
+  BL: "BL",
 };
 
 const EMP_STATUS_MAP: Record<string, string> = {
@@ -200,6 +202,7 @@ function getNightEmployees(
 ): EmployeeJson[] {
   const nightEmpIds = new Set<string>();
   for (const a of assignments) {
+    if (!a.shiftProfileId) continue;
     const profile = profilesById[a.shiftProfileId];
     if (profile?.shiftType === "NIGHT") {
       nightEmpIds.add(a.employeeId);
@@ -487,7 +490,7 @@ export default function MonthTableView({
     for (const a of assignments) {
       const key = `${a.employeeId}|${a.date}`;
       if (editedKeys.has(key)) continue;
-      if (a.dayStatus) continue;
+      if (a.dayStatus || !a.shiftProfileId) continue;
       const p = profilesById[a.shiftProfileId];
       if (!p) continue;
       hours.set(a.employeeId, (hours.get(a.employeeId) ?? 0) + paidHoursForShift(p));
@@ -1021,7 +1024,7 @@ export default function MonthTableView({
                       const effectiveProf = effectivePid ? profilesById[effectivePid] : null;
 
                       if (effectiveProf || asgn) {
-                        const prof = effectiveProf ?? (asgn ? profilesById[asgn.shiftProfileId] : null);
+                        const prof = effectiveProf ?? (asgn?.shiftProfileId ? profilesById[asgn.shiftProfileId] : null);
                         if (filter === "night-only") {
                           if (prof?.shiftType !== "NIGHT") {
                             display = { row1: "X", row2: "", row3: "", isStatus: true, statusCode: "X" };
@@ -1368,6 +1371,7 @@ export default function MonthTableView({
     // Also exclude employees who appear in station tables (have mainStation) or night table
     const nightEmpIds = new Set<string>();
     for (const a of assignments) {
+      if (!a.shiftProfileId) continue;
       const prof = profilesById[a.shiftProfileId];
       if (prof?.shiftType === "NIGHT") nightEmpIds.add(a.employeeId);
     }
@@ -1383,6 +1387,7 @@ export default function MonthTableView({
           // Check if all their assignments are night-only
           const hasNonNight = assignments.some((a) => {
             if (a.employeeId !== e.id) return false;
+            if (!a.shiftProfileId) return false;
             const prof = profilesById[a.shiftProfileId];
             return prof?.shiftType !== "NIGHT";
           });
@@ -1642,7 +1647,7 @@ export default function MonthTableView({
               size="small"
               label={code}
               title={label}
-              onClick={() => applyToSelected({ dayStatus: code })}
+              onClick={() => applyToSelected({ dayStatus: code, shiftProfileId: null })}
               sx={{
                 ...chipSx,
                 bgcolor: hasSelection ? STATUS_COLORS[code]?.bg : undefined,

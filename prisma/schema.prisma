@@ -321,7 +321,7 @@ model Assignment {
   id              String   @id @default(cuid())
   scheduleId      String
   date            DateTime @db.Date
-  shiftProfileId  String
+  shiftProfileId  String?
   employeeId      String
   createdByUserId String
   stationNumber   Int?
@@ -331,8 +331,8 @@ model Assignment {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  schedule     Schedule     @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
-  shiftProfile ShiftProfile @relation(fields: [shiftProfileId], references: [id], onDelete: Restrict)
+  schedule     Schedule      @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  shiftProfile ShiftProfile? @relation(fields: [shiftProfileId], references: [id], onDelete: Restrict)
   employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   createdBy    User         @relation("AssignmentCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
   swapsFrom    SwapRequest[] @relation("SwapFromAssignment")

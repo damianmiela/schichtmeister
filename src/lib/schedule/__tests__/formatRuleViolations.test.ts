@@ -86,7 +86,7 @@ describe("formatRuleViolations", () => {
     expect(result).toHaveLength(1);
     expect(result[0]).toContain("Minijob-Stundengrenze");
     expect(result[0]).toContain("Max Müller");
-    expect(result[0]).toContain("55.0h");
+    expect(result[0]).toContain("55h");
     expect(result[0]).toContain("52h");
   });
 
@@ -237,7 +237,7 @@ describe("formatRuleViolations", () => {
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
-    expect(result[0]).toBe("Überstunden: Anna Schmidt hat 190.5h geplant (Soll: 176.0h, max. +8h Überstunden erlaubt).");
+    expect(result[0]).toBe("Überstunden: Anna Schmidt hat 190.5h geplant (Soll: 176h, max. +8h Überstunden erlaubt).");
   });
 
   // ── Unknown codes ──

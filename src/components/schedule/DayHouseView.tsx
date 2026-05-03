@@ -707,6 +707,7 @@ export default function DayHouseView({
 
     for (const a of dayAssignments) {
       if (a.dayStatus === "K" || a.dayStatus === "U") continue;
+      if (!a.shiftProfileId) continue;
       const profile = profilesById[a.shiftProfileId];
       if (!profile) continue;
       const employee = employeesById[a.employeeId];

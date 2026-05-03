@@ -3,6 +3,8 @@ import { isPlannable } from "@/lib/planning/types";
 import { assignmentPaidHours, utcMonthKey } from "@/lib/planning/time";
 import { computeSollHours, isWorkingDayIso } from "@/lib/holidays";
 
+import { formatHours as fmtH } from "@/lib/schedule/viewUtils";
+
 /**
  * Soll-Stunden Abweichungsbereich:
  * Each employee's total planned hours for the month must be within
@@ -84,14 +86,14 @@ export function sollDeltaRule(ctx: RuleContext): RuleResult {
       warnings.push({
         ruleId: "sollDelta",
         code: "SOLL_UNDER",
-        message: `${name}: ${hours.toFixed(1)}h geplant, Soll ${soll.toFixed(1)}h (min. ${lower.toFixed(1)}h erlaubt).`,
+        message: `${name}: ${fmtH(hours)}h geplant, Soll ${fmtH(soll)}h (min. ${fmtH(lower)}h erlaubt).`,
         employeeIds: [empId],
       });
     } else if (hours > upper) {
       warnings.push({
         ruleId: "sollDelta",
         code: "SOLL_OVER",
-        message: `${name}: ${hours.toFixed(1)}h geplant, Soll ${soll.toFixed(1)}h (max. ${upper.toFixed(1)}h erlaubt).`,
+        message: `${name}: ${fmtH(hours)}h geplant, Soll ${fmtH(soll)}h (max. ${fmtH(upper)}h erlaubt).`,
         employeeIds: [empId],
       });
     }
