@@ -321,6 +321,14 @@ function renderGroup(
 
 function WarningCard({ sev, text }: { sev: WarningSeverity; text: string }) {
   const tokens = SEVERITY_TOKENS[sev];
+  // Multi-line aggregations use "\n" between header and bullet entries.
+  // Render the first line bold and the rest as a smaller body block so the
+  // hierarchy is visible without extra UI.
+  const newlineIdx = text.indexOf("\n");
+  const hasMultiline = newlineIdx >= 0;
+  const head = hasMultiline ? text.slice(0, newlineIdx) : text;
+  const body = hasMultiline ? text.slice(newlineIdx + 1) : "";
+
   return (
     <Box
       sx={{
@@ -334,13 +342,37 @@ function WarningCard({ sev, text }: { sev: WarningSeverity; text: string }) {
         py: 0.6,
       }}
     >
-      <Box sx={{ pt: "1px" }}>{severityIcon(sev, 16)}</Box>
-      <Typography
-        variant="body2"
-        sx={{ fontSize: "0.78rem", lineHeight: 1.35, color: "text.primary" }}
-      >
-        {text}
-      </Typography>
+      <Box sx={{ pt: "1px", flexShrink: 0 }}>{severityIcon(sev, 16)}</Box>
+      <Box sx={{ minWidth: 0, flex: 1 }}>
+        <Typography
+          variant="body2"
+          sx={{
+            fontSize: "0.78rem",
+            lineHeight: 1.35,
+            color: "text.primary",
+            fontWeight: hasMultiline ? 600 : 400,
+            wordBreak: "break-word",
+          }}
+        >
+          {head}
+        </Typography>
+        {hasMultiline && (
+          <Typography
+            variant="body2"
+            component="div"
+            sx={{
+              mt: 0.4,
+              fontSize: "0.72rem",
+              lineHeight: 1.5,
+              color: "text.secondary",
+              whiteSpace: "pre-line",
+              wordBreak: "break-word",
+            }}
+          >
+            {body}
+          </Typography>
+        )}
+      </Box>
     </Box>
   );
 }

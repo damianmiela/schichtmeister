@@ -30,13 +30,18 @@ export function minRestBetweenShiftsRule(ctx: RuleContext): RuleResult {
       if (gap < minRestMs) {
         const emp = ctx.employeesById.get(employeeId);
         const name = emp?.displayName ?? employeeId;
-        const gapH = (gap / (60 * 60 * 1000)).toFixed(1);
+        const gapH = (gap / (60 * 60 * 1000)).toFixed(2);
+        // Use UTC ISO date strings so the formatter can parse them with the
+        // standard /\d{4}-\d{2}-\d{2}/ pattern. Encode the actual rest gap
+        // in the message so the formatter can show it without re-deriving.
+        const fromIso = new Date(cur.endMs).toISOString().slice(0, 10);
+        const toIso = new Date(next.startMs).toISOString().slice(0, 10);
         errors.push({
           ruleId: "minRestBetweenShifts",
           code: "INSUFFICIENT_REST",
           message: ctx.targetFilter
-            ? `${name}: Nur ${gapH}h Ruhezeit (mind. ${ctx.snapshot.minRestHours}h).`
-            : `Less than ${ctx.snapshot.minRestHours}h rest between shifts.`,
+            ? `${name}: Nur ${gapH}h Ruhezeit (mind. ${ctx.snapshot.minRestHours}h, ${fromIso} → ${toIso}).`
+            : `Less than ${ctx.snapshot.minRestHours}h rest between shifts: ${gapH}h from ${fromIso} to ${toIso}.`,
           assignmentIds: [cur.id, next.id],
           employeeIds: [employeeId],
         });

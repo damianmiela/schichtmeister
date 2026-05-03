@@ -66,8 +66,9 @@ export function formatRuleViolations(
   const overlapByEmp = new Map<string, number>();
   let missingProfileCount = 0;
 
-  // ── INSUFFICIENT_REST: group by employee, count ──
-  const restByEmp = new Map<string, { count: number; hours: number }>();
+  // ── INSUFFICIENT_REST: per employee, list each violation with its gap + dates ──
+  type RestViolation = { gapH: number; fromIso: string; toIso: string };
+  const restByEmp = new Map<string, { minHours: number; violations: RestViolation[] }>();
 
   // ── MINI_JOB_CAP: group by employee ──
   const miniJobByEmp = new Map<string, { total: number; limit: number }>();
@@ -109,9 +110,14 @@ export function formatRuleViolations(
         break;
       }
       case "INSUFFICIENT_REST": {
-        const hrs = parseNumber(msg.message, /Less than (\d+)h/) ?? 11;
-        const prev = restByEmp.get(empKey);
-        restByEmp.set(empKey, { count: (prev?.count ?? 0) + 1, hours: hrs });
+        const minHours = parseNumber(msg.message, /Less than (\d+)h/) ?? 11;
+        const gapH     = parseNumber(msg.message, /:\s*(\d+\.?\d*)h from/) ?? 0;
+        const fromIso  = parseString(msg.message, /from (\d{4}-\d{2}-\d{2})/) ?? "";
+        const toIso    = parseString(msg.message, /to (\d{4}-\d{2}-\d{2})/) ?? "";
+        const entry = restByEmp.get(empKey) ?? { minHours, violations: [] };
+        entry.minHours = minHours;
+        entry.violations.push({ gapH, fromIso, toIso });
+        restByEmp.set(empKey, entry);
         break;
       }
       case "MINI_JOB_CAP": {
@@ -264,13 +270,27 @@ export function formatRuleViolations(
     );
   }
 
-  for (const [empId, { count, hours }] of restByEmp) {
+  for (const [empId, { minHours, violations }] of restByEmp) {
     const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
-    out.push(
-      count === 1
-        ? `Ruhezeit: ${name} hat einen Verstoß gegen die Mindestruhezeit von ${hours}h zwischen Schichten.`
-        : `Ruhezeit: ${name} hat ${count} Verstöße gegen die Mindestruhezeit von ${hours}h zwischen Schichten.`,
-    );
+    // Sort by from-date so output is chronological.
+    const sorted = [...violations].sort((a, b) => a.fromIso.localeCompare(b.fromIso));
+    if (sorted.length === 1) {
+      const v = sorted[0]!;
+      out.push(
+        v.fromIso && v.toIso
+          ? `Ruhezeit: ${name} hat nur ${fmtH(v.gapH)}h Ruhezeit zwischen ${fmtDate(v.fromIso)} und ${fmtDate(v.toIso)} (mind. ${minHours}h).`
+          : `Ruhezeit: ${name} hat einen Verstoß gegen die Mindestruhezeit von ${minHours}h zwischen Schichten.`,
+      );
+    } else {
+      const lines = sorted.map((v) =>
+        v.fromIso && v.toIso
+          ? `• ${fmtH(v.gapH)}h zwischen ${fmtDate(v.fromIso)} und ${fmtDate(v.toIso)}`
+          : "• (Datum unbekannt)",
+      );
+      out.push(
+        `Ruhezeit: ${name} hat ${sorted.length} Verstöße (mind. ${minHours}h):\n${lines.join("\n")}`,
+      );
+    }
   }
 
   for (const [empId, { total, limit }] of miniJobByEmp) {
@@ -344,13 +364,34 @@ export function formatRuleViolations(
     }
   }
 
-  for (const [empId, dates] of weekendByEmp) {
-    const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
-    const sortedDates = [...dates].sort();
-    const dateList = sortedDates.map(fmtDate).join(", ");
-    out.push(
-      `Wochenendregelung: ${name} arbeitet an aufeinanderfolgenden Wochenenden (${dateList}).`,
-    );
+  // Aggregate ALL Wochenendregelung violations into a single multi-line warning.
+  // Reasoning: typically many employees trigger this on the same weekends; a
+  // flat list of N cards drowns the drawer. The drawer renders \n as line
+  // breaks (whiteSpace: "pre-line") so this string becomes a header followed
+  // by a bullet list.
+  if (weekendByEmp.size > 0) {
+    const sortedEmps = [...weekendByEmp.entries()].sort(([aId], [bId]) => {
+      const aName = aId === "__none__" ? "" : (employeeNames.get(aId) ?? aId);
+      const bName = bId === "__none__" ? "" : (employeeNames.get(bId) ?? bId);
+      return aName.localeCompare(bName, "de");
+    });
+    if (sortedEmps.length === 1) {
+      const [empId, dates] = sortedEmps[0]!;
+      const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
+      const dateList = [...dates].sort().map(fmtDate).join(", ");
+      out.push(
+        `Wochenendregelung: ${name} arbeitet an aufeinanderfolgenden Wochenenden (${dateList}).`,
+      );
+    } else {
+      const lines = sortedEmps.map(([empId, dates]) => {
+        const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
+        const dateList = [...dates].sort().map(fmtDate).join(", ");
+        return `• ${name}: ${dateList}`;
+      });
+      out.push(
+        `Wochenendregelung: ${sortedEmps.length} Mitarbeiter arbeiten an aufeinanderfolgenden Wochenenden:\n${lines.join("\n")}`,
+      );
+    }
   }
 
   for (const [station, dates] of gapByStation) {

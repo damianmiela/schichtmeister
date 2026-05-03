@@ -56,7 +56,7 @@ describe("formatRuleViolations", () => {
 
   // ── INSUFFICIENT_REST ──
 
-  it("formats single INSUFFICIENT_REST per employee", () => {
+  it("falls back to short message when rule emits the legacy format (no gap+dates)", () => {
     const msgs: RuleMessage[] = [
       { ruleId: "minRestBetweenShifts", code: "INSUFFICIENT_REST", message: "Less than 11h rest between shifts.", employeeIds: ["e2"] },
     ];
@@ -65,15 +65,44 @@ describe("formatRuleViolations", () => {
     expect(result[0]).toBe("Ruhezeit: Anna Schmidt hat einen Verstoß gegen die Mindestruhezeit von 11h zwischen Schichten.");
   });
 
-  it("aggregates multiple INSUFFICIENT_REST for same employee", () => {
+  it("includes actual gap + dates when the rule provides them (single violation)", () => {
     const msgs: RuleMessage[] = [
-      { ruleId: "minRestBetweenShifts", code: "INSUFFICIENT_REST", message: "Less than 11h rest between shifts.", employeeIds: ["e2"] },
-      { ruleId: "minRestBetweenShifts", code: "INSUFFICIENT_REST", message: "Less than 11h rest between shifts.", employeeIds: ["e2"] },
+      {
+        ruleId: "minRestBetweenShifts",
+        code: "INSUFFICIENT_REST",
+        message: "Less than 11h rest between shifts: 8.5h from 2026-05-14 to 2026-05-15.",
+        employeeIds: ["e2"],
+      },
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
-    expect(result[0]).toContain("2 Verstöße");
-    expect(result[0]).toContain("Anna Schmidt");
+    expect(result[0]).toBe(
+      "Ruhezeit: Anna Schmidt hat nur 8.5h Ruhezeit zwischen 14.05. und 15.05. (mind. 11h).",
+    );
+  });
+
+  it("aggregates multiple INSUFFICIENT_REST for same employee with per-violation bullets", () => {
+    const msgs: RuleMessage[] = [
+      {
+        ruleId: "minRestBetweenShifts",
+        code: "INSUFFICIENT_REST",
+        message: "Less than 11h rest between shifts: 8.5h from 2026-05-14 to 2026-05-15.",
+        employeeIds: ["e2"],
+      },
+      {
+        ruleId: "minRestBetweenShifts",
+        code: "INSUFFICIENT_REST",
+        message: "Less than 11h rest between shifts: 9h from 2026-05-28 to 2026-05-29.",
+        employeeIds: ["e2"],
+      },
+    ];
+    const result = formatRuleViolations(msgs, empNames);
+    expect(result).toHaveLength(1);
+    const text = result[0]!;
+    expect(text).toContain("Ruhezeit: Anna Schmidt hat 2 Verstöße (mind. 11h):");
+    // Each violation shows up as a bullet line, sorted chronologically.
+    expect(text).toContain("• 8.5h zwischen 14.05. und 15.05.");
+    expect(text).toContain("• 9h zwischen 28.05. und 29.05.");
   });
 
   // ── MINI_JOB_CAP ──
@@ -248,6 +277,44 @@ describe("formatRuleViolations", () => {
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result[0]).toBe("Something happened.");
+  });
+
+  // ── ALTERNATING_WEEKEND_VIOLATION (Wochenendregelung) ──
+
+  it("emits a single line for one employee with one violation", () => {
+    const msgs: RuleMessage[] = [
+      {
+        ruleId: "alternatingWeekends",
+        code: "ALTERNATING_WEEKEND_VIOLATION",
+        message: "Anna Schmidt works consecutive weekends around 2026-05-09.",
+        employeeIds: ["e2"],
+      },
+    ];
+    const result = formatRuleViolations(msgs, empNames);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toBe(
+      "Wochenendregelung: Anna Schmidt arbeitet an aufeinanderfolgenden Wochenenden (09.05.).",
+    );
+  });
+
+  it("aggregates multiple employees into ONE multi-line warning", () => {
+    const msgs: RuleMessage[] = [
+      // e1 = Max Müller, two dates
+      { ruleId: "alternatingWeekends", code: "ALTERNATING_WEEKEND_VIOLATION", message: "Max Müller works consecutive weekends around 2026-05-09.", employeeIds: ["e1"] },
+      { ruleId: "alternatingWeekends", code: "ALTERNATING_WEEKEND_VIOLATION", message: "Max Müller works consecutive weekends around 2026-05-16.", employeeIds: ["e1"] },
+      // e2 = Anna Schmidt, one date
+      { ruleId: "alternatingWeekends", code: "ALTERNATING_WEEKEND_VIOLATION", message: "Anna Schmidt works consecutive weekends around 2026-05-23.", employeeIds: ["e2"] },
+    ];
+    const result = formatRuleViolations(msgs, empNames);
+    // Should produce ONE aggregated string, not three.
+    expect(result).toHaveLength(1);
+    const text = result[0]!;
+    expect(text).toContain("Wochenendregelung: 2 Mitarbeiter arbeiten an aufeinanderfolgenden Wochenenden:");
+    // Bullet entries — name comes first, sorted alphabetically.
+    const lines = text.split("\n");
+    expect(lines[0]).toContain("Wochenendregelung: 2 Mitarbeiter");
+    expect(lines[1]).toBe("• Anna Schmidt: 23.05.");
+    expect(lines[2]).toBe("• Max Müller: 09.05., 16.05.");
   });
 
   // ── Mixed messages ──
