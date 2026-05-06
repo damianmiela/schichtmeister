@@ -102,13 +102,15 @@ DEFAULT_W_SOLL_HARD_MINI = 3_000
 DEFAULT_W_OVER_SOLL_T1_FT = 50
 DEFAULT_W_OVER_SOLL_T2_FT = 150
 DEFAULT_W_OVER_SOLL_T3_FT = 800       # was 400 — 2× steeper escalation
-DEFAULT_W_OVER_SOLL_T4_FT = 2_500     # was 1,000 — 2.5× (just below the
-                                      # "leave-slot-empty" threshold so
-                                      # Vollabdeckung still wins coverage)
+DEFAULT_W_OVER_SOLL_T4_FT = 5_000     # was 2,500 — 2× bump per pruefstand
+                                      # combined_t4_x_altw sweep (drops
+                                      # max-over-Soll from 40h to 32h on
+                                      # May 2026 input, BL preserved).
 DEFAULT_W_OVER_SOLL_T1_PT = 150
 DEFAULT_W_OVER_SOLL_T2_PT = 400
 DEFAULT_W_OVER_SOLL_T3_PT = 2_000     # was 1,000 — 2× steeper
-DEFAULT_W_OVER_SOLL_T4_PT = 6_000     # was 2,500 — 2.4×
+DEFAULT_W_OVER_SOLL_T4_PT = 12_000    # was 6,000 — 2× bump (paired with
+                                       # T4_FT 2× bump above, same sweep).
 DEFAULT_W_OVER_SOLL_T1_MINI = 1_000
 DEFAULT_W_OVER_SOLL_T2_MINI = 3_000
 DEFAULT_W_OVER_SOLL_T3_MINI = 8_000
@@ -164,7 +166,11 @@ DEFAULT_W_RELAX_WBL_WEEKEND_LIMIT = 250_000
 DEFAULT_W_RELAX_WBL_BL_MAX_PER_WEEK = 5_000_000
 DEFAULT_W_RELAX_WBL_BL_WEEKLY_MIN = 5_000_000
 DEFAULT_W_RELAX_REST_AFTER_6 = 150_000
-DEFAULT_W_RELAX_ALT_WEEKENDS = 80_000
+DEFAULT_W_RELAX_ALT_WEEKENDS = 800_000   # was 80,000 — 10× bump per
+                                          # pruefstand combined_t4_x_altw
+                                          # sweep (drops alt-weekend
+                                          # violations from 42 to 35 on
+                                          # May 2026, no breakage).
 
 
 # ══════════════════════════════════════════════════════════════════════
