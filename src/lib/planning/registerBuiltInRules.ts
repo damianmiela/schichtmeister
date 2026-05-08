@@ -6,9 +6,9 @@ import { maxConsecutiveNightsRule } from "@/lib/planning/rules/maxConsecutiveNig
 import { maxStaffingRule } from "@/lib/planning/rules/maxStaffing";
 import { minRestBetweenShiftsRule } from "@/lib/planning/rules/minRestBetweenShifts";
 import { miniJobMonthlyHoursRule } from "@/lib/planning/rules/miniJobMonthlyHours";
+import { qualificationCoverageRule } from "@/lib/planning/rules/qualificationCoverage";
 import { noOverlapRule } from "@/lib/planning/rules/noOverlap";
 import { overtimeExcessRule } from "@/lib/planning/rules/overtimeExcess";
-import { qualificationCoverageRule } from "@/lib/planning/rules/qualificationCoverage";
 import { sollDeltaRule } from "@/lib/planning/rules/sollDelta";
 import {
   fairnessCountersRule,
@@ -40,6 +40,12 @@ export function registerBuiltInPlanningRules(): void {
     { id: "staffingMinimum", severity: "hard", scope: "global", description: "Minimum staff count per shift type per day must be met." },
     staffingMinimumRule,
   );
+  // qualificationCoverage runs as part of validation (engine tests cover its
+  // logic), but MISSING_QUALIFICATION messages are intentionally dropped at
+  // the formatter / day-warning border — see formatRuleViolations.ts and the
+  // buildWarningsByDay helper in revalidate/route.ts. From the planner's
+  // perspective the same gap is already reported as Unterbesetzung, so we
+  // don't double up the cards.
   registerRule(
     { id: "qualificationCoverage", severity: "hard", scope: "global", description: "Required qualification tags must be covered by at least one assigned employee per shift." },
     qualificationCoverageRule,

@@ -41,10 +41,6 @@ type Rule = {
 const RULES: Rule[] = [
   // ── RED: empty slot or data conflict ──────────────────────────────────
   { prefix: "Unterbesetzung",            severity: "red",    category: "Unterbesetzung",           groupKey: "UNDERSTAFFED"          },
-  // "Fehlende Qualifikation" must come BEFORE "Qualifikation" since the
-  // aggregated header starts with "Fehlende …" rather than "Qualifikation …".
-  { prefix: "Fehlende Qualifikation",    severity: "red",    category: "Fehlende Qualifikation",   groupKey: "MISSING_QUALIFICATION" },
-  { prefix: "Qualifikation",             severity: "red",    category: "Fehlende Qualifikation",   groupKey: "MISSING_QUALIFICATION" },
   { prefix: "Schichtüberlappung",        severity: "red",    category: "Schichtüberlappung",       groupKey: "OVERLAP"               },
   { prefix: "Abwesenheitskonflikt",      severity: "red",    category: "Abwesenheitskonflikt",     groupKey: "ABSENCE_CONFLICT"      },
   { prefix: "Fehlende Schichtprofile",   severity: "red",    category: "Datenintegrität",          groupKey: "MISSING_PROFILE"       },
@@ -210,7 +206,6 @@ export function countBySeverity(
 export const SEVERITY_BY_CODE: Record<string, WarningSeverity> = {
   // RED
   UNDERSTAFFED:                 "red",
-  MISSING_QUALIFICATION:        "red",
   OVERLAP:                      "red",
   ABSENCE_CONFLICT:             "red",
   MISSING_PROFILE:              "red",

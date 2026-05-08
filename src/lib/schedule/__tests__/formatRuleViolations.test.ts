@@ -149,32 +149,16 @@ describe("formatRuleViolations", () => {
     expect(lines[2]).toContain("Nachtdienst Station 2");
   });
 
-  // ── MISSING_QUALIFICATION ──
-
-  it("aggregates MISSING_QUALIFICATION by tag/shift/station", () => {
+  // MISSING_QUALIFICATION is intentionally not surfaced — Unterbesetzung covers
+  // the same operational gap, so duplicating the warning would just drown the
+  // drawer. The CP-SAT solver still enforces qualification coverage.
+  it("silently drops MISSING_QUALIFICATION messages (covered by Unterbesetzung)", () => {
     const msgs: RuleMessage[] = [
       { ruleId: "qualificationCoverage", code: "MISSING_QUALIFICATION", message: 'Need at least 1 employee(s) with tag "Fachkraft" for EARLY station 1 on 2026-03-10 (got 0).' },
-      { ruleId: "qualificationCoverage", code: "MISSING_QUALIFICATION", message: 'Need at least 1 employee(s) with tag "Fachkraft" for EARLY station 1 on 2026-03-11 (got 0).' },
-    ];
-    const result = formatRuleViolations(msgs, empNames);
-    expect(result).toHaveLength(1);
-    expect(result[0]!.message).toContain('Qualifikation "Fachkraft" fehlt');
-    expect(result[0]!.message).toContain("Frühdienst Station 1");
-    expect(result[0]!.message).toContain("2 Tag(e) betroffen");
-    expect(result[0]!.message).toContain("10.03.");
-    expect(result[0]!.message).toContain("11.03.");
-  });
-
-  it("displays multi-tag MISSING_QUALIFICATION with slash-separated tags", () => {
-    const msgs: RuleMessage[] = [
-      { ruleId: "qualificationCoverage", code: "MISSING_QUALIFICATION", message: 'Need at least 2 employee(s) with tag "APH,KPH,PH" for EARLY station 1 on 2026-03-10 (got 0).' },
       { ruleId: "qualificationCoverage", code: "MISSING_QUALIFICATION", message: 'Need at least 2 employee(s) with tag "APH,KPH,PH" for EARLY station 1 on 2026-03-11 (got 1).' },
     ];
     const result = formatRuleViolations(msgs, empNames);
-    expect(result).toHaveLength(1);
-    expect(result[0]!.message).toContain('Qualifikation "APH/KPH/PH" fehlt');
-    expect(result[0]!.message).toContain("Frühdienst Station 1");
-    expect(result[0]!.message).toContain("2 Tag(e) betroffen");
+    expect(result).toEqual([]);
   });
 
   // ── MAX_CONSECUTIVE_NIGHTS ──

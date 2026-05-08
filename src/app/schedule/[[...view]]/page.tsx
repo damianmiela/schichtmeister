@@ -2092,6 +2092,7 @@ export default function SchedulePage() {
                   >
                     <Badge
                       badgeContent={totalWarningCount}
+                      max={9999}
                       sx={{
                         "& .MuiBadge-badge": {
                           bgcolor: warnIconColor ?? "warning.main",

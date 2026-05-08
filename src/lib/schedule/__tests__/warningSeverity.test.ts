@@ -10,7 +10,6 @@ import {
 describe("classifyWarning", () => {
   it("classifies empty-slot rules as red", () => {
     expect(classifyWarning("Unterbesetzung Spätdienst Station 1: 1 Tag(e) unterbesetzt — 07.05.").severity).toBe("red");
-    expect(classifyWarning('Qualifikation "PFK" fehlt — Spätdienst Station 1: 1 Tag(e) betroffen — 07.05.').severity).toBe("red");
     expect(classifyWarning("Schichtüberlappung: Anna Schmidt hat eine überlappende Schichtzuweisung.").severity).toBe("red");
     expect(classifyWarning('Abwesenheitskonflikt: Max Müller ist als "K" eingetragen, hat aber Schichtzuweisungen am 07.05.').severity).toBe("red");
     expect(classifyWarning("Fehlende Schichtprofile: 2 Zuweisung(en) ohne gültiges Schichtprofil.").severity).toBe("red");
@@ -96,7 +95,6 @@ describe("groupWarningsBySeverity", () => {
 describe("severityForCode", () => {
   it("returns the correct tier for known codes", () => {
     expect(severityForCode("UNDERSTAFFED")).toBe("red");
-    expect(severityForCode("MISSING_QUALIFICATION")).toBe("red");
     expect(severityForCode("INSUFFICIENT_REST")).toBe("yellow");
     expect(severityForCode("SOLL_UNDER")).toBe("yellow");
     expect(severityForCode("STATION_COVERAGE_GAP")).toBe("green");
@@ -116,8 +114,6 @@ describe("classifier covers every aggregated card header", () => {
     // Kritisch — empty slot / data conflict
     { message: "Unterbesetzung: 2 Schichten, 4 Tag(e) gesamt:",                              severity: "red" },
     { message: "Unterbesetzung Frühdienst Station 1: 1 Tag(e) unterbesetzt — 07.05.",        severity: "red" },
-    { message: 'Fehlende Qualifikation: 2 Stellen, 2 Tag(e) gesamt:',                        severity: "red" },
-    { message: 'Qualifikation "PFK" fehlt — Spätdienst Station 1: 1 Tag(e) betroffen — 07.05.', severity: "red" },
     { message: "Schichtüberlappung: 3 Mitarbeiter mit überlappenden Schichten:",             severity: "red" },
     { message: "Abwesenheitskonflikt: 2 Mitarbeiter mit Schichten trotz Abwesenheit:",       severity: "red" },
     { message: "Fehlende Schichtprofile: 1 Zuweisung(en) ohne gültiges Schichtprofil.",      severity: "red" },

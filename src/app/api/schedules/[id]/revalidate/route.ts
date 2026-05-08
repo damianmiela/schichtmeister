@@ -51,13 +51,6 @@ function buildWarningsByDay(
         desc = `Überbesetzung ${SHIFT_DE[st] ?? st} Station ${stn}`;
         break;
       }
-      case "MISSING_QUALIFICATION": {
-        const tag = msg.message.match(/tag "([^"]+)"/)?.[1] ?? "";
-        const st = msg.message.match(/for (\w+) station/)?.[1] ?? "";
-        const stn = msg.message.match(/station (\d+)/)?.[1] ?? "";
-        desc = `Qualifikation "${tag}" fehlt — ${SHIFT_DE[st] ?? st} Station ${stn}`;
-        break;
-      }
       case "OVERLAP": {
         desc = `Schichtüberlappung: ${empName(msg.employeeIds)}`;
         break;

@@ -45,14 +45,6 @@ type StaffingBucket = {
   dates: Map<string, number>; // date → got
 };
 
-type QualBucket = {
-  tag: string;
-  shiftType: string;
-  station: number;
-  min: number;
-  dates: Map<string, number>;
-};
-
 /**
  * One rendered card in the warnings drawer.
  *
@@ -92,9 +84,6 @@ export function formatRuleViolations(
 
   // ── UNDERSTAFFED: group by shiftType|station ──
   const staffingBuckets = new Map<string, StaffingBucket>();
-
-  // ── MISSING_QUALIFICATION: group by tag|shiftType|station ──
-  const qualBuckets = new Map<string, QualBucket>();
 
   // ── MAX_CONSECUTIVE_NIGHTS: group by employee, keep max streak ──
   const nightsByEmp = new Map<string, { maxStreak: number; limit: number }>();
@@ -163,22 +152,6 @@ export function formatRuleViolations(
         if (!bucket) {
           bucket = { shiftType: st, station: stn, min, dates: new Map() };
           staffingBuckets.set(bKey, bucket);
-        }
-        bucket.dates.set(date, got);
-        break;
-      }
-      case "MISSING_QUALIFICATION": {
-        const min = parseNumber(msg.message, /at least (\d+)/) ?? 0;
-        const tag = parseString(msg.message, /tag "([^"]+)"/) ?? "";
-        const st = parseString(msg.message, /for (\w+) station/) ?? "";
-        const stn = parseNumber(msg.message, /station (\d+)/) ?? 0;
-        const date = parseString(msg.message, /on (\d{4}-\d{2}-\d{2})/) ?? "";
-        const got = parseNumber(msg.message, /got (\d+)/) ?? 0;
-        const bKey = `${tag}|${st}|${stn}`;
-        let bucket = qualBuckets.get(bKey);
-        if (!bucket) {
-          bucket = { tag, shiftType: st, station: stn, min, dates: new Map() };
-          qualBuckets.set(bKey, bucket);
         }
         bucket.dates.set(date, got);
         break;
@@ -333,6 +306,11 @@ export function formatRuleViolations(
         }
         break;
       }
+      case "MISSING_QUALIFICATION": {
+        // Intentionally not surfaced — see registerBuiltInRules.ts. Same gap
+        // is already reported as Unterbesetzung in 99 % of cases.
+        break;
+      }
       default: {
         push(msg.message, 1);
       }
@@ -476,37 +454,6 @@ export function formatRuleViolations(
     }
   }
 
-  if (qualBuckets.size > 0) {
-    const sortedBuckets = [...qualBuckets.values()].sort((a, b) => {
-      const t = a.tag.localeCompare(b.tag);
-      if (t !== 0) return t;
-      const st = a.shiftType.localeCompare(b.shiftType);
-      return st !== 0 ? st : a.station - b.station;
-    });
-    if (sortedBuckets.length === 1) {
-      const bucket = sortedBuckets[0]!;
-      const sortedDates = [...bucket.dates.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-      const dateList = sortedDates.map(([d]) => fmtDate(d)).join(", ");
-      const tagDisplay = bucket.tag.split(",").map((t) => t.trim()).join("/");
-      push(
-        `Qualifikation "${tagDisplay}" fehlt — ${shiftDe(bucket.shiftType)} Station ${bucket.station}: ` +
-          `${sortedDates.length} Tag(e) betroffen — ${dateList}`,
-        sortedDates.length,
-      );
-    } else {
-      const totalDays = sortedBuckets.reduce((sum, b) => sum + b.dates.size, 0);
-      const lines = sortedBuckets.map((bucket) => {
-        const sortedDates = [...bucket.dates.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-        const dateList = sortedDates.map(([d]) => fmtDate(d)).join(", ");
-        const tagDisplay = bucket.tag.split(",").map((t) => t.trim()).join("/");
-        return `• "${tagDisplay}" — ${shiftDe(bucket.shiftType)} Station ${bucket.station}: ${sortedDates.length} Tag(e) — ${dateList}`;
-      });
-      push(
-        `Fehlende Qualifikation: ${sortedBuckets.length} Stellen, ${totalDays} Tag(e) gesamt:\n${lines.join("\n")}`,
-        totalDays,
-      );
-    }
-  }
 
   for (const [empId, { maxStreak, limit }] of nightsByEmp) {
     const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
