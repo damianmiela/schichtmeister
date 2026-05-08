@@ -74,6 +74,11 @@ import EventAvailableIcon from "@mui/icons-material/EventAvailable";
 import EventBusyIcon from "@mui/icons-material/EventBusy";
 import TuneIcon from "@mui/icons-material/Tune";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import PersonOffIcon from "@mui/icons-material/PersonOff";
+import TimerIcon from "@mui/icons-material/Timer";
+import TrendingFlatIcon from "@mui/icons-material/TrendingFlat";
+import DoneAllIcon from "@mui/icons-material/DoneAll";
+import CropFreeIcon from "@mui/icons-material/CropFree";
 import { ApiError, fetchJson } from "@/lib/api/fetchJson";
 import {
   monthRangeIso,
@@ -2437,6 +2442,12 @@ export default function SchedulePage() {
               }}
             >
               <Tab
+                value="settings"
+                icon={<TuneIcon sx={{ fontSize: 18 }} />}
+                iconPosition="start"
+                label="Generator-Einstellungen"
+              />
+              <Tab
                 value="wishes"
                 icon={<EventAvailableIcon sx={{ fontSize: 18 }} />}
                 iconPosition="start"
@@ -2446,15 +2457,9 @@ export default function SchedulePage() {
                     : "Wünsche & Abwesenheiten"
                 }
               />
-              <Tab
-                value="settings"
-                icon={<TuneIcon sx={{ fontSize: 18 }} />}
-                iconPosition="start"
-                label="Generator-Einstellungen"
-              />
             </Tabs>
 
-            {schedule?.preGenWishes?.savedEntries?.length ? (
+            {preGenTab === "wishes" && schedule?.preGenWishes?.savedEntries?.length ? (
               <Tooltip title="Gespeicherte Vorgaben werden bei jedem Lauf wieder geladen.">
                 <Chip
                   size="small"
@@ -2491,7 +2496,7 @@ export default function SchedulePage() {
                     const TypeIcon =
                       entry.type === "shift"   ? EventAvailableIcon :
                       entry.type === "frei"    ? EventBusyIcon :
-                                                 SickIcon;
+                                                 PersonOffIcon;
                     return (
                       <Box
                         key={idx}
@@ -2741,7 +2746,7 @@ export default function SchedulePage() {
                 <Button
                   size="small"
                   variant="outlined"
-                  startIcon={<SickIcon />}
+                  startIcon={<PersonOffIcon />}
                   onClick={() => addPreGenEntry("absence")}
                   disabled={planningEmployees.length === 0}
                   sx={{
@@ -2812,12 +2817,29 @@ export default function SchedulePage() {
                   }}
                   size="small"
                   fullWidth
-                  sx={{ mb: 1.5 }}
+                  sx={{
+                    mb: 1.5,
+                    "& .MuiToggleButton-root": {
+                      textTransform: "none",
+                      fontWeight: 600,
+                      gap: 0.75,
+                      py: 1,
+                      borderColor: "divider",
+                    },
+                    "& .MuiToggleButton-root.Mui-selected": {
+                      bgcolor: (t) => t.palette.primary.main,
+                      color: "#fff",
+                      borderColor: (t) => t.palette.primary.main,
+                      "&:hover": { bgcolor: (t) => t.palette.primary.dark },
+                    },
+                  }}
                 >
-                  <ToggleButton value="FIXED" sx={{ textTransform: "none", py: 0.75 }}>
+                  <ToggleButton value="FIXED">
+                    <TimerIcon sx={{ fontSize: 18 }} />
                     Festes Zeitlimit
                   </ToggleButton>
-                  <ToggleButton value="PLATEAU" sx={{ textTransform: "none", py: 0.75 }}>
+                  <ToggleButton value="PLATEAU">
+                    <TrendingFlatIcon sx={{ fontSize: 18 }} />
                     Plateau-Erkennung (Test)
                   </ToggleButton>
                 </ToggleButtonGroup>
@@ -2914,12 +2936,38 @@ export default function SchedulePage() {
                   }}
                   size="small"
                   fullWidth
-                  sx={{ mb: 1 }}
+                  sx={{
+                    mb: 1,
+                    "& .MuiToggleButton-root": {
+                      textTransform: "none",
+                      fontWeight: 600,
+                      gap: 0.75,
+                      py: 1,
+                      borderColor: "divider",
+                    },
+                    // The two strategies pull in opposite directions, so each
+                    // active state gets its own colour — green for "fill everything"
+                    // (the optimistic / preferred default) and amber for "leave gaps".
+                    "& .MuiToggleButton-root[value='PREFER_FULL_COVERAGE'].Mui-selected": {
+                      bgcolor: "#2e7d32",
+                      color: "#fff",
+                      borderColor: "#2e7d32",
+                      "&:hover": { bgcolor: "#1b5e20" },
+                    },
+                    "& .MuiToggleButton-root[value='PREFER_GAPS'].Mui-selected": {
+                      bgcolor: "#ed6c02",
+                      color: "#fff",
+                      borderColor: "#ed6c02",
+                      "&:hover": { bgcolor: "#c95a02" },
+                    },
+                  }}
                 >
-                  <ToggleButton value="PREFER_FULL_COVERAGE" sx={{ textTransform: "none", py: 0.75 }}>
+                  <ToggleButton value="PREFER_FULL_COVERAGE">
+                    <DoneAllIcon sx={{ fontSize: 18 }} />
                     Vollabdeckung anstreben
                   </ToggleButton>
-                  <ToggleButton value="PREFER_GAPS" sx={{ textTransform: "none", py: 0.75 }}>
+                  <ToggleButton value="PREFER_GAPS">
+                    <CropFreeIcon sx={{ fontSize: 18 }} />
                     Lieber Slot leer lassen
                   </ToggleButton>
                 </ToggleButtonGroup>
