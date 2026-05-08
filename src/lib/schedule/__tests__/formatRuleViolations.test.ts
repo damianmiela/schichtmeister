@@ -136,17 +136,19 @@ describe("formatRuleViolations", () => {
     expect(result[0]!.message).toContain("15.03.");
   });
 
-  it("aggregates UNDERSTAFFED across shift/station buckets into ONE multi-line warning", () => {
+  it("aggregates UNDERSTAFFED into a per-date breakdown (Tage-betroffen header)", () => {
     const msgs: RuleMessage[] = [
       { ruleId: "staffingMinimum", code: "UNDERSTAFFED", message: "Need at least 2 for EARLY station 1 on 2026-03-08 (got 1)." },
       { ruleId: "staffingMinimum", code: "UNDERSTAFFED", message: "Need at least 3 for NIGHT station 2 on 2026-03-09 (got 1)." },
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
-    const lines = result[0]!!.message.split("\n");
-    expect(lines[0]).toBe("Unterbesetzung: 2 Schichten, 2 Tag(e) gesamt:");
-    expect(lines[1]).toContain("Frühdienst Station 1");
-    expect(lines[2]).toContain("Nachtdienst Station 2");
+    const lines = result[0]!.message.split("\n");
+    // Header counts unique days only — no "X Schichten" anymore.
+    expect(lines[0]).toBe("Unterbesetzung: 2 Tage betroffen:");
+    // Per-date rows; Nacht is facility-wide so no station list.
+    expect(lines[1]).toBe("• 08.03. — Früh(1)");
+    expect(lines[2]).toBe("• 09.03. — Nacht");
   });
 
   // MISSING_QUALIFICATION is intentionally not surfaced — Unterbesetzung covers
@@ -525,15 +527,18 @@ describe("formatRuleViolations — raw violation counts", () => {
     expect(result[0]!.count).toBe(3);
   });
 
-  it("Unterbesetzung → count = total understaffed days across all buckets", () => {
+  it("Unterbesetzung → count = total missing person-slots (sum of min - got)", () => {
     const msgs: RuleMessage[] = [
+      // EARLY St1 08.05: needs 2, got 1 → 1 missing
       { ruleId: "staffingMinimum", code: "UNDERSTAFFED", message: "Need at least 2 for EARLY station 1 on 2026-05-08 (got 1)." },
+      // EARLY St1 09.05: needs 2, got 1 → 1 missing
       { ruleId: "staffingMinimum", code: "UNDERSTAFFED", message: "Need at least 2 for EARLY station 1 on 2026-05-09 (got 1)." },
+      // NIGHT St2 10.05: needs 3, got 1 → 2 missing
       { ruleId: "staffingMinimum", code: "UNDERSTAFFED", message: "Need at least 3 for NIGHT station 2 on 2026-05-10 (got 1)." },
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
-    expect(result[0]!.count).toBe(3);
+    expect(result[0]!.count).toBe(4); // 1 + 1 + 2 = 4 person-slots short
   });
 
   it("Schichtüberlappung — count sums over employees", () => {

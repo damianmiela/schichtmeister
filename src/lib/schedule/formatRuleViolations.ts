@@ -435,21 +435,68 @@ export function formatRuleViolations(
       const bucket = sortedBuckets[0]!;
       const sortedDates = [...bucket.dates.entries()].sort((a, b) => a[0].localeCompare(b[0]));
       const dateList = sortedDates.map(([d]) => fmtDate(d)).join(", ");
+      // Single-bucket count = sum of (min - got) across each day (raw missing slots).
+      const missing = sortedDates.reduce((sum, [, got]) => sum + Math.max(0, bucket.min - got), 0);
       push(
         `Unterbesetzung ${shiftDe(bucket.shiftType)} Station ${bucket.station}: ` +
           `${sortedDates.length} Tag(e) unterbesetzt (min. ${bucket.min} Mitarbeiter benötigt) — ${dateList}`,
-        sortedDates.length,
+        missing,
       );
     } else {
-      const totalDays = sortedBuckets.reduce((sum, b) => sum + b.dates.size, 0);
-      const lines = sortedBuckets.map((bucket) => {
-        const sortedDates = [...bucket.dates.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-        const dateList = sortedDates.map(([d]) => fmtDate(d)).join(", ");
-        return `• ${shiftDe(bucket.shiftType)} Station ${bucket.station}: ${sortedDates.length} Tag(e) — ${dateList}`;
-      });
+      // ── Multi-bucket → pivot by date so the planner sees, per day, which
+      //    shifts/stations are short-staffed. Far more actionable than the
+      //    previous "by shift/station" cross-tab.
+
+      // Short German labels for the per-date row (no "-dienst" suffix).
+      const SHIFT_LABEL_SHORT: Record<string, string> = {
+        EARLY: "Früh",
+        LATE:  "Spät",
+        NIGHT: "Nacht",
+        BL:    "BL",
+      };
+
+      // date → shiftType → list of station numbers (one entry per shift+station bucket
+      // with that date as a violation).
+      const byDate = new Map<string, Map<string, number[]>>();
+      let missingSlots = 0;
+      for (const bucket of sortedBuckets) {
+        for (const [date, got] of bucket.dates) {
+          missingSlots += Math.max(0, bucket.min - got);
+          const shiftMap = byDate.get(date) ?? new Map<string, number[]>();
+          const stations = shiftMap.get(bucket.shiftType) ?? [];
+          stations.push(bucket.station);
+          shiftMap.set(bucket.shiftType, stations);
+          byDate.set(date, shiftMap);
+        }
+      }
+
+      // Stable shift order in the per-date summary.
+      const SHIFT_ORDER = ["EARLY", "LATE", "NIGHT", "BL"];
+
+      const lines: string[] = [];
+      for (const date of [...byDate.keys()].sort()) {
+        const shiftMap = byDate.get(date)!;
+        const parts: string[] = [];
+        for (const shiftType of SHIFT_ORDER) {
+          const stations = shiftMap.get(shiftType);
+          if (!stations || stations.length === 0) continue;
+          const label = SHIFT_LABEL_SHORT[shiftType] ?? shiftType;
+          // Facility-wide shifts (Nacht, BL) often use station 0 / no station —
+          // omit the station list to keep them clean.
+          const isFacilityWide = shiftType === "NIGHT" || shiftType === "BL";
+          if (isFacilityWide || stations.every((n) => n === 0)) {
+            parts.push(label);
+          } else {
+            const ordered = [...new Set(stations)].sort((a, b) => a - b);
+            parts.push(`${label}(${ordered.join(",")})`);
+          }
+        }
+        lines.push(`• ${fmtDate(date)} — ${parts.join(", ")}`);
+      }
+
       push(
-        `Unterbesetzung: ${sortedBuckets.length} Schichten, ${totalDays} Tag(e) gesamt:\n${lines.join("\n")}`,
-        totalDays,
+        `Unterbesetzung: ${byDate.size} ${byDate.size === 1 ? "Tag" : "Tage"} betroffen:\n${lines.join("\n")}`,
+        missingSlots,
       );
     }
   }
