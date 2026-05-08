@@ -97,16 +97,28 @@ export function classifyWarning(message: string): ClassifiedWarning {
 /** Fixed render order: critical first, then rule violations, then notices. */
 export const SEVERITY_ORDER: readonly WarningSeverity[] = ["red", "yellow", "green"] as const;
 
+/**
+ * Helper input type — accept either plain message strings or the richer
+ * { message, count } shape. The classifier only looks at the message text,
+ * so callers can pass whichever they have.
+ */
+type Classifiable = string | { message: string; count?: number };
+
+const messageOf = (m: Classifiable): string =>
+  typeof m === "string" ? m : m.message;
+const countOf = (m: Classifiable): number =>
+  typeof m === "string" ? 1 : (m.count ?? 1);
+
 /** Returns the highest severity present in the input, or undefined if empty. */
-export function highestSeverity(messages: readonly string[]): WarningSeverity | undefined {
-  if (messages.length === 0) return undefined;
+export function highestSeverity(items: readonly Classifiable[]): WarningSeverity | undefined {
+  if (items.length === 0) return undefined;
   let seenYellow = false;
   let seenGreen = false;
-  for (const m of messages) {
-    const s = classifyWarning(m).severity;
-    if (s === "red") return "red";
-    if (s === "yellow") seenYellow = true;
-    else if (s === "green") seenGreen = true;
+  for (const it of items) {
+    const sev = classifyWarning(messageOf(it)).severity;
+    if (sev === "red") return "red";
+    if (sev === "yellow") seenYellow = true;
+    else if (sev === "green") seenGreen = true;
   }
   return seenYellow ? "yellow" : seenGreen ? "green" : undefined;
 }
@@ -151,31 +163,40 @@ export const SEVERITY_TOKENS: Record<WarningSeverity, {
   },
 };
 
-/** Group classified warnings by severity → category → list. */
+/**
+ * One row inside a severity section (used by the drawer's per-rule sub-groups).
+ * Carries the raw violation `count` for accurate per-row totals.
+ */
+export type ClassifiedItem = ClassifiedWarning & { count: number };
+
+/** Group classified warnings by severity → category → list (with counts). */
 export function groupWarningsBySeverity(
-  messages: readonly string[],
-): Record<WarningSeverity, Map<string, ClassifiedWarning[]>> {
-  const out: Record<WarningSeverity, Map<string, ClassifiedWarning[]>> = {
+  items: readonly Classifiable[],
+): Record<WarningSeverity, Map<string, ClassifiedItem[]>> {
+  const out: Record<WarningSeverity, Map<string, ClassifiedItem[]>> = {
     red: new Map(),
     yellow: new Map(),
     green: new Map(),
   };
-  for (const m of messages) {
-    const c = classifyWarning(m);
+  for (const it of items) {
+    const c = classifyWarning(messageOf(it));
+    const enriched: ClassifiedItem = { ...c, count: countOf(it) };
     const map = out[c.severity];
     const arr = map.get(c.groupKey) ?? [];
-    arr.push(c);
+    arr.push(enriched);
     map.set(c.groupKey, arr);
   }
   return out;
 }
 
-/** Total count of warnings per severity (for badges/chips). */
+/** Total raw-violation count per severity (badges/chips). */
 export function countBySeverity(
-  messages: readonly string[],
+  items: readonly Classifiable[],
 ): Record<WarningSeverity, number> {
   const out: Record<WarningSeverity, number> = { red: 0, yellow: 0, green: 0 };
-  for (const m of messages) out[classifyWarning(m).severity]++;
+  for (const it of items) {
+    out[classifyWarning(messageOf(it)).severity] += countOf(it);
+  }
   return out;
 }
 

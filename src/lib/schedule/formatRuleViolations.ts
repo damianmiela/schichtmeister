@@ -53,11 +53,28 @@ type QualBucket = {
   dates: Map<string, number>;
 };
 
+/**
+ * One rendered card in the warnings drawer.
+ *
+ * `count` is the *raw* number of rule violations represented by this card —
+ * one per (rule, employee, day/shift/pair) — so the toolbar badge and the
+ * severity chips reflect actual violations, not "number of grouped cards".
+ *
+ * Example: a card "Soll-Stunden: 6 Mitarbeiter außerhalb des Sollbereichs"
+ * has count = 6, not 1.
+ */
+export type FormattedWarning = {
+  message: string;
+  count: number;
+};
+
 export function formatRuleViolations(
   messages: RuleMessage[],
   employeeNames: EmployeeLookup,
-): string[] {
-  const out: string[] = [];
+): FormattedWarning[] {
+  const out: FormattedWarning[] = [];
+  // Helper: small wrapper to keep call sites readable.
+  const push = (message: string, count: number) => out.push({ message, count });
 
   // ── STATION_COVERAGE_GAP: group by station, collect dates ──
   const gapByStation = new Map<number, string[]>(); // station → list of date strings
@@ -188,7 +205,7 @@ export function formatRuleViolations(
       }
       case "PROFILE_NOT_ALLOWED": {
         const name = eName(msg.employeeIds, employeeNames);
-        out.push(`Nicht erlaubtes Schichtprofil: ${name} ist einem Profil zugewiesen, das nicht in der erlaubten Liste steht.`);
+        push(`Nicht erlaubtes Schichtprofil: ${name} ist einem Profil zugewiesen, das nicht in der erlaubten Liste steht.`, 1);
         break;
       }
       case "ABSENCE_CONFLICT": {
@@ -217,14 +234,14 @@ export function formatRuleViolations(
         const date = parseString(msg.message, /on (\d{4}-\d{2}-\d{2})/) ?? "";
         const got = parseNumber(msg.message, /has (\d+) employees/) ?? 0;
         const max = parseNumber(msg.message, /max (\d+)/) ?? 0;
-        out.push(`Überbesetzung: ${shiftDe(st)} Station ${stn} am ${fmtDate(date)} — ${got}/${max} (max. ${max} erlaubt).`);
+        push(`Überbesetzung: ${shiftDe(st)} Station ${stn} am ${fmtDate(date)} — ${got}/${max} (max. ${max} erlaubt).`, 1);
         break;
       }
       case "OVERTIME_EXCESS": {
         const name = eName(msg.employeeIds, employeeNames);
         const hrs = parseNumber(msg.message, /has (\d+\.?\d*)h/) ?? 0;
         const soll = parseNumber(msg.message, /Soll: (\d+\.?\d*)h/) ?? 0;
-        out.push(`Überstunden: ${name} hat ${fmtH(hrs)}h geplant (Soll: ${fmtH(soll)}h, max. +8h Überstunden erlaubt).`);
+        push(`Überstunden: ${name} hat ${fmtH(hrs)}h geplant (Soll: ${fmtH(soll)}h, max. +8h Überstunden erlaubt).`, 1);
         break;
       }
       case "ALTERNATING_WEEKEND_VIOLATION": {
@@ -317,7 +334,7 @@ export function formatRuleViolations(
         break;
       }
       default: {
-        out.push(msg.message);
+        push(msg.message, 1);
       }
     }
   }
@@ -325,7 +342,7 @@ export function formatRuleViolations(
   // ── Render aggregated German warnings ──
 
   if (missingProfileCount > 0) {
-    out.push(`Fehlende Schichtprofile: ${missingProfileCount} Zuweisung(en) ohne gültiges Schichtprofil.`);
+    push(`Fehlende Schichtprofile: ${missingProfileCount} Zuweisung(en) ohne gültiges Schichtprofil.`, missingProfileCount);
   }
 
   if (overlapByEmp.size > 0) {
@@ -334,21 +351,24 @@ export function formatRuleViolations(
       const bName = bId === "__none__" ? "" : (employeeNames.get(bId) ?? bId);
       return aName.localeCompare(bName, "de");
     });
+    const totalOverlaps = sortedEmps.reduce((sum, [, c]) => sum + c, 0);
     if (sortedEmps.length === 1) {
       const [empId, count] = sortedEmps[0]!;
       const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
-      out.push(
+      push(
         count === 1
           ? `Schichtüberlappung: ${name} hat eine überlappende Schichtzuweisung.`
           : `Schichtüberlappung: ${name} hat ${count} überlappende Schichtzuweisungen.`,
+        count,
       );
     } else {
       const lines = sortedEmps.map(([empId, count]) => {
         const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
         return `• ${name}: ${count} ${count === 1 ? "Überlappung" : "Überlappungen"}`;
       });
-      out.push(
+      push(
         `Schichtüberlappung: ${sortedEmps.length} Mitarbeiter mit überlappenden Schichten:\n${lines.join("\n")}`,
+        totalOverlaps,
       );
     }
   }
@@ -374,10 +394,11 @@ export function formatRuleViolations(
       const sorted = [...violations].sort((a, b) => a.fromIso.localeCompare(b.fromIso));
       if (sorted.length === 1) {
         const v = sorted[0]!;
-        out.push(
+        push(
           v.fromIso && v.toIso
             ? `Ruhezeit: ${name} hat nur ${fmtH(v.gapH)}h Ruhezeit zwischen ${fmtDate(v.fromIso)} und ${fmtDate(v.toIso)} (mind. ${minHours}h).`
             : `Ruhezeit: ${name} hat einen Verstoß gegen die Mindestruhezeit von ${minHours}h zwischen Schichten.`,
+          1,
         );
       } else {
         // One employee, multiple violations → one bullet per violation under a header.
@@ -386,12 +407,14 @@ export function formatRuleViolations(
             ? `• ${fmtH(v.gapH)}h zwischen ${fmtDate(v.fromIso)} und ${fmtDate(v.toIso)}`
             : "• (Datum unbekannt)",
         );
-        out.push(
+        push(
           `Ruhezeit: ${name} hat ${sorted.length} Verstöße (mind. ${minHours}h):\n${lines.join("\n")}`,
+          sorted.length,
         );
       }
     } else {
       // Multiple employees → one structured aggregated card.
+      const totalRest = sortedEmps.reduce((sum, [, e]) => sum + e.violations.length, 0);
       const lines = sortedEmps.map(([empId, { violations }]) => {
         const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
         const sorted = [...violations].sort((a, b) => a.fromIso.localeCompare(b.fromIso));
@@ -410,16 +433,18 @@ export function formatRuleViolations(
         );
         return `• ${name}: ${sorted.length} Verstöße — ${dateChunks.join(", ")}`;
       });
-      out.push(
+      push(
         `Ruhezeit: ${sortedEmps.length} Mitarbeiter unter Mindestruhezeit (mind. ${empMinHours}h):\n${lines.join("\n")}`,
+        totalRest,
       );
     }
   }
 
   for (const [empId, { total, limit }] of miniJobByEmp) {
     const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
-    out.push(
+    push(
       `Minijob-Stundengrenze: ${name} überschreitet das monatliche Limit (${fmtH(total)}h geplant, max. ${limit}h erlaubt).`,
+      1,
     );
   }
 
@@ -432,9 +457,10 @@ export function formatRuleViolations(
       const bucket = sortedBuckets[0]!;
       const sortedDates = [...bucket.dates.entries()].sort((a, b) => a[0].localeCompare(b[0]));
       const dateList = sortedDates.map(([d]) => fmtDate(d)).join(", ");
-      out.push(
+      push(
         `Unterbesetzung ${shiftDe(bucket.shiftType)} Station ${bucket.station}: ` +
           `${sortedDates.length} Tag(e) unterbesetzt (min. ${bucket.min} Mitarbeiter benötigt) — ${dateList}`,
+        sortedDates.length,
       );
     } else {
       const totalDays = sortedBuckets.reduce((sum, b) => sum + b.dates.size, 0);
@@ -443,8 +469,9 @@ export function formatRuleViolations(
         const dateList = sortedDates.map(([d]) => fmtDate(d)).join(", ");
         return `• ${shiftDe(bucket.shiftType)} Station ${bucket.station}: ${sortedDates.length} Tag(e) — ${dateList}`;
       });
-      out.push(
+      push(
         `Unterbesetzung: ${sortedBuckets.length} Schichten, ${totalDays} Tag(e) gesamt:\n${lines.join("\n")}`,
+        totalDays,
       );
     }
   }
@@ -461,9 +488,10 @@ export function formatRuleViolations(
       const sortedDates = [...bucket.dates.entries()].sort((a, b) => a[0].localeCompare(b[0]));
       const dateList = sortedDates.map(([d]) => fmtDate(d)).join(", ");
       const tagDisplay = bucket.tag.split(",").map((t) => t.trim()).join("/");
-      out.push(
+      push(
         `Qualifikation "${tagDisplay}" fehlt — ${shiftDe(bucket.shiftType)} Station ${bucket.station}: ` +
           `${sortedDates.length} Tag(e) betroffen — ${dateList}`,
+        sortedDates.length,
       );
     } else {
       const totalDays = sortedBuckets.reduce((sum, b) => sum + b.dates.size, 0);
@@ -473,16 +501,18 @@ export function formatRuleViolations(
         const tagDisplay = bucket.tag.split(",").map((t) => t.trim()).join("/");
         return `• "${tagDisplay}" — ${shiftDe(bucket.shiftType)} Station ${bucket.station}: ${sortedDates.length} Tag(e) — ${dateList}`;
       });
-      out.push(
+      push(
         `Fehlende Qualifikation: ${sortedBuckets.length} Stellen, ${totalDays} Tag(e) gesamt:\n${lines.join("\n")}`,
+        totalDays,
       );
     }
   }
 
   for (const [empId, { maxStreak, limit }] of nightsByEmp) {
     const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
-    out.push(
+    push(
       `Max. Nachtschichten: ${name} hat ${maxStreak} aufeinanderfolgende Nachtschichten (max. ${limit} erlaubt).`,
+      1,
     );
   }
 
@@ -498,8 +528,9 @@ export function formatRuleViolations(
       const [empId, { maxStreak, limit, fromIso, toIso }] = sortedEmps[0]!;
       const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
       const range = fromIso && toIso ? ` vom ${fmtDate(fromIso)} bis ${fmtDate(toIso)}` : "";
-      out.push(
+      push(
         `Max. Arbeitstage: ${name} hat ${maxStreak} aufeinanderfolgende Arbeitstage${range} (max. ${limit} erlaubt).`,
+        1,
       );
     } else {
       const lines = sortedEmps.map(([empId, { maxStreak, limit, fromIso, toIso }]) => {
@@ -509,8 +540,9 @@ export function formatRuleViolations(
           ? `• ${name}: ${maxStreak}/${limit} Tage — ${range}`
           : `• ${name}: ${maxStreak}/${limit} Tage`;
       });
-      out.push(
+      push(
         `Max. Arbeitstage: ${sortedEmps.length} Mitarbeiter über dem Limit:\n${lines.join("\n")}`,
+        sortedEmps.length,
       );
     }
   }
@@ -519,8 +551,9 @@ export function formatRuleViolations(
     const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
     const sortedDates = [...dates].sort();
     const dateList = sortedDates.map(fmtDate).join(", ");
-    out.push(
+    push(
       `Fehlende Ruhetage: ${name} arbeitet am ${dateList} ohne die benötigten ${restDays} Ruhetage nach ${maxDays} aufeinanderfolgenden Arbeitstagen.`,
+      sortedDates.length,
     );
   }
 
@@ -530,13 +563,15 @@ export function formatRuleViolations(
       const bName = bId === "__none__" ? "" : (employeeNames.get(bId) ?? bId);
       return aName.localeCompare(bName, "de");
     });
+    const totalAbsenceDays = sortedEmps.reduce((sum, [, e]) => sum + e.dates.length, 0);
     if (sortedEmps.length === 1) {
       const [empId, { dates, type }] = sortedEmps[0]!;
       const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
       const sortedDates = [...dates].sort();
       const dateList = sortedDates.map(fmtDate).join(", ");
-      out.push(
+      push(
         `Abwesenheitskonflikt: ${name} ist als "${type}" eingetragen, hat aber Schichtzuweisungen am ${dateList}.`,
+        sortedDates.length,
       );
     } else {
       const lines = sortedEmps.map(([empId, { dates, type }]) => {
@@ -545,8 +580,9 @@ export function formatRuleViolations(
         const dateList = sortedDates.map(fmtDate).join(", ");
         return `• ${name}: "${type}" — ${dateList}`;
       });
-      out.push(
+      push(
         `Abwesenheitskonflikt: ${sortedEmps.length} Mitarbeiter mit Schichten trotz Abwesenheit:\n${lines.join("\n")}`,
+        totalAbsenceDays,
       );
     }
   }
@@ -563,10 +599,11 @@ export function formatRuleViolations(
     if (sortedEmps.length === 1) {
       const [empId, { hours, soll, direction }] = sortedEmps[0]!;
       const name = eName(empId === "__none__" ? undefined : [empId], employeeNames);
-      out.push(
+      push(
         direction === "under"
           ? `Soll-Stunden: ${name} hat ${fmtH(hours)}h geplant, unter dem Mindestbereich (Soll: ${fmtH(soll)}h).`
           : `Soll-Stunden: ${name} hat ${fmtH(hours)}h geplant, über dem Höchstbereich (Soll: ${fmtH(soll)}h).`,
+        1,
       );
     } else {
       const lines = sortedEmps.map(([empId, { hours, soll, direction }]) => {
@@ -574,12 +611,11 @@ export function formatRuleViolations(
         const delta = hours - soll;
         const sign = delta > 0 ? "+" : "";
         const dir = direction === "under" ? "unter" : "über";
-        // Stats: "über (+24h)" or "unter (-24.48h)" — concise, the chip slot.
-        // Dates pills (after em-dash, comma-separated): "168h geplant", "Soll 144h"
         return `• ${name}: ${dir} (${sign}${fmtH(delta)}h) — ${fmtH(hours)}h geplant, Soll ${fmtH(soll)}h`;
       });
-      out.push(
+      push(
         `Soll-Stunden: ${sortedEmps.length} Mitarbeiter außerhalb des Sollbereichs:\n${lines.join("\n")}`,
+        sortedEmps.length,
       );
     }
   }
@@ -658,15 +694,22 @@ export function formatRuleViolations(
     };
 
     const summaries = sortedEmps
-      .map(([empId, sum]) => ({ empId, summary: fmtSummaryFor(empId, sum) }))
-      .filter((x): x is { empId: string; summary: string } => x.summary !== null);
+      .map(([empId, sum]) => ({
+        empId,
+        summary: fmtSummaryFor(empId, sum),
+        violations: sum.violations,
+      }))
+      .filter((x): x is { empId: string; summary: string; violations: number } => x.summary !== null);
+
+    const totalWeekendViolations = summaries.reduce((s, x) => s + x.violations, 0);
 
     if (summaries.length === 1) {
-      out.push(`Wochenendregelung: ${summaries[0]!.summary}.`);
+      push(`Wochenendregelung: ${summaries[0]!.summary}.`, summaries[0]!.violations);
     } else if (summaries.length > 1) {
       const lines = summaries.map((s) => `• ${s.summary}`);
-      out.push(
+      push(
         `Wochenendregelung: ${summaries.length} Mitarbeiter arbeiten an aufeinanderfolgenden Wochenenden:\n${lines.join("\n")}`,
+        totalWeekendViolations,
       );
     }
   }
@@ -679,8 +722,9 @@ export function formatRuleViolations(
       const [station, dates] = sortedStations[0]!;
       const sortedDates = [...dates].sort();
       const dateList = sortedDates.map(fmtDate).join(", ");
-      out.push(
+      push(
         `Abdeckungslücke Station ${station}: ${sortedDates.length} Tag(e) mit Lücke zwischen frühschicht und spätschicht — ${dateList}`,
+        sortedDates.length,
       );
     } else {
       const totalDays = sortedStations.reduce((sum, [, d]) => sum + d.length, 0);
@@ -689,8 +733,9 @@ export function formatRuleViolations(
         const dateList = sortedDates.map(fmtDate).join(", ");
         return `• Station ${station}: ${sortedDates.length} Tag(e) — ${dateList}`;
       });
-      out.push(
+      push(
         `Abdeckungslücke ${sortedStations.length} Stationen, ${totalDays} Tag(e) gesamt:\n${lines.join("\n")}`,
+        totalDays,
       );
     }
   }

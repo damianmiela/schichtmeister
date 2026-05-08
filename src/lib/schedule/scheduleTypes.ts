@@ -17,11 +17,19 @@ export type PreGenWishesJson = {
 
 export type VirtualPlacement = "1" | "2" | "3" | "NIGHT";
 
+/** One rendered warning card. `count` is the *raw* number of rule
+ * violations represented by this card (per employee/day/shift), so badges
+ * and counts reflect actual violations, not aggregation groups. */
+export type WarningJson = {
+  message: string;
+  count: number;
+};
+
 export type ScheduleJson = {
   id: string;
   periodStart: string;
   periodEnd: string;
-  warnings?: string[];
+  warnings?: WarningJson[];
   preGenWishes?: PreGenWishesJson | null;
   virtualPlacements?: Record<string, VirtualPlacement>;
   currentVersionId?: string | null;

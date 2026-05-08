@@ -77,7 +77,7 @@ interface EmployeeViewProps {
   onCancelEditMode?: () => void;
   onSaveEdits?: () => void;
   /* employee-specific warnings */
-  employeeWarnings?: string[];
+  employeeWarnings?: { message: string; count: number }[];
   onWarningsClick?: () => void;
 }
 
@@ -202,6 +202,7 @@ export default function EmployeeView({
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
   const empWarnings = employeeWarnings ?? [];
+  const empWarningCount = empWarnings.reduce((sum, w) => sum + w.count, 0);
 
   /* ── calendar days ── */
   const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
@@ -532,10 +533,10 @@ export default function EmployeeView({
 
           {/* Employee warnings */}
           <Box sx={{ ml: "auto", display: "flex", alignItems: "center", gap: 0.5 }}>
-            {empWarnings.length > 0 ? (
+            {empWarningCount > 0 ? (
               <Chip
                 icon={<WarningAmberIcon sx={{ fontSize: 16 }} />}
-                label={`${empWarnings.length} Warnung${empWarnings.length > 1 ? "en" : ""}`}
+                label={`${empWarningCount} Warnung${empWarningCount > 1 ? "en" : ""}`}
                 size="small"
                 color="warning"
                 variant="outlined"

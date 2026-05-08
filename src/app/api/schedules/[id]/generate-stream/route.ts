@@ -813,7 +813,7 @@ export async function POST(request: Request, context: RouteCtx) {
             employeeId: a.employeeId,
           }));
 
-        let ruleWarnings: string[] = [];
+        let ruleWarnings: import("@/lib/schedule/formatRuleViolations").FormattedWarning[] = [];
         const v = await validateScheduleAssignments(
           prisma,
           facilityId,
@@ -1030,7 +1030,7 @@ export async function POST(request: Request, context: RouteCtx) {
             assignmentCount: isWinner
               ? solverAssignments.length
               : runAssignments.length,
-            warningCount: isWinner ? allWarnings.length : 0,
+            warningCount: isWinner ? allWarnings.reduce((sum, w) => sum + w.count, 0) : 0,
             unmetStaffingCount: 0,
             unfulfilledWishCount: runUnfulfilled.length,
             objectiveValue: objVal,

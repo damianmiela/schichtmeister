@@ -172,8 +172,8 @@ export async function POST(request: NextRequest, context: RouteCtx) {
     { extraAbsences },
   );
 
-  let warningStrings: string[] = [];
-  let employeeWarnings: string[] | undefined;
+  let warningStrings: import("@/lib/schedule/formatRuleViolations").FormattedWarning[] = [];
+  let employeeWarnings: import("@/lib/schedule/formatRuleViolations").FormattedWarning[] | undefined;
   const warningsByDay: Record<string, string[]> = {};
 
   if (v.ok) {
@@ -215,7 +215,7 @@ export async function POST(request: NextRequest, context: RouteCtx) {
   if (schedule.currentVersionId) {
     await prisma.scheduleVersion.updateMany({
       where: { id: schedule.currentVersionId, scheduleId },
-      data: { warningCount: warningStrings.length },
+      data: { warningCount: warningStrings.reduce((sum, w) => sum + w.count, 0) },
     });
   }
 

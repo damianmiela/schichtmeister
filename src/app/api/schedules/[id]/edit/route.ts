@@ -238,7 +238,7 @@ export async function POST(request: Request, context: RouteCtx) {
     assignmentInputs,
   );
 
-  let warningStrings: string[] = [];
+  let warningStrings: import("@/lib/schedule/formatRuleViolations").FormattedWarning[] = [];
   if (v.ok) {
     const allMessages = [...v.result.errors, ...v.result.warnings];
     if (allMessages.length > 0) {

@@ -21,11 +21,11 @@ import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import {
   countBySeverity,
   groupWarningsBySeverity,
+  type ClassifiedItem,
   SEVERITY_LABEL,
   SEVERITY_ORDER,
   SEVERITY_TOKENS,
   type WarningSeverity,
-  type ClassifiedWarning,
 } from "@/lib/schedule/warningSeverity";
 
 export interface WarningsDrawerProps {
@@ -35,8 +35,12 @@ export interface WarningsDrawerProps {
   title: string;
   /** Empty-state text shown when `warnings` is []. */
   emptyText: string;
-  /** Already-formatted German warning strings (existing schedule.warnings). */
-  warnings: readonly string[];
+  /**
+   * Warnings to display. Each entry carries its rendered German `message`
+   * plus the raw violation `count` it represents — so badges and section
+   * headers reflect actual rule violations rather than card count.
+   */
+  warnings: readonly { message: string; count: number }[];
 }
 
 const severityIcon = (s: WarningSeverity, fontSize = 18) => {
@@ -76,6 +80,7 @@ export default function WarningsDrawer({
       return next;
     });
 
+  // Total = sum of *raw* violation counts (not number of cards).
   const total = counts.red + counts.yellow + counts.green;
 
   return (
@@ -265,7 +270,7 @@ function SeverityChip({
 function renderGroup(
   sev: WarningSeverity,
   groupKey: string,
-  items: ClassifiedWarning[],
+  items: ClassifiedItem[],
   isCollapsed: (k: string) => boolean,
   toggleCollapsed: (k: string) => void,
 ) {
@@ -278,6 +283,7 @@ function renderGroup(
       <WarningCard key={composite} sev={sev} text={items[0]!.message} />
     );
   }
+  const groupTotal = items.reduce((sum, it) => sum + it.count, 0);
   const cat = items[0]!.category;
   return (
     <Box key={composite}>
@@ -300,7 +306,7 @@ function renderGroup(
           variant="caption"
           sx={{ color: tokens.main, fontWeight: 700, fontSize: "0.72rem" }}
         >
-          {cat} ({items.length})
+          {cat} ({groupTotal})
         </Typography>
         {open ? (
           <ExpandLessIcon sx={{ fontSize: 16, color: tokens.main }} />

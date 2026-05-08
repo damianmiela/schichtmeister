@@ -108,7 +108,7 @@ type GenerateScheduleResponse = {
   createdAssignments: number;
   manualPlacementsApplied?: number;
   unmetStaffing: { date: string; shiftType: string; requested: number; assigned: number }[];
-  warnings: string[];
+  warnings: { message: string; count: number }[];
   /** True when the solver returned INFEASIBLE / UNKNOWN. */
   infeasible?: boolean;
   infeasibleReason?: string | null;
@@ -366,7 +366,7 @@ export default function SchedulePage() {
   const [scoreDialogOpen, setScoreDialogOpen] = useState(false);
   const [scoreContent, setScoreContent] = useState<string | null>(null);
   const [scoreLoading, setScoreLoading] = useState(false);
-  const [employeeWarnings, setEmployeeWarnings] = useState<string[]>([]);
+  const [employeeWarnings, setEmployeeWarnings] = useState<{ message: string; count: number }[]>([]);
   const [warningsByDay, setWarningsByDay] = useState<Record<string, string[]>>({});
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [versions, setVersions] = useState<ScheduleVersionSummary[]>([]);
@@ -516,7 +516,7 @@ export default function SchedulePage() {
 
         // Re-run validation on load so warnings reflect day-view edits
         try {
-          const rv = await fetchJson<{ warnings: string[]; warningsByDay?: Record<string, string[]> }>(
+          const rv = await fetchJson<{ warnings: { message: string; count: number }[]; warningsByDay?: Record<string, string[]> }>(
             `/api/schedules/${picked.id}/revalidate`,
             { method: "POST" },
           );
@@ -612,7 +612,7 @@ export default function SchedulePage() {
           schedule: ScheduleJson;
           assignments?: AssignmentJson[];
         }>(`/api/schedules/${schedule.id}?include=assignments`),
-        fetchJson<{ warnings: string[] }>(
+        fetchJson<{ warnings: { message: string; count: number }[] }>(
           `/api/schedules/${schedule.id}/revalidate`,
           { method: "POST" },
         ).catch(() => null),
@@ -1528,7 +1528,7 @@ export default function SchedulePage() {
     };
 
     try {
-      const res = await fetchJson<{ savedAssignments: number; warnings: string[] }>(
+      const res = await fetchJson<{ savedAssignments: number; warnings: { message: string; count: number }[] }>(
         `/api/schedules/${schedule.id}/edit`,
         {
           method: "POST",
@@ -1596,6 +1596,11 @@ export default function SchedulePage() {
     [displayWarnings],
   );
   const warnIconColor = warnSeverity ? SEVERITY_TOKENS[warnSeverity].main : undefined;
+  /** Sum of raw violation counts (each card may represent N violations). */
+  const totalWarningCount = useMemo(
+    () => displayWarnings.reduce((sum, w) => sum + w.count, 0),
+    [displayWarnings],
+  );
 
   const addPreGenEntry = (type: "shift" | "frei" | "absence") => {
     const first = planningEmployees[0];
@@ -2086,7 +2091,7 @@ export default function SchedulePage() {
                     }}
                   >
                     <Badge
-                      badgeContent={displayWarnings.length}
+                      badgeContent={totalWarningCount}
                       sx={{
                         "& .MuiBadge-badge": {
                           bgcolor: warnIconColor ?? "warning.main",

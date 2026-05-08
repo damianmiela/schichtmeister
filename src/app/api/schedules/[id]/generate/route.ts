@@ -218,7 +218,7 @@ export async function POST(request: Request, context: RouteCtx) {
       employeeId: a.employeeId,
     }));
 
-  let ruleWarnings: string[] = [];
+  let ruleWarnings: import("@/lib/schedule/formatRuleViolations").FormattedWarning[] = [];
   const v = await validateScheduleAssignments(
     prisma,
     facilityId,
@@ -237,14 +237,20 @@ export async function POST(request: Request, context: RouteCtx) {
     }
   }
 
-  const generatorOnlyWarnings = report.warnings.filter(w =>
-    !w.startsWith("Überstunden:") && !w.includes("vorhanden –")
-  );
-  const allWarnings = [
+  // Generator emits string[]; wrap each as count=1 so the new structured
+  // shape works end-to-end without losing per-violation accuracy on the
+  // rule-engine side.
+  const generatorOnlyWarnings = report.warnings
+    .filter((w) => !w.startsWith("Überstunden:") && !w.includes("vorhanden –"))
+    .map((w) => ({ message: w, count: 1 }));
+  const allWarnings: import("@/lib/schedule/formatRuleViolations").FormattedWarning[] = [
     ...generatorOnlyWarnings,
     ...ruleWarnings,
     ...(report.unmetStaffing.length > 0
-      ? [`${report.unmetStaffing.length} Bedarfsslots nur teilweise oder gar nicht besetzt.`]
+      ? [{
+          message: `${report.unmetStaffing.length} Bedarfsslots nur teilweise oder gar nicht besetzt.`,
+          count: report.unmetStaffing.length,
+        }]
       : []),
   ];
 

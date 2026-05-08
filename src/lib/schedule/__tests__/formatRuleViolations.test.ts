@@ -20,7 +20,7 @@ describe("formatRuleViolations", () => {
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
-    expect(result[0]).toBe("Schichtüberlappung: Max Müller hat eine überlappende Schichtzuweisung.");
+    expect(result[0]!.message).toBe("Schichtüberlappung: Max Müller hat eine überlappende Schichtzuweisung.");
   });
 
   it("aggregates multiple OVERLAPs for same employee", () => {
@@ -31,7 +31,7 @@ describe("formatRuleViolations", () => {
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
-    expect(result[0]).toBe("Schichtüberlappung: Max Müller hat 3 überlappende Schichtzuweisungen.");
+    expect(result[0]!.message).toBe("Schichtüberlappung: Max Müller hat 3 überlappende Schichtzuweisungen.");
   });
 
   it("formats OVERLAP with fallback when no employeeIds", () => {
@@ -39,7 +39,7 @@ describe("formatRuleViolations", () => {
       { ruleId: "noOverlap", code: "OVERLAP", message: "overlap" },
     ];
     const result = formatRuleViolations(msgs, empNames);
-    expect(result[0]).toContain("Mitarbeiter");
+    expect(result[0]!.message).toContain("Mitarbeiter");
   });
 
   // ── MISSING_PROFILE ──
@@ -51,7 +51,7 @@ describe("formatRuleViolations", () => {
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
-    expect(result[0]).toBe("Fehlende Schichtprofile: 2 Zuweisung(en) ohne gültiges Schichtprofil.");
+    expect(result[0]!.message).toBe("Fehlende Schichtprofile: 2 Zuweisung(en) ohne gültiges Schichtprofil.");
   });
 
   // ── INSUFFICIENT_REST ──
@@ -62,7 +62,7 @@ describe("formatRuleViolations", () => {
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
-    expect(result[0]).toBe("Ruhezeit: Anna Schmidt hat einen Verstoß gegen die Mindestruhezeit von 11h zwischen Schichten.");
+    expect(result[0]!.message).toBe("Ruhezeit: Anna Schmidt hat einen Verstoß gegen die Mindestruhezeit von 11h zwischen Schichten.");
   });
 
   it("includes actual gap + dates when the rule provides them (single violation)", () => {
@@ -76,7 +76,7 @@ describe("formatRuleViolations", () => {
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
-    expect(result[0]).toBe(
+    expect(result[0]!.message).toBe(
       "Ruhezeit: Anna Schmidt hat nur 8.5h Ruhezeit zwischen 14.05. und 15.05. (mind. 11h).",
     );
   });
@@ -99,10 +99,10 @@ describe("formatRuleViolations", () => {
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
     const text = result[0]!;
-    expect(text).toContain("Ruhezeit: Anna Schmidt hat 2 Verstöße (mind. 11h):");
+    expect(text.message).toContain("Ruhezeit: Anna Schmidt hat 2 Verstöße (mind. 11h):");
     // Each violation shows up as a bullet line, sorted chronologically.
-    expect(text).toContain("• 8.5h zwischen 14.05. und 15.05.");
-    expect(text).toContain("• 9h zwischen 28.05. und 29.05.");
+    expect(text.message).toContain("• 8.5h zwischen 14.05. und 15.05.");
+    expect(text.message).toContain("• 9h zwischen 28.05. und 29.05.");
   });
 
   // ── MINI_JOB_CAP ──
@@ -113,10 +113,10 @@ describe("formatRuleViolations", () => {
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
-    expect(result[0]).toContain("Minijob-Stundengrenze");
-    expect(result[0]).toContain("Max Müller");
-    expect(result[0]).toContain("55h");
-    expect(result[0]).toContain("52h");
+    expect(result[0]!.message).toContain("Minijob-Stundengrenze");
+    expect(result[0]!.message).toContain("Max Müller");
+    expect(result[0]!.message).toContain("55h");
+    expect(result[0]!.message).toContain("52h");
   });
 
   // ── UNDERSTAFFED ──
@@ -129,11 +129,11 @@ describe("formatRuleViolations", () => {
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
-    expect(result[0]).toContain("Unterbesetzung Frühdienst Station 1");
-    expect(result[0]).toContain("3 Tag(e) unterbesetzt");
-    expect(result[0]).toContain("08.03.");
-    expect(result[0]).toContain("10.03.");
-    expect(result[0]).toContain("15.03.");
+    expect(result[0]!.message).toContain("Unterbesetzung Frühdienst Station 1");
+    expect(result[0]!.message).toContain("3 Tag(e) unterbesetzt");
+    expect(result[0]!.message).toContain("08.03.");
+    expect(result[0]!.message).toContain("10.03.");
+    expect(result[0]!.message).toContain("15.03.");
   });
 
   it("aggregates UNDERSTAFFED across shift/station buckets into ONE multi-line warning", () => {
@@ -143,7 +143,7 @@ describe("formatRuleViolations", () => {
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
-    const lines = result[0]!.split("\n");
+    const lines = result[0]!!.message.split("\n");
     expect(lines[0]).toBe("Unterbesetzung: 2 Schichten, 2 Tag(e) gesamt:");
     expect(lines[1]).toContain("Frühdienst Station 1");
     expect(lines[2]).toContain("Nachtdienst Station 2");
@@ -158,11 +158,11 @@ describe("formatRuleViolations", () => {
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
-    expect(result[0]).toContain('Qualifikation "Fachkraft" fehlt');
-    expect(result[0]).toContain("Frühdienst Station 1");
-    expect(result[0]).toContain("2 Tag(e) betroffen");
-    expect(result[0]).toContain("10.03.");
-    expect(result[0]).toContain("11.03.");
+    expect(result[0]!.message).toContain('Qualifikation "Fachkraft" fehlt');
+    expect(result[0]!.message).toContain("Frühdienst Station 1");
+    expect(result[0]!.message).toContain("2 Tag(e) betroffen");
+    expect(result[0]!.message).toContain("10.03.");
+    expect(result[0]!.message).toContain("11.03.");
   });
 
   it("displays multi-tag MISSING_QUALIFICATION with slash-separated tags", () => {
@@ -172,9 +172,9 @@ describe("formatRuleViolations", () => {
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
-    expect(result[0]).toContain('Qualifikation "APH/KPH/PH" fehlt');
-    expect(result[0]).toContain("Frühdienst Station 1");
-    expect(result[0]).toContain("2 Tag(e) betroffen");
+    expect(result[0]!.message).toContain('Qualifikation "APH/KPH/PH" fehlt');
+    expect(result[0]!.message).toContain("Frühdienst Station 1");
+    expect(result[0]!.message).toContain("2 Tag(e) betroffen");
   });
 
   // ── MAX_CONSECUTIVE_NIGHTS ──
@@ -186,7 +186,7 @@ describe("formatRuleViolations", () => {
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
-    expect(result[0]).toBe("Max. Nachtschichten: Max Müller hat 5 aufeinanderfolgende Nachtschichten (max. 3 erlaubt).");
+    expect(result[0]!.message).toBe("Max. Nachtschichten: Max Müller hat 5 aufeinanderfolgende Nachtschichten (max. 3 erlaubt).");
   });
 
   // ── MAX_CONSECUTIVE_DAYS ──
@@ -199,7 +199,7 @@ describe("formatRuleViolations", () => {
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
     // Picks the longest streak; no range info available in legacy form.
-    expect(result[0]).toBe("Max. Arbeitstage: Anna Schmidt hat 12 aufeinanderfolgende Arbeitstage (max. 7 erlaubt).");
+    expect(result[0]!.message).toBe("Max. Arbeitstage: Anna Schmidt hat 12 aufeinanderfolgende Arbeitstage (max. 7 erlaubt).");
   });
 
   it("includes the streak date range when the rule provides it", () => {
@@ -213,7 +213,7 @@ describe("formatRuleViolations", () => {
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
-    expect(result[0]).toBe(
+    expect(result[0]!.message).toBe(
       "Max. Arbeitstage: Max Müller hat 8 aufeinanderfolgende Arbeitstage vom 02.05. bis 09.05. (max. 7 erlaubt).",
     );
   });
@@ -235,7 +235,7 @@ describe("formatRuleViolations", () => {
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
-    const lines = result[0]!.split("\n");
+    const lines = result[0]!!.message.split("\n");
     expect(lines[0]).toBe("Max. Arbeitstage: 2 Mitarbeiter über dem Limit:");
     // Names sorted alphabetically (Anna before Max in de locale).
     expect(lines[1]).toBe("• Anna Schmidt: 10/7 Tage — 10.05. → 19.05.");
@@ -251,12 +251,12 @@ describe("formatRuleViolations", () => {
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
-    expect(result[0]).toContain("Fehlende Ruhetage");
-    expect(result[0]).toContain("Max Müller");
-    expect(result[0]).toContain("15.03.");
-    expect(result[0]).toContain("16.03.");
-    expect(result[0]).toContain("2 Ruhetage");
-    expect(result[0]).toContain("7 aufeinanderfolgenden");
+    expect(result[0]!.message).toContain("Fehlende Ruhetage");
+    expect(result[0]!.message).toContain("Max Müller");
+    expect(result[0]!.message).toContain("15.03.");
+    expect(result[0]!.message).toContain("16.03.");
+    expect(result[0]!.message).toContain("2 Ruhetage");
+    expect(result[0]!.message).toContain("7 aufeinanderfolgenden");
   });
 
   // ── PROFILE_NOT_ALLOWED ──
@@ -267,8 +267,8 @@ describe("formatRuleViolations", () => {
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
-    expect(result[0]).toContain("Nicht erlaubtes Schichtprofil");
-    expect(result[0]).toContain("Max Müller");
+    expect(result[0]!.message).toContain("Nicht erlaubtes Schichtprofil");
+    expect(result[0]!.message).toContain("Max Müller");
   });
 
   // ── OVERSTAFFED ──
@@ -279,10 +279,10 @@ describe("formatRuleViolations", () => {
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
-    expect(result[0]).toContain("Überbesetzung");
-    expect(result[0]).toContain("Frühdienst Station 1");
-    expect(result[0]).toContain("10.03.");
-    expect(result[0]).toContain("6/5");
+    expect(result[0]!.message).toContain("Überbesetzung");
+    expect(result[0]!.message).toContain("Frühdienst Station 1");
+    expect(result[0]!.message).toContain("10.03.");
+    expect(result[0]!.message).toContain("6/5");
   });
 
   // ── OVERTIME_EXCESS ──
@@ -293,7 +293,7 @@ describe("formatRuleViolations", () => {
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
-    expect(result[0]).toBe("Überstunden: Anna Schmidt hat 190.5h geplant (Soll: 176h, max. +8h Überstunden erlaubt).");
+    expect(result[0]!.message).toBe("Überstunden: Anna Schmidt hat 190.5h geplant (Soll: 176h, max. +8h Überstunden erlaubt).");
   });
 
   // ── Unknown codes ──
@@ -303,7 +303,7 @@ describe("formatRuleViolations", () => {
       { ruleId: "someNewRule", code: "SOME_CODE", message: "Something happened." },
     ];
     const result = formatRuleViolations(msgs, empNames);
-    expect(result[0]).toBe("Something happened.");
+    expect(result[0]!.message).toBe("Something happened.");
   });
 
   // ── ALTERNATING_WEEKEND_VIOLATION (Wochenendregelung) ──
@@ -320,7 +320,7 @@ describe("formatRuleViolations", () => {
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
-    expect(result[0]).toBe(
+    expect(result[0]!.message).toBe(
       "Wochenendregelung: Anna Schmidt: 4 in Folge — 02.05. → 23.05.!.",
     );
   });
@@ -337,7 +337,7 @@ describe("formatRuleViolations", () => {
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
-    expect(result[0]).toBe(
+    expect(result[0]!.message).toBe(
       "Wochenendregelung: Anna Schmidt: 2 in Folge — Vor.WE → 02.05.!.",
     );
   });
@@ -359,7 +359,7 @@ describe("formatRuleViolations", () => {
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
-    const lines = result[0]!.split("\n");
+    const lines = result[0]!!.message.split("\n");
     expect(lines[0]).toContain("Wochenendregelung: 2 Mitarbeiter arbeiten an aufeinanderfolgenden Wochenenden:");
     expect(lines[1]).toBe("• Anna Schmidt: 2 in Folge — Vor.WE → 02.05.!");
     expect(lines[2]).toBe("• Max Müller: 2 in Folge — 09.05. → 16.05.!");
@@ -398,7 +398,7 @@ describe("formatRuleViolations", () => {
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
-    expect(result[0]).toBe(
+    expect(result[0]!.message).toBe(
       "Abdeckungslücke Station 1: 2 Tag(e) mit Lücke zwischen frühschicht und spätschicht — 15.05., 20.05.",
     );
   });
@@ -413,7 +413,7 @@ describe("formatRuleViolations", () => {
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
     const text = result[0]!;
-    const lines = text.split("\n");
+    const lines = text.message.split("\n");
     expect(lines[0]).toBe("Abdeckungslücke 3 Stationen, 4 Tag(e) gesamt:");
     expect(lines[1]).toBe("• Station 1: 1 Tag(e) — 15.05.");
     expect(lines[2]).toBe("• Station 2: 2 Tag(e) — 15.05., 20.05.");
@@ -433,7 +433,7 @@ describe("formatRuleViolations", () => {
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
-    expect(result[0]).toBe(
+    expect(result[0]!.message).toBe(
       "Soll-Stunden: Anna Schmidt hat 168h geplant, über dem Höchstbereich (Soll: 144h).",
     );
   });
@@ -455,7 +455,7 @@ describe("formatRuleViolations", () => {
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
-    const lines = result[0]!.split("\n");
+    const lines = result[0]!!.message.split("\n");
     expect(lines[0]).toBe("Soll-Stunden: 2 Mitarbeiter außerhalb des Sollbereichs:");
     // Names sorted alphabetically (de): Anna before Max.
     expect(lines[1]).toBe("• Anna Schmidt: über (+24h) — 168h geplant, Soll 144h");
@@ -481,7 +481,7 @@ describe("formatRuleViolations", () => {
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
-    const lines = result[0]!.split("\n");
+    const lines = result[0]!!.message.split("\n");
     expect(lines[0]).toBe("Ruhezeit: 2 Mitarbeiter unter Mindestruhezeit (mind. 10h):");
     expect(lines[1]).toBe("• Anna Schmidt: 8.5h — 14.05. → 15.05.");
     expect(lines[2]).toBe("• Max Müller: 9h — 28.05. → 29.05.");
@@ -499,10 +499,76 @@ describe("formatRuleViolations", () => {
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(4);
-    expect(result[0]).toContain("Schichtüberlappung");
-    expect(result[1]).toContain("Unterbesetzung");
-    expect(result[2]).toContain("Max. Nachtschichten");
-    expect(result[3]).toContain("Max. Arbeitstage");
-    expect(result[3]).toContain("9 aufeinanderfolgende");
+    expect(result[0]!.message).toContain("Schichtüberlappung");
+    expect(result[1]!.message).toContain("Unterbesetzung");
+    expect(result[2]!.message).toContain("Max. Nachtschichten");
+    expect(result[3]!.message).toContain("Max. Arbeitstage");
+    expect(result[3]!.message).toContain("9 aufeinanderfolgende");
+  });
+});
+
+
+describe("formatRuleViolations — raw violation counts", () => {
+  // Each card carries `count` = the raw number of violations it represents
+  // (per rule × per employee × per day/pair, depending on rule type).
+  const empNames = new Map([
+    ["e1", "Max Müller"],
+    ["e2", "Anna Schmidt"],
+    ["e3", "Lara Bauer"],
+  ]);
+
+  it("Soll-Stunden across N employees → count = N", () => {
+    const msgs: RuleMessage[] = [
+      { ruleId: "sollDelta", code: "SOLL_OVER",  message: "Anna: 168h geplant, Soll 144h.",  employeeIds: ["e2"] },
+      { ruleId: "sollDelta", code: "SOLL_UNDER", message: "Max: 0h geplant, Soll 24h.",      employeeIds: ["e1"] },
+      { ruleId: "sollDelta", code: "SOLL_OVER",  message: "Lara: 200h geplant, Soll 144h.",  employeeIds: ["e3"] },
+    ];
+    const result = formatRuleViolations(msgs, empNames);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.count).toBe(3);
+  });
+
+  it("Ruhezeit across employees → count = total violation pairs (not employee count)", () => {
+    const msgs: RuleMessage[] = [
+      // Anna: 2 violations
+      { ruleId: "minRestBetweenShifts", code: "INSUFFICIENT_REST", message: "Less than 10h rest between shifts: 8h from 2026-05-14 to 2026-05-15.", employeeIds: ["e2"] },
+      { ruleId: "minRestBetweenShifts", code: "INSUFFICIENT_REST", message: "Less than 10h rest between shifts: 9h from 2026-05-28 to 2026-05-29.", employeeIds: ["e2"] },
+      // Max: 1 violation
+      { ruleId: "minRestBetweenShifts", code: "INSUFFICIENT_REST", message: "Less than 10h rest between shifts: 7h from 2026-05-20 to 2026-05-21.", employeeIds: ["e1"] },
+    ];
+    const result = formatRuleViolations(msgs, empNames);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.count).toBe(3);
+  });
+
+  it("Unterbesetzung → count = total understaffed days across all buckets", () => {
+    const msgs: RuleMessage[] = [
+      { ruleId: "staffingMinimum", code: "UNDERSTAFFED", message: "Need at least 2 for EARLY station 1 on 2026-05-08 (got 1)." },
+      { ruleId: "staffingMinimum", code: "UNDERSTAFFED", message: "Need at least 2 for EARLY station 1 on 2026-05-09 (got 1)." },
+      { ruleId: "staffingMinimum", code: "UNDERSTAFFED", message: "Need at least 3 for NIGHT station 2 on 2026-05-10 (got 1)." },
+    ];
+    const result = formatRuleViolations(msgs, empNames);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.count).toBe(3);
+  });
+
+  it("Schichtüberlappung — count sums over employees", () => {
+    const msgs: RuleMessage[] = [
+      { ruleId: "noOverlap", code: "OVERLAP", message: "x", employeeIds: ["e1"] },
+      { ruleId: "noOverlap", code: "OVERLAP", message: "x", employeeIds: ["e1"] },
+      { ruleId: "noOverlap", code: "OVERLAP", message: "x", employeeIds: ["e2"] },
+    ];
+    const result = formatRuleViolations(msgs, empNames);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.count).toBe(3);
+  });
+
+  it("Single-employee rules (Soll, Max. Arbeitstage, Max. Nachtschichten) → count = 1", () => {
+    const msgs: RuleMessage[] = [
+      { ruleId: "maxConsecutiveDays",   code: "MAX_CONSECUTIVE_DAYS",   message: "Employee has 8 consecutive working days from 2026-05-02 to 2026-05-09 (max 7).", employeeIds: ["e1"] },
+      { ruleId: "maxConsecutiveNights", code: "MAX_CONSECUTIVE_NIGHTS", message: "Employee has 4 consecutive night shifts (max 3).", employeeIds: ["e2"] },
+    ];
+    const result = formatRuleViolations(msgs, empNames);
+    expect(result.every((r) => r.count === 1)).toBe(true);
   });
 });

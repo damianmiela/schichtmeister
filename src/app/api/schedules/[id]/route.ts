@@ -4,11 +4,31 @@ import { plannerJsonErrors } from "@/lib/api/validation";
 import { requirePlanner } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 
-function parseWarnings(json: string | null): string[] {
+/**
+ * Warnings stored in DB as JSON. Two shapes are accepted for backward
+ * compatibility:
+ *   - new (current):  Array<{ message: string; count: number }>
+ *   - legacy:         Array<string>          → wrapped as { message, count: 1 }
+ */
+function parseWarnings(json: string | null): { message: string; count: number }[] {
   if (!json) return [];
   try {
     const parsed = JSON.parse(json);
-    return Array.isArray(parsed) ? parsed.filter((w: unknown) => typeof w === "string") : [];
+    if (!Array.isArray(parsed)) return [];
+    const out: { message: string; count: number }[] = [];
+    for (const item of parsed) {
+      if (typeof item === "string") {
+        out.push({ message: item, count: 1 });
+      } else if (
+        item && typeof item === "object" &&
+        typeof item.message === "string" &&
+        typeof item.count === "number" &&
+        item.count >= 0
+      ) {
+        out.push({ message: item.message, count: item.count });
+      }
+    }
+    return out;
   } catch {
     return [];
   }
