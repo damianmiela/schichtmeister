@@ -40,6 +40,9 @@ import {
   TextField,
   ListItemIcon,
   ListItemText,
+  Tabs,
+  Tab,
+  Stack,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
@@ -67,6 +70,10 @@ import HistoryIcon from "@mui/icons-material/History";
 import BookmarkIcon from "@mui/icons-material/Bookmark";
 import RestoreIcon from "@mui/icons-material/Restore";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import EventAvailableIcon from "@mui/icons-material/EventAvailable";
+import EventBusyIcon from "@mui/icons-material/EventBusy";
+import TuneIcon from "@mui/icons-material/Tune";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import { ApiError, fetchJson } from "@/lib/api/fetchJson";
 import {
   monthRangeIso,
@@ -264,6 +271,7 @@ export default function SchedulePage() {
   const [clearBusy, setClearBusy] = useState(false);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [preGenOpen, setPreGenOpen] = useState(false);
+  const [preGenTab, setPreGenTab] = useState<"wishes" | "settings">("wishes");
   const [preGenEntries, setPreGenEntries] = useState<PreGenEntry[]>([]);
   const [preGenSaving, setPreGenSaving] = useState(false);
   const [solveTimeDraft, setSolveTimeDraft] = useState("120");
@@ -2403,421 +2411,527 @@ export default function SchedulePage() {
       >
         <DialogTitle>Dienstplan generieren</DialogTitle>
         <DialogContent>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Fügen Sie optional Dienstwünsche oder Frei-Wünsche hinzu. Diese
-            werden als feste Vorgaben behandelt — der Generator plant den Rest
-            um diese Vorgaben herum.
-          </Typography>
-
-          <Divider sx={{ mb: 2 }} />
-
-          {preGenEntries.length > 0 && (
-            <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5, mb: 2 }}>
-              {preGenEntries.map((entry, idx) => (
-                <Box
-                  key={idx}
-                  sx={{
-                    display: "flex",
-                    gap: 1,
-                    alignItems: "center",
-                    flexWrap: "wrap",
-                    p: 1.5,
-                    borderRadius: 1,
-                    bgcolor: entry.type === "frei" ? "action.hover" : entry.type === "absence" ? "#fff5f5" : "transparent",
-                    border: "1px solid",
-                    borderColor: "divider",
-                  }}
-                >
-                  <Autocomplete
-                    size="small"
-                    options={planningEmployees}
-                    value={planningEmployees.find((e) => e.id === entry.employeeId) ?? undefined}
-                    onChange={(_, val) => {
-                      if (val) updateEntry(idx, { employeeId: val.id });
-                    }}
-                    getOptionLabel={(e) => `${e.lastName}, ${e.firstName}`}
-                    isOptionEqualToValue={(o, v) => o.id === v.id}
-                    renderInput={(params) => (
-                      <TextField {...params} label="Mitarbeiter" />
-                    )}
-                    sx={{ minWidth: 200, flex: 1 }}
-                    disableClearable
-                  />
-                  <TextField
-                    select
-                    size="small"
-                    label="Typ"
-                    value={entry.type}
-                    onChange={(e) => {
-                      const newType = e.target.value as "shift" | "frei" | "absence";
-                      updateEntry(idx, { type: newType });
-                    }}
-                    sx={{ minWidth: 150 }}
-                    SelectProps={{ native: true }}
-                  >
-                    <option value="shift">Dienstwunsch</option>
-                    <option value="frei">Frei-Wunsch</option>
-                    <option value="absence">Abwesenheit</option>
-                  </TextField>
-
-                  {entry.type === "shift" ? (
-                    <>
-                      <TextField
-                        select
-                        size="small"
-                        label="Tag"
-                        value={entry.date}
-                        onChange={(e) => updateEntry(idx, { date: e.target.value })}
-                        sx={{ minWidth: 110 }}
-                        SelectProps={{ native: true }}
-                      >
-                        {daysInMonth.map((d) => (
-                          <option key={d.iso} value={d.iso}>
-                            {d.label}
-                          </option>
-                        ))}
-                      </TextField>
-                      <TextField
-                        select
-                        size="small"
-                        label="Schichtprofil"
-                        value={entry.shiftProfileId}
-                        onChange={(e) => updateEntry(idx, { shiftProfileId: e.target.value })}
-                        sx={{ minWidth: 130 }}
-                        SelectProps={{ native: true }}
-                      >
-                        {allProfiles.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.name}
-                          </option>
-                        ))}
-                      </TextField>
-                      <TextField
-                        select
-                        size="small"
-                        label="Station"
-                        value={entry.stationNumber}
-                        onChange={(e) => updateEntry(idx, { stationNumber: Number(e.target.value) })}
-                        sx={{ minWidth: 90 }}
-                        SelectProps={{ native: true }}
-                      >
-                        <option value={0}>Egal</option>
-                        <option value={1}>Station 1</option>
-                        <option value={2}>Station 2</option>
-                        <option value={3}>Station 3</option>
-                      </TextField>
-                    </>
-                  ) : entry.type === "absence" ? (
-                    <>
-                      <TextField
-                        select
-                        size="small"
-                        label="Art"
-                        value={entry.absenceType}
-                        onChange={(e) => updateEntry(idx, { absenceType: e.target.value as "KRANK" | "URLAUB" })}
-                        sx={{ minWidth: 110 }}
-                        SelectProps={{ native: true }}
-                      >
-                        <option value="KRANK">Krank</option>
-                        <option value="URLAUB">Urlaub</option>
-                      </TextField>
-                      <TextField
-                        select
-                        size="small"
-                        label="Von"
-                        value={entry.dateFrom}
-                        onChange={(e) => {
-                          const from = e.target.value;
-                          const patch: Partial<PreGenEntry> = { dateFrom: from };
-                          if (from > entry.dateTo) patch.dateTo = from;
-                          updateEntry(idx, patch);
-                        }}
-                        sx={{ minWidth: 110 }}
-                        SelectProps={{ native: true }}
-                      >
-                        {daysInMonth.map((d) => (
-                          <option key={d.iso} value={d.iso}>
-                            {d.label}
-                          </option>
-                        ))}
-                      </TextField>
-                      <TextField
-                        select
-                        size="small"
-                        label="Bis"
-                        value={entry.dateTo}
-                        onChange={(e) => {
-                          const to = e.target.value;
-                          const patch: Partial<PreGenEntry> = { dateTo: to };
-                          if (to < entry.dateFrom) patch.dateFrom = to;
-                          updateEntry(idx, patch);
-                        }}
-                        sx={{ minWidth: 110 }}
-                        SelectProps={{ native: true }}
-                      >
-                        {daysInMonth.map((d) => (
-                          <option key={d.iso} value={d.iso}>
-                            {d.label}
-                          </option>
-                        ))}
-                      </TextField>
-                    </>
-                  ) : (
-                    <>
-                      <TextField
-                        select
-                        size="small"
-                        label="Von"
-                        value={entry.dateFrom}
-                        onChange={(e) => {
-                          const from = e.target.value;
-                          const patch: Partial<PreGenEntry> = { dateFrom: from };
-                          if (from > entry.dateTo) patch.dateTo = from;
-                          updateEntry(idx, patch);
-                        }}
-                        sx={{ minWidth: 110 }}
-                        SelectProps={{ native: true }}
-                      >
-                        {daysInMonth.map((d) => (
-                          <option key={d.iso} value={d.iso}>
-                            {d.label}
-                          </option>
-                        ))}
-                      </TextField>
-                      <TextField
-                        select
-                        size="small"
-                        label="Bis"
-                        value={entry.dateTo}
-                        onChange={(e) => {
-                          const to = e.target.value;
-                          const patch: Partial<PreGenEntry> = { dateTo: to };
-                          if (to < entry.dateFrom) patch.dateFrom = to;
-                          updateEntry(idx, patch);
-                        }}
-                        sx={{ minWidth: 110 }}
-                        SelectProps={{ native: true }}
-                      >
-                        {daysInMonth.map((d) => (
-                          <option key={d.iso} value={d.iso}>
-                            {d.label}
-                          </option>
-                        ))}
-                      </TextField>
-                    </>
-                  )}
-
-                  <IconButton
-                    size="small"
-                    color="error"
-                    onClick={() => removeEntry(idx)}
-                  >
-                    <CloseIcon fontSize="small" />
-                  </IconButton>
-                </Box>
-              ))}
-            </Box>
-          )}
-
-          <Box sx={{ display: "flex", gap: 1 }}>
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<AddIcon />}
-              onClick={() => addPreGenEntry("shift")}
-              disabled={planningEmployees.length === 0}
+          {/* Header: tabs + saved-count chip */}
+          <Box
+            sx={{
+              borderBottom: 1,
+              borderColor: "divider",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              mb: 2,
+            }}
+          >
+            <Tabs
+              value={preGenTab}
+              onChange={(_, v: "wishes" | "settings") => setPreGenTab(v)}
+              sx={{
+                minHeight: 40,
+                "& .MuiTab-root": {
+                  textTransform: "none",
+                  fontWeight: 600,
+                  fontSize: "0.85rem",
+                  minHeight: 40,
+                  py: 0.75,
+                },
+              }}
             >
-              Dienstwunsch
-            </Button>
-            <Button
-              size="small"
-              variant="outlined"
-              color="secondary"
-              startIcon={<AddIcon />}
-              onClick={() => addPreGenEntry("frei")}
-              disabled={planningEmployees.length === 0}
-            >
-              Frei-Wunsch
-            </Button>
-            <Button
-              size="small"
-              variant="outlined"
-              color="error"
-              startIcon={<SickIcon />}
-              onClick={() => addPreGenEntry("absence")}
-              disabled={planningEmployees.length === 0}
-            >
-              Abwesenheit
-            </Button>
-          </Box>
+              <Tab
+                value="wishes"
+                icon={<EventAvailableIcon sx={{ fontSize: 18 }} />}
+                iconPosition="start"
+                label={
+                  preGenEntries.length > 0
+                    ? `Wünsche & Abwesenheiten (${preGenEntries.length})`
+                    : "Wünsche & Abwesenheiten"
+                }
+              />
+              <Tab
+                value="settings"
+                icon={<TuneIcon sx={{ fontSize: 18 }} />}
+                iconPosition="start"
+                label="Generator-Einstellungen"
+              />
+            </Tabs>
 
-          {/* Save / Delete buttons */}
-          <Box sx={{ display: "flex", gap: 1, mt: 2 }}>
-            <Button
-              size="small"
-              variant="contained"
-              startIcon={preGenSaving ? <CircularProgress size={14} color="inherit" /> : <SaveIcon />}
-              onClick={() => void savePreGenEntries()}
-              disabled={preGenSaving || preGenEntries.length === 0}
-            >
-              Vorgaben speichern
-            </Button>
-            <Button
-              size="small"
-              variant="outlined"
-              color="error"
-              startIcon={<DeleteSweepIcon />}
-              onClick={() => void deletePreGenEntries()}
-              disabled={preGenSaving || !(schedule?.preGenWishes?.savedEntries?.length)}
-            >
-              Gespeicherte löschen
-            </Button>
             {schedule?.preGenWishes?.savedEntries?.length ? (
-              <Typography variant="caption" color="success.main" sx={{ alignSelf: "center", ml: 1 }}>
-                {schedule.preGenWishes.savedEntries.length} Vorgaben gespeichert
-              </Typography>
+              <Tooltip title="Gespeicherte Vorgaben werden bei jedem Lauf wieder geladen.">
+                <Chip
+                  size="small"
+                  icon={<CheckCircleIcon sx={{ fontSize: 16 }} />}
+                  label={`${schedule.preGenWishes.savedEntries.length} gespeichert`}
+                  color="success"
+                  variant="outlined"
+                  sx={{ mr: 1, fontWeight: 600 }}
+                />
+              </Tooltip>
             ) : null}
           </Box>
 
-          <Divider sx={{ my: 2 }} />
+          {/* ──────────────────── TAB 1: Wünsche & Abwesenheiten ──────────────────── */}
+          {preGenTab === "wishes" && (
+            <Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Fügen Sie optional Dienstwünsche oder Frei-Wünsche hinzu. Diese
+                werden als feste Vorgaben behandelt — der Generator plant den Rest
+                um diese Vorgaben herum.
+              </Typography>
 
-          {/* Timing strategy: FIXED budget vs PLATEAU-stop.
-              FIXED — each race runs exactly Sek. seconds.
-              PLATEAU — each race runs until Sek. seconds without finding a
-              strictly-better objective; solver self-stops with best-so-far. */}
-          <Box>
-            <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
-              Solver-Zeit & Anzahl Läufe
-            </Typography>
-            <ToggleButtonGroup
-              value={timingMode}
-              exclusive
-              onChange={(_, v) => {
-                if (v === "FIXED" || v === "PLATEAU") setTimingMode(v);
-              }}
-              size="small"
-              fullWidth
-              sx={{ mb: 1 }}
-            >
-              <ToggleButton value="FIXED" sx={{ textTransform: "none", py: 0.5 }}>
-                Festes Zeitlimit
-              </ToggleButton>
-              <ToggleButton value="PLATEAU" sx={{ textTransform: "none", py: 0.5 }}>
-                Plateau-Erkennung (Test)
-              </ToggleButton>
-            </ToggleButtonGroup>
-
-            {timingMode === "FIXED" ? (
-              <Box sx={{ display: "flex", alignItems: "flex-start", gap: 2 }}>
-                <Box sx={{ flex: 1 }}>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
-                    Jeder Lauf läuft genau die angegebene Anzahl Sekunden.
-                    Bei mehreren Läufen wird der Plan mit dem besten
-                    Objective übernommen.
-                  </Typography>
-                  {(() => {
-                    const sec = Number(solveTimeDraft);
-                    const n = Math.max(1, Math.min(10, Math.floor(Number(raceCountDraft) || 1)));
-                    const total = Number.isFinite(sec) && sec > 0 ? sec * n : null;
-                    return total != null ? (
-                      <Typography
-                        variant="caption"
-                        color="text.secondary"
-                        sx={{ display: "block", mt: 0.5, fontVariantNumeric: "tabular-nums" }}
+              {preGenEntries.length > 0 && (
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 1, mb: 2 }}>
+                  {preGenEntries.map((entry, idx) => {
+                    const stripe =
+                      entry.type === "shift"   ? "#2e7d32" :
+                      entry.type === "frei"    ? "#1565c0" :
+                                                 "#c62828";
+                    const tint =
+                      entry.type === "shift"   ? "rgba(46,125,50,0.04)" :
+                      entry.type === "frei"    ? "rgba(21,101,192,0.04)" :
+                                                 "rgba(198,40,40,0.04)";
+                    const TypeIcon =
+                      entry.type === "shift"   ? EventAvailableIcon :
+                      entry.type === "frei"    ? EventBusyIcon :
+                                                 SickIcon;
+                    return (
+                      <Box
+                        key={idx}
+                        sx={{
+                          display: "flex",
+                          gap: 1,
+                          alignItems: "center",
+                          flexWrap: "wrap",
+                          p: 1.25,
+                          pl: 1.5,
+                          borderRadius: 1,
+                          bgcolor: tint,
+                          border: "1px solid",
+                          borderColor: "divider",
+                          borderLeft: `4px solid ${stripe}`,
+                        }}
                       >
-                        ≈ {total}s gesamt ({sec}s × {n} {n === 1 ? "Lauf" : "Läufe"})
+                        <TypeIcon sx={{ color: stripe, fontSize: 18, flexShrink: 0 }} />
+
+                        <Autocomplete
+                          size="small"
+                          options={planningEmployees}
+                          value={planningEmployees.find((e) => e.id === entry.employeeId) ?? undefined}
+                          onChange={(_, val) => {
+                            if (val) updateEntry(idx, { employeeId: val.id });
+                          }}
+                          getOptionLabel={(e) => `${e.lastName}, ${e.firstName}`}
+                          isOptionEqualToValue={(o, v) => o.id === v.id}
+                          renderInput={(params) => (
+                            <TextField {...params} label="Mitarbeiter" />
+                          )}
+                          sx={{ minWidth: 200, flex: 1 }}
+                          disableClearable
+                        />
+                        <TextField
+                          select
+                          size="small"
+                          label="Typ"
+                          value={entry.type}
+                          onChange={(e) => {
+                            const newType = e.target.value as "shift" | "frei" | "absence";
+                            updateEntry(idx, { type: newType });
+                          }}
+                          sx={{ minWidth: 150 }}
+                          SelectProps={{ native: true }}
+                        >
+                          <option value="shift">Dienstwunsch</option>
+                          <option value="frei">Frei-Wunsch</option>
+                          <option value="absence">Abwesenheit</option>
+                        </TextField>
+
+                        {entry.type === "shift" ? (
+                          <>
+                            <TextField
+                              select
+                              size="small"
+                              label="Tag"
+                              value={entry.date}
+                              onChange={(e) => updateEntry(idx, { date: e.target.value })}
+                              sx={{ minWidth: 110 }}
+                              SelectProps={{ native: true }}
+                            >
+                              {daysInMonth.map((d) => (
+                                <option key={d.iso} value={d.iso}>
+                                  {d.label}
+                                </option>
+                              ))}
+                            </TextField>
+                            <TextField
+                              select
+                              size="small"
+                              label="Schichtprofil"
+                              value={entry.shiftProfileId}
+                              onChange={(e) => updateEntry(idx, { shiftProfileId: e.target.value })}
+                              sx={{ minWidth: 130 }}
+                              SelectProps={{ native: true }}
+                            >
+                              {allProfiles.map((p) => (
+                                <option key={p.id} value={p.id}>
+                                  {p.name}
+                                </option>
+                              ))}
+                            </TextField>
+                            <TextField
+                              select
+                              size="small"
+                              label="Station"
+                              value={entry.stationNumber}
+                              onChange={(e) => updateEntry(idx, { stationNumber: Number(e.target.value) })}
+                              sx={{ minWidth: 90 }}
+                              SelectProps={{ native: true }}
+                            >
+                              <option value={0}>Egal</option>
+                              <option value={1}>Station 1</option>
+                              <option value={2}>Station 2</option>
+                              <option value={3}>Station 3</option>
+                            </TextField>
+                          </>
+                        ) : entry.type === "absence" ? (
+                          <>
+                            <TextField
+                              select
+                              size="small"
+                              label="Art"
+                              value={entry.absenceType}
+                              onChange={(e) => updateEntry(idx, { absenceType: e.target.value as "KRANK" | "URLAUB" })}
+                              sx={{ minWidth: 110 }}
+                              SelectProps={{ native: true }}
+                            >
+                              <option value="KRANK">Krank</option>
+                              <option value="URLAUB">Urlaub</option>
+                            </TextField>
+                            <TextField
+                              select
+                              size="small"
+                              label="Von"
+                              value={entry.dateFrom}
+                              onChange={(e) => {
+                                const from = e.target.value;
+                                const patch: Partial<PreGenEntry> = { dateFrom: from };
+                                if (from > entry.dateTo) patch.dateTo = from;
+                                updateEntry(idx, patch);
+                              }}
+                              sx={{ minWidth: 110 }}
+                              SelectProps={{ native: true }}
+                            >
+                              {daysInMonth.map((d) => (
+                                <option key={d.iso} value={d.iso}>
+                                  {d.label}
+                                </option>
+                              ))}
+                            </TextField>
+                            <TextField
+                              select
+                              size="small"
+                              label="Bis"
+                              value={entry.dateTo}
+                              onChange={(e) => {
+                                const to = e.target.value;
+                                const patch: Partial<PreGenEntry> = { dateTo: to };
+                                if (to < entry.dateFrom) patch.dateFrom = to;
+                                updateEntry(idx, patch);
+                              }}
+                              sx={{ minWidth: 110 }}
+                              SelectProps={{ native: true }}
+                            >
+                              {daysInMonth.map((d) => (
+                                <option key={d.iso} value={d.iso}>
+                                  {d.label}
+                                </option>
+                              ))}
+                            </TextField>
+                          </>
+                        ) : (
+                          <>
+                            <TextField
+                              select
+                              size="small"
+                              label="Von"
+                              value={entry.dateFrom}
+                              onChange={(e) => {
+                                const from = e.target.value;
+                                const patch: Partial<PreGenEntry> = { dateFrom: from };
+                                if (from > entry.dateTo) patch.dateTo = from;
+                                updateEntry(idx, patch);
+                              }}
+                              sx={{ minWidth: 110 }}
+                              SelectProps={{ native: true }}
+                            >
+                              {daysInMonth.map((d) => (
+                                <option key={d.iso} value={d.iso}>
+                                  {d.label}
+                                </option>
+                              ))}
+                            </TextField>
+                            <TextField
+                              select
+                              size="small"
+                              label="Bis"
+                              value={entry.dateTo}
+                              onChange={(e) => {
+                                const to = e.target.value;
+                                const patch: Partial<PreGenEntry> = { dateTo: to };
+                                if (to < entry.dateFrom) patch.dateFrom = to;
+                                updateEntry(idx, patch);
+                              }}
+                              sx={{ minWidth: 110 }}
+                              SelectProps={{ native: true }}
+                            >
+                              {daysInMonth.map((d) => (
+                                <option key={d.iso} value={d.iso}>
+                                  {d.label}
+                                </option>
+                              ))}
+                            </TextField>
+                          </>
+                        )}
+
+                        <Tooltip title="Eintrag entfernen" arrow>
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => removeEntry(idx)}
+                            sx={{ ml: "auto" }}
+                          >
+                            <CloseIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
+                    );
+                  })}
+                </Box>
+              )}
+
+              {/* Add buttons — colored to match each entry's left-stripe */}
+              <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", gap: 1 }}>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<EventAvailableIcon />}
+                  onClick={() => addPreGenEntry("shift")}
+                  disabled={planningEmployees.length === 0}
+                  sx={{
+                    textTransform: "none",
+                    color: "#2e7d32",
+                    borderColor: "rgba(46,125,50,0.5)",
+                    "&:hover": { borderColor: "#2e7d32", bgcolor: "rgba(46,125,50,0.04)" },
+                  }}
+                >
+                  Dienstwunsch
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<EventBusyIcon />}
+                  onClick={() => addPreGenEntry("frei")}
+                  disabled={planningEmployees.length === 0}
+                  sx={{
+                    textTransform: "none",
+                    color: "#1565c0",
+                    borderColor: "rgba(21,101,192,0.5)",
+                    "&:hover": { borderColor: "#1565c0", bgcolor: "rgba(21,101,192,0.04)" },
+                  }}
+                >
+                  Frei-Wunsch
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<SickIcon />}
+                  onClick={() => addPreGenEntry("absence")}
+                  disabled={planningEmployees.length === 0}
+                  sx={{
+                    textTransform: "none",
+                    color: "#c62828",
+                    borderColor: "rgba(198,40,40,0.5)",
+                    "&:hover": { borderColor: "#c62828", bgcolor: "rgba(198,40,40,0.04)" },
+                  }}
+                >
+                  Abwesenheit
+                </Button>
+              </Stack>
+
+              {/* Save / Delete bar */}
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1,
+                  mt: 2,
+                  pt: 1.5,
+                  borderTop: "1px solid",
+                  borderColor: "divider",
+                }}
+              >
+                <Button
+                  size="small"
+                  variant="contained"
+                  startIcon={preGenSaving ? <CircularProgress size={14} color="inherit" /> : <SaveIcon />}
+                  onClick={() => void savePreGenEntries()}
+                  disabled={preGenSaving || preGenEntries.length === 0}
+                  sx={{ textTransform: "none" }}
+                >
+                  Vorgaben speichern
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="error"
+                  startIcon={<DeleteSweepIcon />}
+                  onClick={() => void deletePreGenEntries()}
+                  disabled={preGenSaving || !(schedule?.preGenWishes?.savedEntries?.length)}
+                  sx={{ textTransform: "none" }}
+                >
+                  Gespeicherte löschen
+                </Button>
+              </Box>
+            </Box>
+          )}
+
+          {/* ──────────────────── TAB 2: Generator-Einstellungen ──────────────────── */}
+          {preGenTab === "settings" && (
+            <Stack spacing={3}>
+              {/* Solver-Zeit & Anzahl Läufe */}
+              <Box>
+                <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 0.5 }}>
+                  Solver-Zeit & Anzahl Läufe
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1.5 }}>
+                  Wie lange darf der Solver suchen? Mehr Zeit = bessere Lösung,
+                  aber längere Wartezeit.
+                </Typography>
+                <ToggleButtonGroup
+                  value={timingMode}
+                  exclusive
+                  onChange={(_, v) => {
+                    if (v === "FIXED" || v === "PLATEAU") setTimingMode(v);
+                  }}
+                  size="small"
+                  fullWidth
+                  sx={{ mb: 1.5 }}
+                >
+                  <ToggleButton value="FIXED" sx={{ textTransform: "none", py: 0.75 }}>
+                    Festes Zeitlimit
+                  </ToggleButton>
+                  <ToggleButton value="PLATEAU" sx={{ textTransform: "none", py: 0.75 }}>
+                    Plateau-Erkennung (Test)
+                  </ToggleButton>
+                </ToggleButtonGroup>
+
+                {timingMode === "FIXED" ? (
+                  <Box sx={{ display: "flex", alignItems: "flex-start", gap: 2 }}>
+                    <Box sx={{ flex: 1 }}>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                        Jeder Lauf läuft genau die angegebene Anzahl Sekunden.
+                        Bei mehreren Läufen wird der Plan mit dem besten
+                        Objective übernommen.
                       </Typography>
-                    ) : null;
-                  })()}
-                </Box>
-                <TextField
-                  size="small"
-                  type="number"
-                  label="Sek."
-                  value={solveTimeDraft}
-                  onChange={(e) => setSolveTimeDraft(e.target.value)}
-                  inputProps={{ min: 5, max: 3600, step: 5 }}
-                  sx={{ width: 110 }}
-                />
-                <TextField
-                  size="small"
-                  type="number"
-                  label="Läufe"
-                  value={raceCountDraft}
-                  onChange={(e) => setRaceCountDraft(e.target.value)}
-                  inputProps={{ min: 1, max: 10, step: 1 }}
-                  sx={{ width: 90 }}
-                />
+                      {(() => {
+                        const sec = Number(solveTimeDraft);
+                        const n = Math.max(1, Math.min(10, Math.floor(Number(raceCountDraft) || 1)));
+                        const total = Number.isFinite(sec) && sec > 0 ? sec * n : null;
+                        return total != null ? (
+                          <Typography
+                            variant="caption"
+                            color="text.secondary"
+                            sx={{ display: "block", mt: 0.5, fontVariantNumeric: "tabular-nums" }}
+                          >
+                            ≈ {total}s gesamt ({sec}s × {n} {n === 1 ? "Lauf" : "Läufe"})
+                          </Typography>
+                        ) : null;
+                      })()}
+                    </Box>
+                    <TextField
+                      size="small"
+                      type="number"
+                      label="Sek."
+                      value={solveTimeDraft}
+                      onChange={(e) => setSolveTimeDraft(e.target.value)}
+                      inputProps={{ min: 5, max: 3600, step: 5 }}
+                      sx={{ width: 110 }}
+                    />
+                    <TextField
+                      size="small"
+                      type="number"
+                      label="Läufe"
+                      value={raceCountDraft}
+                      onChange={(e) => setRaceCountDraft(e.target.value)}
+                      inputProps={{ min: 1, max: 10, step: 1 }}
+                      sx={{ width: 90 }}
+                    />
+                  </Box>
+                ) : (
+                  <Box sx={{ display: "flex", alignItems: "flex-start", gap: 2 }}>
+                    <Box sx={{ flex: 1 }}>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                        Jeder Lauf endet, sobald für die angegebene Sekunden-Zahl
+                        keine bessere Lösung mehr gefunden wurde. Gesamtdauer
+                        hängt davon ab, wie schnell die Suche konvergiert
+                        (Hard-Cap intern: 30 Min. pro Lauf).
+                      </Typography>
+                    </Box>
+                    <TextField
+                      size="small"
+                      type="number"
+                      label="Plateau-Sek."
+                      value={plateauSecondsDraft}
+                      onChange={(e) => setPlateauSecondsDraft(e.target.value)}
+                      inputProps={{ min: 5, max: 600, step: 5 }}
+                      sx={{ width: 130 }}
+                    />
+                    <TextField
+                      size="small"
+                      type="number"
+                      label="Läufe"
+                      value={raceCountDraft}
+                      onChange={(e) => setRaceCountDraft(e.target.value)}
+                      inputProps={{ min: 1, max: 10, step: 1 }}
+                      sx={{ width: 90 }}
+                    />
+                  </Box>
+                )}
               </Box>
-            ) : (
-              <Box sx={{ display: "flex", alignItems: "flex-start", gap: 2 }}>
-                <Box sx={{ flex: 1 }}>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
-                    Jeder Lauf endet, sobald für die angegebene Sekunden-Zahl
-                    keine bessere Lösung mehr gefunden wurde. Gesamtdauer
-                    hängt davon ab, wie schnell die Suche konvergiert
-                    (Hard-Cap intern: 30 Min. pro Lauf).
-                  </Typography>
-                </Box>
-                <TextField
+
+              {/* Strategie bei Engpässen */}
+              <Box>
+                <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 0.5 }}>
+                  Strategie bei Engpässen
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1.5 }}>
+                  Wie soll der Solver mit knappen Personalsituationen umgehen?
+                </Typography>
+                <ToggleButtonGroup
+                  value={strategyDraft}
+                  exclusive
+                  onChange={(_, v) => {
+                    if (v === "PREFER_FULL_COVERAGE" || v === "PREFER_GAPS") {
+                      setStrategyDraft(v);
+                    }
+                  }}
                   size="small"
-                  type="number"
-                  label="Plateau-Sek."
-                  value={plateauSecondsDraft}
-                  onChange={(e) => setPlateauSecondsDraft(e.target.value)}
-                  inputProps={{ min: 5, max: 600, step: 5 }}
-                  sx={{ width: 130 }}
-                />
-                <TextField
-                  size="small"
-                  type="number"
-                  label="Läufe"
-                  value={raceCountDraft}
-                  onChange={(e) => setRaceCountDraft(e.target.value)}
-                  inputProps={{ min: 1, max: 10, step: 1 }}
-                  sx={{ width: 90 }}
-                />
+                  fullWidth
+                  sx={{ mb: 1 }}
+                >
+                  <ToggleButton value="PREFER_FULL_COVERAGE" sx={{ textTransform: "none", py: 0.75 }}>
+                    Vollabdeckung anstreben
+                  </ToggleButton>
+                  <ToggleButton value="PREFER_GAPS" sx={{ textTransform: "none", py: 0.75 }}>
+                    Lieber Slot leer lassen
+                  </ToggleButton>
+                </ToggleButtonGroup>
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                  {strategyDraft === "PREFER_FULL_COVERAGE"
+                    ? "Standard. Der Solver füllt jeden Pflicht-Slot — auch mit Überstunden oder im Notfall durch Brechen weicher Regeln (Wechsel-Wochenenden, max. Tage in Folge, Ruhe nach 6+ Tagen)."
+                    : "Der Solver lässt Slots lieber unbesetzt als Überstunden zu vergeben oder Regeln zu brechen. Sie füllen die Lücken anschließend von Hand."}
+                </Typography>
               </Box>
-            )}
-          </Box>
-
-          <Divider sx={{ my: 2 }} />
-
-          {/* Strategy toggle: choose how the solver handles tight scenarios.
-              "Vollabdeckung" (default): fill every slot, even with overtime
-              or by breaking soft Phase-2 rules in extreme cases.
-              "Lieber Slot leer lassen": leave slots empty before paying
-              expensive overtime or breaking weekend / consec-day / rest
-              rules — planner fills gaps manually afterwards. */}
-          <Box>
-            <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
-              Strategie bei Engpässen
-            </Typography>
-            <ToggleButtonGroup
-              value={strategyDraft}
-              exclusive
-              onChange={(_, v) => {
-                if (v === "PREFER_FULL_COVERAGE" || v === "PREFER_GAPS") {
-                  setStrategyDraft(v);
-                }
-              }}
-              size="small"
-              fullWidth
-              sx={{ mb: 1 }}
-            >
-              <ToggleButton value="PREFER_FULL_COVERAGE" sx={{ textTransform: "none", py: 0.75 }}>
-                Vollabdeckung anstreben
-              </ToggleButton>
-              <ToggleButton value="PREFER_GAPS" sx={{ textTransform: "none", py: 0.75 }}>
-                Lieber Slot leer lassen
-              </ToggleButton>
-            </ToggleButtonGroup>
-            <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
-              {strategyDraft === "PREFER_FULL_COVERAGE"
-                ? "Standard. Der Solver füllt jeden Pflicht-Slot — auch mit Überstunden oder im Notfall durch Brechen weicher Regeln (Wechsel-Wochenenden, max. Tage in Folge, Ruhe nach 6+ Tagen)."
-                : "Der Solver lässt Slots lieber unbesetzt als Überstunden zu vergeben oder Regeln zu brechen. Sie füllen die Lücken anschließend von Hand."}
-            </Typography>
-          </Box>
+            </Stack>
+          )}
+        
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setPreGenOpen(false)}>Abbrechen</Button>
