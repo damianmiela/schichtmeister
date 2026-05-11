@@ -1521,10 +1521,10 @@ export default function MonthTableView({
       ref={containerRef}
       onMouseUp={handleMouseUp}
       sx={{
-        // ~50px shorter than the previous 70vh so the bottom horizontal
+        // ~30px shorter than the previous 70vh so the bottom horizontal
         // scrollbar shows above the fold immediately — otherwise it sits
         // just below the viewport and feels "missing".
-        maxHeight: "calc(70vh - 50px)",
+        maxHeight: "calc(70vh - 30px)",
         overflow: "auto",
         border: editMode ? 2 : 1,
         borderColor: editMode ? "primary.main" : "divider",
