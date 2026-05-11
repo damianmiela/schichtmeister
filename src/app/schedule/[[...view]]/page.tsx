@@ -278,7 +278,9 @@ export default function SchedulePage() {
   const [clearBusy, setClearBusy] = useState(false);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [preGenOpen, setPreGenOpen] = useState(false);
-  const [preGenTab, setPreGenTab] = useState<"wishes" | "settings">("wishes");
+  // First visible tab in the modal is Generator-Einstellungen, so the
+  // default selection matches what the user sees first.
+  const [preGenTab, setPreGenTab] = useState<"wishes" | "settings">("settings");
   /** Live employee-name / qualification-tag filter on the month table view. */
   const [employeeSearch, setEmployeeSearch] = useState("");
   const [preGenEntries, setPreGenEntries] = useState<PreGenEntry[]>([]);
