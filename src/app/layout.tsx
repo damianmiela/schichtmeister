@@ -16,15 +16,17 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="de">
-      <body style={{ minHeight: "100vh", display: "flex", flexDirection: "column", margin: 0 }}>
+      {/* paddingBottom = footer height (~48px) so fixed footer doesn't cover
+          the last row of page content. Tune in Footer.tsx if you change the
+          footer height. */}
+      <body style={{ minHeight: "100vh", margin: 0, paddingBottom: "48px" }}>
         <AppRouterCacheProvider>
           <AuthSessionProvider>
             <ThemeRegistry>
-              {/* Page content takes all the vertical space it needs… */}
-              <div style={{ flex: "1 0 auto" }}>{children}</div>
-              {/* …and the Footer is glued to the bottom of the viewport when
-                  content is short, and pushed below the fold when content
-                  is long. */}
+              {children}
+              {/* Footer is position:fixed — always visible above the sidebar
+                  (z-index 1250). Mounted last so its DOM order matches
+                  visual order, but layout-wise it doesn't push children. */}
               <Footer />
             </ThemeRegistry>
           </AuthSessionProvider>

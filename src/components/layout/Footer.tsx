@@ -23,22 +23,30 @@ export default function Footer() {
     <Box
       component="footer"
       sx={{
-        // Sits at the bottom of every page; pushed away from content by the
-        // flex column in the body root (see globals/layout).
-        mt: "auto",
-        py: 1.5,
+        // Pinned to the bottom of the viewport, always visible. z-index sits
+        // above the MUI Drawer/Sidebar (default 1200) but below modals/dialogs
+        // (1300), so it stays on top of the side menu without ever covering
+        // an open dialog.
+        position: "fixed",
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 1250,
+        py: 0.75,
         px: 2,
         display: "flex",
         flexDirection: { xs: "column", sm: "row" },
         alignItems: "center",
         justifyContent: "space-between",
         gap: 1,
-        // The logo is transparent and designed for a dark background, so the
-        // whole footer band is dark. Text colors are inverted accordingly.
-        bgcolor: "#1a1a1a",
-        color: "rgba(255,255,255,0.78)",
+        // Footer matches the rest of the page now — only the logo gets a
+        // dark backdrop (see below) since the artwork was designed for it.
+        bgcolor: "background.paper",
+        color: "text.secondary",
         fontSize: "0.78rem",
-        borderTop: "1px solid rgba(255,255,255,0.06)",
+        borderTop: "1px solid",
+        borderColor: "divider",
+        backdropFilter: "saturate(180%) blur(6px)",
       }}
     >
       {/* Left: copyright */}
@@ -55,25 +63,37 @@ export default function Footer() {
           href={AGENCY_URL}
           target="_blank"
           rel="noopener noreferrer"
-          underline="hover"
+          underline="none"
           sx={{
             display: "inline-flex",
             alignItems: "center",
             gap: 0.75,
+            // The logo's transparent artwork was designed for a dark
+            // backdrop, so the link wrapper itself acts as that backdrop —
+            // a small rounded dark pill that hugs the logo only, leaving
+            // the rest of the footer flush with the page.
+            bgcolor: "#1a1a1a",
+            borderRadius: "6px",
+            px: 1,
+            py: 0.4,
             color: "rgba(255,255,255,0.95)",
             fontWeight: 600,
             fontSize: "0.8rem",
-            "&:hover": { color: "#fff" },
+            transition: "background-color 0.15s, box-shadow 0.15s",
+            "&:hover": {
+              bgcolor: "#000",
+              boxShadow: "0 0 0 1px rgba(0,0,0,0.18)",
+            },
           }}
         >
           <Image
             src={AGENCY_LOGO_SRC}
             alt={`${AGENCY_NAME} Logo`}
             width={88}
-            height={22}
+            height={20}
             // Keep aspect ratio flexible — the actual logo proportions are
             // preserved by next/image and the box just provides bounds.
-            style={{ height: 22, width: "auto", objectFit: "contain" }}
+            style={{ height: 20, width: "auto", objectFit: "contain", display: "block" }}
             priority={false}
           />
           {/* Screen-reader-only name (logo conveys it visually). */}
