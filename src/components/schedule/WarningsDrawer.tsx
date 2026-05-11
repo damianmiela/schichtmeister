@@ -337,6 +337,32 @@ type BulletEntry = {
   dates?: string;
 };
 
+/**
+ * Split the dates field on commas, but only at depth 0 — commas inside
+ * parens (e.g. "Früh(1,3)") stay attached to their group. Without this the
+ * Unterbesetzung breakdown "Früh(1,3), Spät(1,3), Nacht" was breaking up
+ * into 5 broken pills instead of 3.
+ */
+function splitDatesParenAware(input: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let cur = "";
+  for (const ch of input) {
+    if (ch === "(") depth++;
+    else if (ch === ")") depth = Math.max(0, depth - 1);
+    if (ch === "," && depth === 0) {
+      const trimmed = cur.trim();
+      if (trimmed) out.push(trimmed);
+      cur = "";
+      continue;
+    }
+    cur += ch;
+  }
+  const trimmed = cur.trim();
+  if (trimmed) out.push(trimmed);
+  return out;
+}
+
 function parseBulletLine(line: string): BulletEntry | null {
   if (!line.startsWith("•")) return null;
   const rest = line.slice(1).trim(); // drop the • and surrounding space
@@ -359,6 +385,9 @@ function parseBulletLine(line: string): BulletEntry | null {
   return { label: beforeDash, dates };
 }
 
+/** How many bullet rows to show before collapsing the rest behind a button. */
+const BULLET_COLLAPSE_THRESHOLD = 5;
+
 function WarningCard({ sev, text }: { sev: WarningSeverity; text: string }) {
   const tokens = SEVERITY_TOKENS[sev];
   // Multi-line aggregations use "\n" between header and bullet entries.
@@ -380,6 +409,16 @@ function WarningCard({ sev, text }: { sev: WarningSeverity; text: string }) {
       for (const e of parsed) bulletEntries.push(e!);
     }
   }
+
+  // Progressive disclosure: when there are more than N bullet rows, hide the
+  // tail behind a "Mehr anzeigen" toggle so dense cards (e.g. 21 employees
+  // with Wochenendregelung violations) don't drown the drawer.
+  const [bulletExpanded, setBulletExpanded] = useState(false);
+  const overflowed = allBullets && bulletEntries.length > BULLET_COLLAPSE_THRESHOLD;
+  const visibleBullets = overflowed && !bulletExpanded
+    ? bulletEntries.slice(0, BULLET_COLLAPSE_THRESHOLD)
+    : bulletEntries;
+  const hiddenCount = overflowed ? bulletEntries.length - BULLET_COLLAPSE_THRESHOLD : 0;
 
   return (
     <Box
@@ -417,14 +456,54 @@ function WarningCard({ sev, text }: { sev: WarningSeverity; text: string }) {
               flexDirection: "column",
             }}
           >
-            {bulletEntries.map((e, i) => (
+            {visibleBullets.map((e, i) => (
               <BulletRow
                 key={i}
                 sev={sev}
                 entry={e}
-                divider={i < bulletEntries.length - 1}
+                divider={i < visibleBullets.length - 1}
               />
             ))}
+            {overflowed && (
+              <Box
+                component="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setBulletExpanded((p) => !p);
+                }}
+                sx={{
+                  all: "unset",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 0.4,
+                  alignSelf: "flex-start",
+                  mt: 0.6,
+                  px: 0.85,
+                  py: 0.3,
+                  borderRadius: "9px",
+                  cursor: "pointer",
+                  fontSize: "0.7rem",
+                  fontWeight: 700,
+                  color: tokens.main,
+                  bgcolor: alpha(tokens.main, 0.08),
+                  border: `1px solid ${alpha(tokens.main, 0.25)}`,
+                  transition: "background-color 0.12s",
+                  "&:hover": { bgcolor: alpha(tokens.main, 0.16) },
+                }}
+              >
+                {bulletExpanded ? (
+                  <>
+                    <ExpandLessIcon sx={{ fontSize: 14 }} />
+                    Weniger anzeigen
+                  </>
+                ) : (
+                  <>
+                    <ExpandMoreIcon sx={{ fontSize: 14 }} />
+                    {hiddenCount} weitere anzeigen
+                  </>
+                )}
+              </Box>
+            )}
           </Box>
         )}
 
@@ -472,9 +551,7 @@ function BulletRow({
   const tokens = SEVERITY_TOKENS[sev];
   // Render each comma-separated entry as its own pill so a long list still
   // wraps cleanly across the card width.
-  const dateChunks = entry.dates
-    ? entry.dates.split(",").map((c) => c.trim()).filter(Boolean)
-    : [];
+  const dateChunks = entry.dates ? splitDatesParenAware(entry.dates) : [];
 
   return (
     <Box
@@ -485,23 +562,27 @@ function BulletRow({
         borderBottom: divider ? `1px solid ${alpha(tokens.main, 0.18)}` : "none",
       }}
     >
-      {/* Name + inline stats chip on the same wrap-line. */}
+      {/* Single wrap-line: [label] [stats?] [date/info pills...]
+          When the label is short (e.g. "02.05.") the pills sit next to it
+          instead of wasting a separate stacked row. Long labels (employee
+          names) push the pills to the next wrap-line naturally. */}
       <Box
         sx={{
           display: "flex",
           alignItems: "center",
           flexWrap: "wrap",
-          gap: 0.6,
-          rowGap: 0.25,
+          columnGap: 0.5,
+          rowGap: 0.3,
         }}
       >
         <Typography
           component="span"
           sx={{
-            fontSize: "0.74rem",
+            fontSize: "0.75rem",
             fontWeight: 600,
             color: "text.primary",
             lineHeight: 1.3,
+            mr: 0.25,
             wordBreak: "break-word",
           }}
         >
@@ -527,45 +608,35 @@ function BulletRow({
             {entry.stats}
           </Typography>
         )}
+        {dateChunks.map((d, i) => {
+          // "!" suffix = this entry is itself a violation (e.g. consecutive
+          // worked weekend) and renders with a red tint regardless of the
+          // surrounding card severity.
+          const isViolation = d.endsWith("!");
+          const text = isViolation ? d.slice(0, -1) : d;
+          const redTokens = SEVERITY_TOKENS.red;
+          return (
+            <Typography
+              key={i}
+              component="span"
+              sx={{
+                fontSize: "0.68rem",
+                lineHeight: 1.3,
+                color: isViolation ? redTokens.main : "text.secondary",
+                bgcolor: isViolation ? alpha(redTokens.main, 0.12) : "rgba(0,0,0,0.045)",
+                border: isViolation ? `1px solid ${redTokens.border}` : "1px solid transparent",
+                fontWeight: isViolation ? 600 : 400,
+                borderRadius: "6px",
+                px: 0.6,
+                py: "1px",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {text}
+            </Typography>
+          );
+        })}
       </Box>
-      {dateChunks.length > 0 && (
-        <Box
-          sx={{
-            mt: 0.3,
-            display: "flex",
-            flexWrap: "wrap",
-            gap: 0.35,
-          }}
-        >
-          {dateChunks.map((d, i) => {
-            // "!" suffix = this entry is a violation (e.g. consecutive worked
-            // weekend) and should be rendered in red so it's spottable.
-            const isViolation = d.endsWith("!");
-            const text = isViolation ? d.slice(0, -1) : d;
-            const redTokens = SEVERITY_TOKENS.red;
-            return (
-              <Typography
-                key={i}
-                component="span"
-                sx={{
-                  fontSize: "0.66rem",
-                  lineHeight: 1.3,
-                  color: isViolation ? redTokens.main : "text.secondary",
-                  bgcolor: isViolation ? alpha(redTokens.main, 0.12) : "rgba(0,0,0,0.045)",
-                  border: isViolation ? `1px solid ${redTokens.border}` : "1px solid transparent",
-                  fontWeight: isViolation ? 600 : 400,
-                  borderRadius: "6px",
-                  px: 0.55,
-                  py: "1px",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {text}
-              </Typography>
-            );
-          })}
-        </Box>
-      )}
     </Box>
   );
 }
