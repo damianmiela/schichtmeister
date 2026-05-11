@@ -1664,6 +1664,10 @@ export default function SchedulePage() {
 
   return (
     <MainLayout title="Monatplan">
+      {/* The schedule page is designed to fit the viewport — the table
+          inside has its own scroll. This outer wrapper pins us to main's
+          allocated height so we never trigger a chrome-level scrollbar. */}
+      <Box sx={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <Box sx={{ mb: 2 }}>
         <Breadcrumbs>
           <Link
@@ -3623,6 +3627,7 @@ export default function SchedulePage() {
           )}
         </Box>
       </Drawer>
+      </Box>
     </MainLayout>
   );
 }

@@ -1527,7 +1527,7 @@ export default function MonthTableView({
         // plus the fixed footer (40px) plus a small safety margin (~20px) is
         // subtracted from the live viewport height. dvh handles mobile
         // browser-chrome resize correctly.
-        maxHeight: "calc(100dvh - 280px)",
+        maxHeight: "calc(100dvh - 300px)",
         overflow: "auto",
         border: editMode ? 2 : 1,
         borderColor: editMode ? "primary.main" : "divider",
