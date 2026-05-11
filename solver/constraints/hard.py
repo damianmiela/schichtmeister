@@ -19,6 +19,7 @@ Constraint IDs map 1:1 with the plan in 03-phase-02-hard-constraints.md.
 from __future__ import annotations
 
 import logging
+from datetime import date
 from ortools.sat.python import cp_model
 
 from models import SolveRequest, ShiftProfileInput
