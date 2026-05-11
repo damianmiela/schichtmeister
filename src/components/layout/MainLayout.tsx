@@ -20,7 +20,7 @@ export default function MainLayout({ children, title }: MainLayoutProps) {
   useActivityTracker();
 
   return (
-    <Box sx={{ display: "flex", minHeight: "calc(100vh - 48px)", bgcolor: "background.default" }}>
+    <Box sx={{ display: "flex", minHeight: "calc(100vh - 40px)", bgcolor: "background.default" }}>
       <Sidebar mobileOpen={mobileOpen} onMobileClose={() => setMobileOpen(false)} />
       <Header title={title} onMenuToggle={() => setMobileOpen((p) => !p)} />
       <Box

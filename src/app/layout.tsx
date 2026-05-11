@@ -16,10 +16,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="de">
-      {/* paddingBottom = footer height (~48px) so fixed footer doesn't cover
+      {/* paddingBottom = footer height (40px, see FOOTER_HEIGHT_PX in Footer.tsx) so fixed footer doesn't cover
           the last row of page content. Tune in Footer.tsx if you change the
           footer height. */}
-      <body style={{ margin: 0, paddingBottom: "48px" }}>
+      <body style={{ margin: 0, paddingBottom: "40px" }}>
         <AppRouterCacheProvider>
           <AuthSessionProvider>
             <ThemeRegistry>

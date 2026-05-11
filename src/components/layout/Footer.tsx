@@ -18,6 +18,13 @@ const AGENCY_URL = "https://www.dendigital.de";
 /** Path served from /public — replace the file there to swap logos. */
 const AGENCY_LOGO_SRC = "/dendigital-logo.png";
 
+/** Hard-pinned footer height. Kept in sync with the body padding-bottom and
+ *  MainLayout's "minHeight: calc(100vh - <this>)" math so short pages don't
+ *  leave a ghost-scroll gap. If you make the footer taller, bump these too:
+ *    - src/app/layout.tsx  (paddingBottom)
+ *    - src/components/layout/MainLayout.tsx  (minHeight calc) */
+export const FOOTER_HEIGHT_PX = 40;
+
 export default function Footer() {
   return (
     <Box
@@ -32,7 +39,11 @@ export default function Footer() {
         right: 0,
         bottom: 0,
         zIndex: 1250,
-        py: 0.75,
+        // Pinned height — see FOOTER_HEIGHT_PX. The two-value array lets the
+        // mobile breakpoint stack (column) without exploding the height.
+        height: { xs: "auto", sm: `${FOOTER_HEIGHT_PX}px` },
+        minHeight: `${FOOTER_HEIGHT_PX}px`,
+        py: 0,
         px: 2,
         display: "flex",
         flexDirection: { xs: "column", sm: "row" },
