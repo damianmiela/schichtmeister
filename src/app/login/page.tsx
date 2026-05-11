@@ -126,11 +126,16 @@ function LoginForm() {
       </form>
 
       <Box sx={{ mt: 2, textAlign: "center" }}>
+        {/* "Passwort vergessen" is hidden because the reset flow isn't wired
+            up yet. The /forgot-password route still exists — re-enable this
+            block once the flow is finished. */}
+        {/*
         <Typography variant="body2" color="text.secondary">
           <Link href="/forgot-password" style={{ fontWeight: 600 }}>
             Passwort vergessen?
           </Link>
         </Typography>
+        */}
         {/* Registration is intentionally hidden — the /register route still
             exists and works, we just don't surface it on the login screen yet.
             Re-enable by uncommenting this block when public sign-up is wanted. */}
