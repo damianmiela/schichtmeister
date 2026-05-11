@@ -20,7 +20,7 @@ export default function MainLayout({ children, title }: MainLayoutProps) {
   useActivityTracker();
 
   return (
-    <Box sx={{ display: "flex", minHeight: "calc(100vh - 40px)", bgcolor: "background.default" }}>
+    <Box sx={{ display: "flex", height: "calc(100dvh - 40px)", bgcolor: "background.default", overflow: "hidden" }}>
       <Sidebar mobileOpen={mobileOpen} onMobileClose={() => setMobileOpen(false)} />
       <Header title={title} onMenuToggle={() => setMobileOpen((p) => !p)} />
       <Box
@@ -30,7 +30,11 @@ export default function MainLayout({ children, title }: MainLayoutProps) {
           p: { xs: 1.5, sm: 2, md: 3 },
           width: { xs: "100%", md: `calc(100% - ${DRAWER_WIDTH}px)` },
           maxWidth: "100vw",
-          overflow: "hidden",
+          // Scroll happens *inside* main now (body is height-locked + hidden),
+          // so long pages don't push the footer out of view.
+          overflowY: "auto",
+          overflowX: "hidden",
+          minHeight: 0,
         }}
       >
         <Toolbar />

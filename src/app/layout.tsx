@@ -19,7 +19,7 @@ export default function RootLayout({
       {/* paddingBottom = footer height (40px, see FOOTER_HEIGHT_PX in Footer.tsx) so fixed footer doesn't cover
           the last row of page content. Tune in Footer.tsx if you change the
           footer height. */}
-      <body style={{ margin: 0, paddingBottom: "40px" }}>
+      <body style={{ margin: 0, paddingBottom: "40px", overflow: "hidden", height: "100dvh" }}>
         <AppRouterCacheProvider>
           <AuthSessionProvider>
             <ThemeRegistry>
