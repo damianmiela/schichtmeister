@@ -151,8 +151,11 @@ export default function WarningsDrawer({
         </>
       )}
 
-      {/* Body */}
-      <Box sx={{ p: 2, overflow: "auto", flex: 1 }}>
+      {/* Body — minHeight:0 is the classic flex-overflow fix: without it,
+          a flex child with overflow:auto refuses to shrink below its
+          content height, so the scrollbar never appears when the warnings
+          list runs past the viewport. */}
+      <Box sx={{ p: 2, overflow: "auto", flex: 1, minHeight: 0 }}>
         {total === 0 ? (
           <Box
             sx={{

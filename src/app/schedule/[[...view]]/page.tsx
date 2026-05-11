@@ -1121,7 +1121,9 @@ export default function SchedulePage() {
           const uniqueAbsEmps = new Set(absences.map((a) => a.employeeId)).size;
           msgParts.push(`${absences.length} Abwesenheit(en) für ${uniqueAbsEmps} MA berücksichtigt.`);
         }
-        const warnCount = (result.warnings?.length ?? 0);
+        // Sum raw violation counts (each warning carries `.count`) so the
+        // modal text matches what the sidebar shows ("X Warnungen").
+        const warnCount = result.warnings?.reduce((sum, w) => sum + w.count, 0) ?? 0;
         const unmet = result.unmetStaffing?.length ?? 0;
         const totalIssues = warnCount + unmet;
         if (totalIssues > 0) {
