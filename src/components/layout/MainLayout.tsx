@@ -30,10 +30,12 @@ export default function MainLayout({ children, title }: MainLayoutProps) {
           p: { xs: 1.5, sm: 2, md: 3 },
           width: { xs: "100%", md: `calc(100% - ${DRAWER_WIDTH}px)` },
           maxWidth: "100vw",
-          // Scroll happens *inside* main now (body is height-locked + hidden),
-          // so long pages don't push the footer out of view.
-          overflowY: "auto",
-          overflowX: "hidden",
+          // No scrollbar on <main> either — body is already height-locked to
+          // 100dvh, and the only page surface that needs to scroll (the
+          // schedule table) has its own internal scroll container. Any other
+          // overflow is clipped, which is what the user wanted: zero
+          // browser scrollbar around the page chrome.
+          overflow: "hidden",
           minHeight: 0,
         }}
       >

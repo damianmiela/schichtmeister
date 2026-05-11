@@ -1521,10 +1521,13 @@ export default function MonthTableView({
       ref={containerRef}
       onMouseUp={handleMouseUp}
       sx={{
-        // ~30px shorter than the previous 70vh so the bottom horizontal
-        // scrollbar shows above the fold immediately — otherwise it sits
-        // just below the viewport and feels "missing".
-        maxHeight: "calc(70vh - 30px)",
+        
+        // Sized so the table is the only scrollable surface on the page — all
+        // vertical chrome above (AppBar 64 + page header + tool row ≈ 220px)
+        // plus the fixed footer (40px) plus a small safety margin (~20px) is
+        // subtracted from the live viewport height. dvh handles mobile
+        // browser-chrome resize correctly.
+        maxHeight: "calc(100dvh - 280px)",
         overflow: "auto",
         border: editMode ? 2 : 1,
         borderColor: editMode ? "primary.main" : "divider",
