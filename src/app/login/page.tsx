@@ -131,12 +131,17 @@ function LoginForm() {
             Passwort vergessen?
           </Link>
         </Typography>
+        {/* Registration is intentionally hidden — the /register route still
+            exists and works, we just don't surface it on the login screen yet.
+            Re-enable by uncommenting this block when public sign-up is wanted. */}
+        {/*
         <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
           Noch kein Konto?{" "}
           <Link href="/register" style={{ fontWeight: 600 }}>
             Registrieren
           </Link>
         </Typography>
+        */}
       </Box>
     </Paper>
   );
