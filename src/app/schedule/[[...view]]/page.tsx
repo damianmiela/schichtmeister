@@ -1876,9 +1876,13 @@ export default function SchedulePage() {
                   value={employeeSearch}
                   onChange={(e) => setEmployeeSearch(e.target.value)}
                   sx={{
-                    width: { xs: "100%", sm: 280, md: 320 },
+                    // Wider + smaller font so the German placeholder fits on
+                    // one line at every breakpoint.
+                    width: { xs: "100%", sm: 340, md: 400, lg: 440 },
                     bgcolor: "background.paper",
                     "& .MuiOutlinedInput-root": { borderRadius: "8px" },
+                    "& .MuiOutlinedInput-input": { fontSize: "0.8rem", py: 0.75 },
+                    "& input::placeholder": { fontSize: "0.8rem", opacity: 0.7 },
                   }}
                   InputProps={{
                     startAdornment: (
