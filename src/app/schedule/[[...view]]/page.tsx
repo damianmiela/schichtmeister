@@ -43,6 +43,7 @@ import {
   Tabs,
   Tab,
   Stack,
+  InputAdornment,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
@@ -79,6 +80,7 @@ import TimerIcon from "@mui/icons-material/Timer";
 import TrendingFlatIcon from "@mui/icons-material/TrendingFlat";
 import DoneAllIcon from "@mui/icons-material/DoneAll";
 import CropFreeIcon from "@mui/icons-material/CropFree";
+import SearchIcon from "@mui/icons-material/Search";
 import { ApiError, fetchJson } from "@/lib/api/fetchJson";
 import {
   monthRangeIso,
@@ -277,6 +279,8 @@ export default function SchedulePage() {
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [preGenOpen, setPreGenOpen] = useState(false);
   const [preGenTab, setPreGenTab] = useState<"wishes" | "settings">("wishes");
+  /** Live employee-name / qualification-tag filter on the month table view. */
+  const [employeeSearch, setEmployeeSearch] = useState("");
   const [preGenEntries, setPreGenEntries] = useState<PreGenEntry[]>([]);
   const [preGenSaving, setPreGenSaving] = useState(false);
   const [solveTimeDraft, setSolveTimeDraft] = useState("120");
@@ -1410,6 +1414,9 @@ export default function SchedulePage() {
     setEditedShiftWishSet(new Set(shiftWishSet));
     setEditedFreiWishSet(new Set(freiWishSet));
     setEditedVirtualPlacements({ ...(schedule?.virtualPlacements ?? {}) });
+    // Edit mode needs the full table — clear the live employee filter so
+    // the planner doesn't accidentally edit only a subset.
+    setEmployeeSearch("");
     setEditMode(true);
   };
 
@@ -1846,22 +1853,71 @@ export default function SchedulePage() {
           )}
         </Box>
 
-        {/* Row 2: Tool icons with labels (month view only) */}
+        {/* Row 2: Tool icons with labels (month view only).
+            On md+ we wrap in a 3-column layout so a live employee/qualification
+            search sits on the left while the existing tool-button card stays
+            visually centered. Search is hidden in edit mode (the planner needs
+            to see the full table when editing). */}
         {viewState.type === "month" && (
           <Box
             sx={{
               display: "flex",
-              alignItems: "flex-start",
-              gap: 0,
-              px: 1.5,
-              py: 0.5,
-              bgcolor: "grey.50",
-              border: 1,
-              borderColor: "grey.200",
-              borderRadius: "10px",
-              width: { xs: "100%", md: "auto" },
+              alignItems: "center",
+              gap: 1,
+              width: "100%",
             }}
           >
+            {/* Left: live search */}
+            <Box sx={{ flex: 1, minWidth: 0, display: "flex", justifyContent: "flex-start" }}>
+              {!editMode && monthViewMode === "table" && (
+                <TextField
+                  size="small"
+                  placeholder="Mitarbeiter suchen (Name oder Qualifikation)…"
+                  value={employeeSearch}
+                  onChange={(e) => setEmployeeSearch(e.target.value)}
+                  sx={{
+                    width: { xs: "100%", sm: 280, md: 320 },
+                    bgcolor: "background.paper",
+                    "& .MuiOutlinedInput-root": { borderRadius: "8px" },
+                  }}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <SearchIcon sx={{ fontSize: 18, color: "text.secondary" }} />
+                      </InputAdornment>
+                    ),
+                    endAdornment: employeeSearch ? (
+                      <InputAdornment position="end">
+                        <IconButton
+                          size="small"
+                          onClick={() => setEmployeeSearch("")}
+                          aria-label="Suche zurücksetzen"
+                          sx={{ p: 0.25 }}
+                        >
+                          <CloseIcon sx={{ fontSize: 16 }} />
+                        </IconButton>
+                      </InputAdornment>
+                    ) : undefined,
+                  }}
+                />
+              )}
+            </Box>
+
+            {/* Center: existing tool-buttons card (unchanged content) */}
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 0,
+                px: 1.5,
+                py: 0.5,
+                bgcolor: "grey.50",
+                border: 1,
+                borderColor: "grey.200",
+                borderRadius: "10px",
+                width: { xs: "100%", md: "auto" },
+              }}
+            >
             {!editMode ? (
               <>
                 {/* Labeled icon button helper — vertical stack */}
@@ -2145,6 +2201,10 @@ export default function SchedulePage() {
               </Box>
             )}
           </Box>
+
+            {/* Right spacer — mirrors the search's flex:1 so the center card stays centered */}
+            <Box sx={{ flex: 1, minWidth: 0 }} />
+          </Box>
         )}
       </Box>
 
@@ -2321,6 +2381,7 @@ export default function SchedulePage() {
               virtualPlacements={schedule?.virtualPlacements ?? {}}
               editedVirtualPlacements={editedVirtualPlacements}
               onVirtualPlacementChange={handleVirtualPlacementChange}
+              employeeSearch={employeeSearch}
             />
           )}
 

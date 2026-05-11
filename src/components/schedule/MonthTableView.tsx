@@ -71,6 +71,9 @@ interface MonthTableViewProps {
     employeeId: string,
     placement: "1" | "2" | "3" | "NIGHT" | null,
   ) => void;
+  /** Live filter — substring match (case-insensitive) on firstName/lastName
+   *  and qualification abbreviations. Empty string = no filter. */
+  employeeSearch?: string;
 }
 
 /* ──────────────────────── helpers ──────────────────────── */
@@ -102,6 +105,20 @@ const STATION_COLORS: Record<number, { main: string; light: string }> = {
   3: { main: "#e65100", light: "#fff3e0" },
 };
 const NIGHT_COLOR = { main: "#7e57c2", light: "#ede7f6" };
+
+/**
+ * Case-insensitive substring match on the employee's full name OR any of
+ * their qualification abbreviations / tags. Empty needle → true (no filter).
+ */
+function employeeMatchesSearch(emp: EmployeeJson, needle: string): boolean {
+  const q = needle.trim().toLowerCase();
+  if (!q) return true;
+  const name = `${emp.firstName ?? ""} ${emp.lastName ?? ""}`.toLowerCase();
+  if (name.includes(q)) return true;
+  if (emp.qualifications?.some((qu) => qu.abbreviation.toLowerCase().includes(q))) return true;
+  if (emp.qualificationTags?.some((t) => t.toLowerCase().includes(q))) return true;
+  return false;
+}
 
 function workingDaysInMonth(year: number, monthIndex: number): number {
   return monthlyWorkingDaysWithHolidays(year, monthIndex);
@@ -348,6 +365,7 @@ export default function MonthTableView({
   virtualPlacements = {},
   editedVirtualPlacements,
   onVirtualPlacementChange,
+  employeeSearch = "",
 }: MonthTableViewProps) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
@@ -658,9 +676,13 @@ export default function MonthTableView({
     sectionEmployees: EmployeeJson[],
     filter: SectionFilter = "none",
   ) => {
+    // Live name / qualification filter first so the station-level checks below
+    // operate on a smaller set. Empty search term = no filter.
+    let filtered = employeeSearch
+      ? sectionEmployees.filter((emp) => employeeMatchesSearch(emp, employeeSearch))
+      : sectionEmployees;
     // Filter: for station sections, keep employees who have any assignment (they are already
     // grouped by mainStation). Exclude completely unassigned (they appear in "Nicht eingeplant").
-    let filtered = sectionEmployees;
     const assignedEmpIds = new Set(assignments.map((a) => a.employeeId));
     const hasEdits = editMode && editedCells && editedCells.size > 0;
     if (typeof filter === "object" && "station" in filter) {
@@ -1371,6 +1393,7 @@ export default function MonthTableView({
 
   const unassignedEmployees = useMemo(() => {
     const assignedIds = new Set(assignments.map((a) => a.employeeId));
+    const searchActive = !!employeeSearch.trim();
     // Also exclude employees who appear in station tables (have mainStation) or night table
     const nightEmpIds = new Set<string>();
     for (const a of assignments) {
@@ -1398,9 +1421,11 @@ export default function MonthTableView({
         }
         return false;
       }
+      // Live search filter — applies to "Nicht eingeplant" too.
+      if (searchActive && !employeeMatchesSearch(e, employeeSearch)) return false;
       return true;
     });
-  }, [employees, assignments, profilesById, ausbildungIds, effectivePlacements]);
+  }, [employees, assignments, profilesById, ausbildungIds, effectivePlacements, employeeSearch]);
 
   const renderUnassignedSection = () => {
     if (unassignedEmployees.length === 0) return null;
