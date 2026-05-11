@@ -1355,16 +1355,64 @@ export default function SchedulePage() {
     }
   };
 
+  /**
+   * Delete a single version with context-aware confirmation:
+   *   - Non-active version: silently delete (low-risk).
+   *   - Active version + other versions exist: confirm, then auto-switch
+   *     to the next-newest version (backend handles the switch).
+   *   - Active version + sole version: warn that the schedule will be
+   *     emptied, then proceed.
+   */
   const deleteVersion = async (versionId: string) => {
     if (!schedule) return;
+    const isActive = currentVersionId === versionId;
+    const otherCount = versions.filter((v) => v.id !== versionId).length;
+
+    // Confirm only when deleting the active version (those are the risky ones).
+    if (isActive) {
+      const target = versions.find((v) => v.id === versionId);
+      const lbl = target?.label ? `„${target.label}"` : "diese Version";
+      const msg = otherCount > 0
+        ? `Sie löschen ${lbl} — das ist die aktuell aktive Version. ` +
+          `Die nächstneuere Version wird automatisch aktiviert. Fortfahren?`
+        : `Sie löschen ${lbl} — das ist die einzige Version. ` +
+          `Der gesamte Dienstplan wird geleert. Fortfahren?`;
+      if (!window.confirm(msg)) return;
+    }
+
+    setVersionBusy(true);
     try {
-      await fetchJson(`/api/schedules/${schedule.id}/versions/${versionId}`, {
+      const res = await fetchJson<{
+        deleted: boolean;
+        action: "deleted" | "switched" | "cleared";
+        switchedToLabel?: string | null;
+        restoredAssignments?: number;
+      }>(`/api/schedules/${schedule.id}/versions/${versionId}`, {
         method: "DELETE",
       });
+
+      setActionAlertSeverity("success");
+      if (res.action === "switched") {
+        const lbl = res.switchedToLabel ? `„${res.switchedToLabel}"` : "vorherige Version";
+        setActionMsg(
+          `Version gelöscht. Aktiv ist jetzt ${lbl}` +
+            (typeof res.restoredAssignments === "number"
+              ? ` (${res.restoredAssignments} Zuweisungen).`
+              : "."),
+        );
+        await loadBundle();
+      } else if (res.action === "cleared") {
+        setActionMsg("Letzte Version gelöscht — Dienstplan ist jetzt leer.");
+        await loadBundle();
+      } else {
+        setActionMsg("Version gelöscht.");
+      }
       void loadVersions();
     } catch {
       setActionAlertSeverity("error");
       setActionMsg("Version löschen fehlgeschlagen.");
+    } finally {
+      setVersionBusy(false);
     }
   };
 
