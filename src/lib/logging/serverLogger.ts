@@ -6,6 +6,12 @@ import type { LogEntry, LogType, LogQuery, LogQueryResult } from "./logTypes";
 
 const LOG_DIR = path.resolve(process.cwd(), "logs");
 
+/** Rolling retention window — files older than this are deleted. */
+const RETENTION_DAYS = 30;
+/** Don't hit the filesystem on every write — gate the pruner to ~hourly. */
+const PRUNE_THROTTLE_MS = 60 * 60 * 1000;
+let lastPruneAt = 0;
+
 function ensureLogDir() {
   if (!fs.existsSync(LOG_DIR)) {
     fs.mkdirSync(LOG_DIR, { recursive: true });
@@ -18,6 +24,39 @@ function logFilePath(type: LogType, date: string): string {
 
 function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * Delete log files whose date portion is older than RETENTION_DAYS.
+ * Throttled to once per PRUNE_THROTTLE_MS so we don't stat the directory
+ * on every single write. Silent on any error — logging must never throw.
+ */
+function pruneOldLogs(): void {
+  const nowMs = Date.now();
+  if (nowMs - lastPruneAt < PRUNE_THROTTLE_MS) return;
+  lastPruneAt = nowMs;
+  try {
+    if (!fs.existsSync(LOG_DIR)) return;
+    const cutoff = new Date(nowMs - RETENTION_DAYS * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
+    const files = fs.readdirSync(LOG_DIR);
+    const fileRe = /^(activity|system)-(\d{4}-\d{2}-\d{2})\.jsonl$/;
+    for (const f of files) {
+      const m = fileRe.exec(f);
+      if (!m) continue;
+      const date = m[2]!;
+      if (date < cutoff) {
+        try {
+          fs.unlinkSync(path.join(LOG_DIR, f));
+        } catch {
+          /* skip individual file errors */
+        }
+      }
+    }
+  } catch {
+    /* logging must never throw */
+  }
 }
 
 /* ──────────────── Write ──────────────── */
@@ -34,6 +73,7 @@ export function writeLog(type: LogType, entry: LogEntry): void {
     const filePath = logFilePath(type, date);
     const line = JSON.stringify(entry) + "\n";
     fs.appendFileSync(filePath, line, "utf-8");
+    pruneOldLogs();
   } catch {
     // Logging must never throw
   }
@@ -58,6 +98,7 @@ export function writeBatch(type: LogType, entries: LogEntry[]): void {
       const filePath = logFilePath(type, date);
       fs.appendFileSync(filePath, lines.join("\n") + "\n", "utf-8");
     }
+    pruneOldLogs();
   } catch {
     // Logging must never throw
   }

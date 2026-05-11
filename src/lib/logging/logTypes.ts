@@ -9,69 +9,40 @@ export interface BaseLogEntry {
   sessionId?: string;
 }
 
-/* ────── Client-side (user activity) events ────── */
+/* ────── Client-side (user activity) events ──────
+ *
+ * Intentionally minimal — only `page_view` is recorded so the admin log
+ * gives a "where was the user" trail. Meaningful actions are captured
+ * server-side (generation, login, api_error). See useActivityTracker.
+ *
+ * Old event types (click / focus / blur / page_leave / session_* /
+ * form_change / modal_*) are retained as legacy variants below so the
+ * parser keeps tolerating older .jsonl files during the 30-day retention
+ * window after this refactor lands.
+ */
 
 export interface PageViewEvent extends BaseLogEntry {
   type: "page_view";
-  data: { path: string; referrer?: string; title?: string };
+  data: { path: string; title?: string };
 }
 
-export interface PageLeaveEvent extends BaseLogEntry {
-  type: "page_leave";
-  data: { path: string; durationMs: number; scrollDepthPct: number };
+/** Legacy events written before the noise-cleanup refactor. Kept so the
+ *  reader can still display old log files until they age out. */
+export interface LegacyActivityEvent extends BaseLogEntry {
+  type:
+    | "page_leave"
+    | "click"
+    | "form_change"
+    | "modal_open"
+    | "modal_close"
+    | "session_start"
+    | "session_end"
+    | "focus"
+    | "blur";
+  data: Record<string, unknown>;
 }
 
-export interface ClickEvent extends BaseLogEntry {
-  type: "click";
-  data: {
-    element: string;        // tag name
-    text: string;           // visible text (truncated)
-    selector: string;       // CSS selector path
-    path: string;           // current URL path
-    x: number;
-    y: number;
-  };
-}
-
-export interface FormChangeEvent extends BaseLogEntry {
-  type: "form_change";
-  data: { fieldName: string; fieldType: string; path: string };
-}
-
-export interface ModalEvent extends BaseLogEntry {
-  type: "modal_open" | "modal_close";
-  data: { modalId: string; path: string };
-}
-
-export interface SessionStartEvent extends BaseLogEntry {
-  type: "session_start";
-  data: {
-    userAgent: string;
-    screenWidth: number;
-    screenHeight: number;
-    language: string;
-  };
-}
-
-export interface SessionEndEvent extends BaseLogEntry {
-  type: "session_end";
-  data: { durationMs: number };
-}
-
-export interface FocusEvent extends BaseLogEntry {
-  type: "focus" | "blur";
-  data: { path: string };
-}
-
-export type ActivityEvent =
-  | PageViewEvent
-  | PageLeaveEvent
-  | ClickEvent
-  | FormChangeEvent
-  | ModalEvent
-  | SessionStartEvent
-  | SessionEndEvent
-  | FocusEvent;
+export type ActivityEvent = PageViewEvent | LegacyActivityEvent;
 
 /* ────── Server-side (system) events ────── */
 

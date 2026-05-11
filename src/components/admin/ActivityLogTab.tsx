@@ -55,26 +55,50 @@ type LogView = "activity" | "system";
 /* ═══════════════════════════ helpers ═══════════════════════════ */
 
 const EVENT_LABELS: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
-  page_view:    { label: "Seitenaufruf",   color: "#1565c0", icon: <VisibilityIcon sx={{ fontSize: 14 }} /> },
-  page_leave:   { label: "Seite verlassen", color: "#78909c", icon: <VisibilityIcon sx={{ fontSize: 14 }} /> },
-  click:        { label: "Klick",           color: "#6a1b9a", icon: <MouseIcon sx={{ fontSize: 14 }} /> },
-  form_change:  { label: "Formular",        color: "#00838f", icon: <SettingsIcon sx={{ fontSize: 14 }} /> },
-  session_start:{ label: "Session Start",   color: "#2e7d32", icon: <LoginIcon sx={{ fontSize: 14 }} /> },
-  session_end:  { label: "Session Ende",    color: "#c62828", icon: <LoginIcon sx={{ fontSize: 14 }} /> },
-  focus:        { label: "Fokus",           color: "#9e9e9e", icon: <VisibilityIcon sx={{ fontSize: 14 }} /> },
-  blur:         { label: "Hintergrund",     color: "#bdbdbd", icon: <VisibilityIcon sx={{ fontSize: 14 }} /> },
-  modal_open:   { label: "Modal geöffnet",  color: "#e65100", icon: <SettingsIcon sx={{ fontSize: 14 }} /> },
-  modal_close:  { label: "Modal geschlossen", color: "#e65100", icon: <SettingsIcon sx={{ fontSize: 14 }} /> },
-  // System events
-  generation_start:    { label: "Generierung gestartet",  color: "#1565c0", icon: <PlayArrowIcon sx={{ fontSize: 14 }} /> },
-  generation_complete: { label: "Generierung abgeschlossen", color: "#2e7d32", icon: <CheckCircleOutlineIcon sx={{ fontSize: 14 }} /> },
-  generation_error:    { label: "Generierung fehlgeschlagen", color: "#c62828", icon: <ErrorOutlineIcon sx={{ fontSize: 14 }} /> },
-  login:         { label: "Anmeldung",          color: "#2e7d32", icon: <LoginIcon sx={{ fontSize: 14 }} /> },
-  login_failed:  { label: "Anmeldung fehlgeschlagen", color: "#c62828", icon: <WarningAmberIcon sx={{ fontSize: 14 }} /> },
-  logout:        { label: "Abmeldung",          color: "#78909c", icon: <LoginIcon sx={{ fontSize: 14 }} /> },
-  register:      { label: "Registrierung",      color: "#6a1b9a", icon: <PersonIcon sx={{ fontSize: 14 }} /> },
-  api_error:     { label: "API-Fehler",          color: "#c62828", icon: <ErrorOutlineIcon sx={{ fontSize: 14 }} /> },
+  // Page navigation (the only client-side event we still emit).
+  page_view: { label: "Seite geöffnet", color: "#1565c0", icon: <VisibilityIcon sx={{ fontSize: 14 }} /> },
+
+  // Auth.
+  login:        { label: "Anmeldung",                color: "#2e7d32", icon: <LoginIcon         sx={{ fontSize: 14 }} /> },
+  logout:       { label: "Abmeldung",                color: "#78909c", icon: <LoginIcon         sx={{ fontSize: 14 }} /> },
+  login_failed: { label: "Anmeldung fehlgeschlagen", color: "#c62828", icon: <WarningAmberIcon  sx={{ fontSize: 14 }} /> },
+  register:     { label: "Registrierung",            color: "#6a1b9a", icon: <PersonIcon        sx={{ fontSize: 14 }} /> },
+
+  // Generation lifecycle.
+  generation_start:    { label: "Dienstplan generieren — gestartet",      color: "#1565c0", icon: <PlayArrowIcon              sx={{ fontSize: 14 }} /> },
+  generation_complete: { label: "Dienstplan generieren — abgeschlossen",  color: "#2e7d32", icon: <CheckCircleOutlineIcon     sx={{ fontSize: 14 }} /> },
+  generation_error:    { label: "Dienstplan generieren — fehlgeschlagen", color: "#c62828", icon: <ErrorOutlineIcon           sx={{ fontSize: 14 }} /> },
+
+  // Errors.
+  api_error: { label: "API-Fehler", color: "#c62828", icon: <ErrorOutlineIcon sx={{ fontSize: 14 }} /> },
+
+  // Legacy events from log files written before the cleanup refactor.
+  // They keep rendering for the rest of the 30-day retention window but in
+  // a single subdued style so they don't dominate the timeline visually.
+  click:         { label: "Klick (alt)",          color: "#bdbdbd", icon: <MouseIcon       sx={{ fontSize: 14 }} /> },
+  page_leave:    { label: "Seite verlassen (alt)", color: "#bdbdbd", icon: <VisibilityIcon  sx={{ fontSize: 14 }} /> },
+  focus:         { label: "Fokus (alt)",          color: "#bdbdbd", icon: <VisibilityIcon  sx={{ fontSize: 14 }} /> },
+  blur:          { label: "Hintergrund (alt)",     color: "#bdbdbd", icon: <VisibilityIcon  sx={{ fontSize: 14 }} /> },
+  session_start: { label: "Session Start (alt)",   color: "#bdbdbd", icon: <LoginIcon       sx={{ fontSize: 14 }} /> },
+  session_end:   { label: "Session Ende (alt)",    color: "#bdbdbd", icon: <LoginIcon       sx={{ fontSize: 14 }} /> },
+  modal_open:    { label: "Modal geöffnet (alt)",  color: "#bdbdbd", icon: <SettingsIcon    sx={{ fontSize: 14 }} /> },
+  modal_close:   { label: "Modal geschlossen (alt)", color: "#bdbdbd", icon: <SettingsIcon  sx={{ fontSize: 14 }} /> },
+  form_change:   { label: "Formular (alt)",         color: "#bdbdbd", icon: <SettingsIcon    sx={{ fontSize: 14 }} /> },
 };
+
+/** Event types considered "legacy noise" — shown muted, NOT counted in the
+ *  events badge, and can be hidden via the toggle in the user detail view. */
+const LEGACY_EVENT_TYPES = new Set<string>([
+  "click",
+  "page_leave",
+  "focus",
+  "blur",
+  "session_start",
+  "session_end",
+  "modal_open",
+  "modal_close",
+  "form_change",
+]);
 
 function getEventMeta(type: string) {
   return EVENT_LABELS[type] ?? { label: type, color: "#546e7a", icon: <SettingsIcon sx={{ fontSize: 14 }} /> };
@@ -108,11 +132,27 @@ function formatDuration(ms: number): string {
   return `${mins}m ${remSecs}s`;
 }
 
+function prettyPath(path: string): string {
+  if (!path || path === "/") return "Startseite";
+  if (path.startsWith("/schedule")) return "Monatsplan";
+  if (path.startsWith("/employees")) return "Mitarbeiter";
+  if (path.startsWith("/shift-profiles")) return "Schichtprofile";
+  if (path.startsWith("/admin")) return "Admin";
+  if (path.startsWith("/settings")) return "Einstellungen";
+  if (path.startsWith("/login")) return "Anmeldung";
+  if (path.startsWith("/register")) return "Registrierung";
+  if (path.startsWith("/forgot-password")) return "Passwort vergessen";
+  if (path.startsWith("/reset-password")) return "Passwort zurücksetzen";
+  return path;
+}
+
 function getEventDetail(entry: LogEntry): string {
   const d = entry.data as Record<string, unknown>;
   switch (entry.type) {
-    case "page_view":
-      return `${d.path}`;
+    case "page_view": {
+      const path = d.path as string;
+      return `${prettyPath(path)} (${path})`;
+    }
     case "page_leave":
       return `${d.path} · ${formatDuration(d.durationMs as number)} · ${d.scrollDepthPct}% gescrollt`;
     case "click":
@@ -188,6 +228,10 @@ export default function ActivityLogTab() {
   const [error, setError] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
+  /** Hide legacy / "noise" event types (click, focus, page_leave, …) by
+   *  default. They'll disappear from the data set entirely once the
+   *  30-day retention window has rolled past the refactor. */
+  const [hideLegacy, setHideLegacy] = useState(true);
   const LIMIT = 100;
 
   // ── Load users ──
@@ -225,33 +269,53 @@ export default function ActivityLogTab() {
   }, [view]);
 
   // ── Load entries for a user ──
-  const loadEntries = useCallback(async (userId?: string, newOffset = 0) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const params = new URLSearchParams({
-        type: view,
-        limit: String(LIMIT),
-        offset: String(newOffset),
-      });
-      if (userId) params.set("userId", userId);
-      const response = await fetch(`/api/admin/logs?${params}`);
-      if (!response.ok) {
-        const text = await response.text().catch(() => "");
-        setError(`Einträge laden fehlgeschlagen: ${response.status} ${response.statusText}${text ? ` — ${text.slice(0, 200)}` : ""}`);
+  // Pulls activity + system logs in parallel and merges them into one
+  // chronological timeline so "where the user was" (page_view) and "what
+  // happened server-side" (login, generation, api_error) live in one feed.
+  const loadEntries = useCallback(
+    async (userId?: string, newOffset = 0) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const fetchSlice = async (logType: LogView) => {
+          const params = new URLSearchParams({
+            type: logType,
+            // Pull a generous slice from each side; we sort + paginate client-side.
+            limit: "500",
+            offset: "0",
+          });
+          if (userId) params.set("userId", userId);
+          const r = await fetch(`/api/admin/logs?${params}`);
+          if (!r.ok) {
+            const text = await r.text().catch(() => "");
+            throw new Error(
+              `${logType}: ${r.status} ${r.statusText}${text ? ` — ${text.slice(0, 200)}` : ""}`,
+            );
+          }
+          const j = await r.json();
+          return (j.entries ?? []) as LogEntry[];
+        };
+
+        const [activity, system] = userId
+          ? await Promise.all([fetchSlice("activity"), fetchSlice("system")])
+          : [await fetchSlice(view), [] as LogEntry[]];
+
+        const merged = [...activity, ...system].sort((a, b) =>
+          b.ts.localeCompare(a.ts),
+        );
+        setTotal(merged.length);
+        setEntries(merged.slice(newOffset, newOffset + LIMIT));
+        setOffset(newOffset);
+      } catch (err) {
+        setError(
+          `Einträge konnten nicht geladen werden: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      } finally {
         setLoading(false);
-        return;
       }
-      const res = await response.json();
-      setEntries(res.entries ?? []);
-      setTotal(res.total ?? 0);
-      setOffset(newOffset);
-    } catch (err) {
-      setError(`Einträge konnten nicht geladen werden: ${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      setLoading(false);
-    }
-  }, [view]);
+    },
+    [view],
+  );
 
   useEffect(() => {
     setSelectedUser(null);
@@ -285,7 +349,13 @@ export default function ActivityLogTab() {
           </Typography>
           {selectedUser && (
             <Chip
-              label={`${total} Ereignisse`}
+              label={`${
+                hideLegacy
+                  ? entries.filter((e) => !LEGACY_EVENT_TYPES.has(e.type)).length +
+                    " sichtbar / " +
+                    total
+                  : total
+              } Ereignisse`}
               size="small"
               variant="outlined"
               sx={{ fontWeight: 600 }}
@@ -310,6 +380,24 @@ export default function ActivityLogTab() {
             <ToggleButton value="activity">Benutzer</ToggleButton>
             <ToggleButton value="system">System</ToggleButton>
           </ToggleButtonGroup>
+          {selectedUser && (
+            <Tooltip
+              title={
+                hideLegacy
+                  ? "Klicks/Fokus/Seite-verlassen (alt) einblenden"
+                  : "Alte Ereignisse ausblenden"
+              }
+            >
+              <Button
+                size="small"
+                variant={hideLegacy ? "outlined" : "contained"}
+                onClick={() => setHideLegacy((v) => !v)}
+                sx={{ textTransform: "none", fontSize: "0.72rem", py: 0.25 }}
+              >
+                {hideLegacy ? "Alte einblenden" : "Alte ausblenden"}
+              </Button>
+            </Tooltip>
+          )}
           <Tooltip title="Aktualisieren">
             <IconButton
               size="small"
@@ -446,7 +534,9 @@ export default function ActivityLogTab() {
               }}
             />
 
-            {entries.map((entry, i) => {
+            {entries
+              .filter((entry) => !hideLegacy || !LEGACY_EVENT_TYPES.has(entry.type))
+              .map((entry, i) => {
               const meta = getEventMeta(entry.type);
               const detail = getEventDetail(entry);
               // Vergleichsmodus extras (only present on generation_complete
