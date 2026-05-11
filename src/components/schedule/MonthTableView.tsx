@@ -676,13 +676,9 @@ export default function MonthTableView({
     sectionEmployees: EmployeeJson[],
     filter: SectionFilter = "none",
   ) => {
-    // Live name / qualification filter first so the station-level checks below
-    // operate on a smaller set. Empty search term = no filter.
-    let filtered = employeeSearch
-      ? sectionEmployees.filter((emp) => employeeMatchesSearch(emp, employeeSearch))
-      : sectionEmployees;
     // Filter: for station sections, keep employees who have any assignment (they are already
     // grouped by mainStation). Exclude completely unassigned (they appear in "Nicht eingeplant").
+    let filtered = sectionEmployees;
     const assignedEmpIds = new Set(assignments.map((a) => a.employeeId));
     const hasEdits = editMode && editedCells && editedCells.size > 0;
     if (typeof filter === "object" && "station" in filter) {
@@ -704,6 +700,13 @@ export default function MonthTableView({
     } else if (filter === "ausbildung") {
       // Always show all Ausbildung employees (they are pre-filtered)
     }
+
+    // Live name / qualification filter — applied LAST so the station/night/
+    // ausbildung branches above don't reassign over it. Empty needle = no-op.
+    if (employeeSearch) {
+      filtered = filtered.filter((emp) => employeeMatchesSearch(emp, employeeSearch));
+    }
+
     if (filtered.length === 0) return null;
     const sorted = sortEmployees(filtered);
 
