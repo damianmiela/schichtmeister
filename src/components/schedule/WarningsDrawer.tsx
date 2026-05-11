@@ -90,7 +90,7 @@ export default function WarningsDrawer({
       onClose={onClose}
       variant="temporary"
       PaperProps={{
-        sx: { width: { xs: "100%", sm: 420 }, p: 0, display: "flex", flexDirection: "column" },
+        sx: { width: { xs: "100%", sm: 520 }, p: 0, display: "flex", flexDirection: "column" },
       }}
     >
       {/* Header */}
@@ -472,23 +472,29 @@ function WarningCard({ sev, text }: { sev: WarningSeverity; text: string }) {
                   setBulletExpanded((p) => !p);
                 }}
                 sx={{
+                  // Intentionally NOT tinted with the severity colour — using
+                  // a blue here so the planner reads it as an action ("click
+                  // me") rather than yet another warning chip.
                   all: "unset",
                   display: "inline-flex",
                   alignItems: "center",
                   gap: 0.4,
                   alignSelf: "flex-start",
-                  mt: 0.6,
-                  px: 0.85,
-                  py: 0.3,
+                  mt: 0.7,
+                  px: 0.9,
+                  py: 0.35,
                   borderRadius: "9px",
                   cursor: "pointer",
                   fontSize: "0.7rem",
                   fontWeight: 700,
-                  color: tokens.main,
-                  bgcolor: alpha(tokens.main, 0.08),
-                  border: `1px solid ${alpha(tokens.main, 0.25)}`,
-                  transition: "background-color 0.12s",
-                  "&:hover": { bgcolor: alpha(tokens.main, 0.16) },
+                  color: "#1565c0",
+                  bgcolor: "rgba(21,101,192,0.08)",
+                  border: "1px solid rgba(21,101,192,0.35)",
+                  transition: "background-color 0.12s, border-color 0.12s",
+                  "&:hover": {
+                    bgcolor: "rgba(21,101,192,0.16)",
+                    borderColor: "rgba(21,101,192,0.55)",
+                  },
                 }}
               >
                 {bulletExpanded ? (
