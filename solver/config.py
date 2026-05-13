@@ -166,11 +166,23 @@ DEFAULT_W_RELAX_WBL_WEEKEND_LIMIT = 250_000
 DEFAULT_W_RELAX_WBL_BL_MAX_PER_WEEK = 5_000_000
 DEFAULT_W_RELAX_WBL_BL_WEEKLY_MIN = 5_000_000
 DEFAULT_W_RELAX_REST_AFTER_6 = 150_000
-DEFAULT_W_RELAX_ALT_WEEKENDS = 800_000   # was 80,000 — 10× bump per
-                                          # pruefstand combined_t4_x_altw
-                                          # sweep (drops alt-weekend
-                                          # violations from 42 to 35 on
-                                          # May 2026, no breakage).
+DEFAULT_W_RELAX_ALT_WEEKENDS = 6_000_000  # was 800,000 — bumped above
+                                          # W_STAFFING_MIN (3M) so the
+                                          # solver leaves a slot empty
+                                          # rather than break the 4-week
+                                          # alt-weekend rule. Other relax
+                                          # weights (consec_days 300k,
+                                          # rest_after_6 150k, etc.) stay
+                                          # below 3M so they're still
+                                          # violated rather than causing
+                                          # empty slots. Empirically
+                                          # selected at 6M from pruefstand
+                                          # June 2026 sweep — 2x margin
+                                          # over staffing-min produces a
+                                          # clean transition; less margin
+                                          # (4-5M) is too marginal for the
+                                          # solver to consistently find
+                                          # the empty-slot trade.
 
 
 # ══════════════════════════════════════════════════════════════════════
