@@ -32,6 +32,11 @@ import {
   registerGeneration,
   unregisterGeneration,
 } from "@/lib/schedule/generationCancelState";
+import {
+  getCachedRaces,
+  recordRaceResult,
+  clearCache as clearRaceCache,
+} from "@/lib/schedule/generationRaceCache";
 import { randomUUID } from "crypto";
 
 type RouteCtx = { params: Promise<{ id: string }> };
@@ -250,6 +255,13 @@ export async function POST(request: Request, context: RouteCtx) {
     return Math.max(1, Math.min(10, n));
   })();
   const multiRun = raceCount > 1;
+  // Resume mode: when the client lost its SSE connection mid-generation (e.g.
+  // network glitch in a long multi-Race-Lauf), it retries with `resume: true`.
+  // We then pull previously-completed race results out of the in-memory cache
+  // (see generationRaceCache.ts), skip those variants in the race loop, and
+  // only run the ones that didn't finish. The cache is keyed by scheduleId
+  // and TTL'd at 30min.
+  const resumeRequested = body?.resume === true;
   // Strategy choice — picked per-generation in the pre-gen modal.
   // Determines which weight template (Vollabdeckung / Lieber Slot leer)
   // is layered on top of the facility's admin overrides. See
@@ -422,6 +434,55 @@ export async function POST(request: Request, context: RouteCtx) {
         // and is what we persist at the end.
         let bestRun: RunRecord | null = null;
 
+        // ── Resume: pre-populate runs[] from cache ────────────────────────
+        // If the client retried with `resume: true`, races that completed in
+        // the previous (interrupted) attempt are still in the in-memory cache.
+        // We treat them as already-done: copy into runs[], compute bestRun
+        // across them, and skip those variants when the loop reaches them.
+        const cachedRaces: RunRecord[] = resumeRequested
+          ? getCachedRaces(scheduleId).map((r) => ({
+              variant: r.variant,
+              label: r.label,
+              result: r.result,
+              randomSeed: r.randomSeed,
+              numWorkers: r.numWorkers,
+            }))
+          : [];
+        const cachedVariants = new Set(cachedRaces.map((r) => r.variant));
+        if (cachedRaces.length > 0) {
+          console.log(
+            `[generate-stream] Resume: ${cachedRaces.length} cached race(s) ` +
+              `for schedule ${scheduleId} — variants ${[...cachedVariants].join(", ")}`,
+          );
+          // Seed bestRun from the strongest cached race so subsequent races
+          // compare against it correctly.
+          for (const c of cachedRaces) {
+            runs.push(c);
+            if (
+              c.result.status === "OPTIMAL" ||
+              c.result.status === "FEASIBLE"
+            ) {
+              const thisObj =
+                typeof c.result.objectiveValue === "number"
+                  ? (c.result.objectiveValue as number)
+                  : Number.POSITIVE_INFINITY;
+              const bestObj =
+                bestRun && typeof bestRun.result.objectiveValue === "number"
+                  ? (bestRun.result.objectiveValue as number)
+                  : Number.POSITIVE_INFINITY;
+              if (
+                !bestRun ||
+                bestRun.result.status === "INFEASIBLE" ||
+                thisObj < bestObj
+              ) {
+                bestRun = c;
+              }
+            } else if (bestRun == null) {
+              bestRun = c;
+            }
+          }
+        }
+
         // Pre-compute variant labels (A, B, …) so the UI can build its
         // stacked slot table up-front from the very first race_starting event.
         const variantLabels: string[] = [];
@@ -455,6 +516,52 @@ export async function POST(request: Request, context: RouteCtx) {
           const variantLabel = multiRun ? variantLabels[i]! : "Einzellauf";
           const runLabel = multiRun ? `Rennen ${variantLabels[i]}` : "Einzellauf";
           const seed = seedFor(i);
+
+          // ── Resume skip ────────────────────────────────────────────────
+          // Cached races were already added to runs[] above. Re-emit the
+          // race_starting + race_finished events for the UI so the user sees
+          // these slots as completed (without actually re-running them).
+          if (cachedVariants.has(variantLabel)) {
+            const cached = cachedRaces.find((r) => r.variant === variantLabel)!;
+            const cachedObj =
+              typeof cached.result.objectiveValue === "number"
+                ? (cached.result.objectiveValue as number)
+                : null;
+            if (multiRun) {
+              send({
+                type: "progress",
+                stage: "race_starting",
+                label: `Rennen ${variantLabel} (übernommen aus letzter Generierung)`,
+                pct: Math.round((i / raceCount) * 100),
+                currentVariant: variantLabel,
+                variantIndex: i + 1,
+                totalVariants: raceCount,
+                variantLabels,
+                bestSoFarVariant: bestRun?.variant ?? null,
+                bestSoFarObjective:
+                  bestRun && typeof bestRun.result.objectiveValue === "number"
+                    ? (bestRun.result.objectiveValue as number)
+                    : null,
+              });
+              send({
+                type: "progress",
+                stage: "race_finished",
+                label: `${runLabel}: übernommen`,
+                pct: Math.round(((i + 1) / raceCount) * 100),
+                currentVariant: variantLabel,
+                variantIndex: i + 1,
+                totalVariants: raceCount,
+                variantFinalObjective: cachedObj,
+                variantStatus: cached.result.status,
+                bestSoFarVariant: bestRun?.variant ?? null,
+                bestSoFarObjective:
+                  bestRun && typeof bestRun.result.objectiveValue === "number"
+                    ? (bestRun.result.objectiveValue as number)
+                    : null,
+              });
+            }
+            continue;
+          }
 
           // race_starting marker (only for multi-run; single-run UI uses the
           // standard single-progress path).
@@ -501,6 +608,15 @@ export async function POST(request: Request, context: RouteCtx) {
               numWorkers: 4,
             };
             runs.push(record);
+            // Persist completed race to cache so if the client's SSE drops
+            // mid-generation, the retry POST (resume=true) can skip it.
+            recordRaceResult(scheduleId, {
+              variant: record.variant,
+              label: record.label,
+              result: record.result,
+              randomSeed: record.randomSeed,
+              numWorkers: record.numWorkers,
+            });
 
             // Update best-so-far: lower objective wins; first feasible beats
             // nothing; never let an infeasible run dethrone a feasible one.
@@ -1046,6 +1162,12 @@ export async function POST(request: Request, context: RouteCtx) {
             numWorkers: r.numWorkers,
           });
         }
+
+        // Generation succeeded and the schedule is persisted. Drop any cached
+        // race results for this scheduleId — they're no longer needed and we
+        // don't want a future retry to accidentally pick up stale state from
+        // this completed run.
+        clearRaceCache(scheduleId);
 
         send({
           type: "complete",

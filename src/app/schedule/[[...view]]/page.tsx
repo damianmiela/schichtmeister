@@ -353,8 +353,16 @@ export default function SchedulePage() {
     | { kind: "success"; message: string }
     | { kind: "cancelled"; message: string }
     | { kind: "error"; message: string }
+    // Network error mid-stream — distinct from a fatal error so we can show
+    // a "Wiederholen" button that resumes via the server-side race cache.
+    | { kind: "network_error"; message: string }
     | null
   >(null);
+  // Remember the body of the last generation request so the "Wiederholen"
+  // button can re-issue it (with `resume: true`) without re-opening the
+  // pre-gen modal. Ref instead of state — we don't need to re-render on
+  // change.
+  const lastGenerationBodyRef = useRef<Record<string, unknown> | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [editedCells, setEditedCells] = useState<Map<string, CellEdit>>(new Map());
   const [editedShiftWishSet, setEditedShiftWishSet] = useState<Set<string>>(new Set());
@@ -841,25 +849,46 @@ export default function SchedulePage() {
     }
   };
 
-  const onGenerate = async () => {
+  /**
+   * Start (or resume) a schedule generation.
+   *
+   * Without args: builds a fresh body from pre-gen entries + current
+   * settings, POSTs, streams the result.
+   *
+   * With `resumeOverride`: skips body construction and re-uses the saved
+   * body from a previous attempt. Server-side race cache (keyed by
+   * scheduleId, 30-min TTL) lets it pick up where the interrupted attempt
+   * left off — completed races come back immediately as "übernommen"
+   * events, only the still-pending races actually run.
+   */
+  const onGenerate = async (
+    resumeOverride?: Record<string, unknown>,
+  ) => {
     if (!schedule) return;
 
     // Auto-save the current preGenEntries (Wünsche / Frei / Abwesenheit) so
     // they persist even if the user forgot to hit "Vorgaben speichern"
     // before generating. Fire-and-forget; failure doesn't block generation.
     // Works regardless of which tab the user clicked Generate from.
-    try {
-      await fetchJson(`/api/schedules/${schedule.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ savedEntries: preGenEntries }),
-      });
-    } catch {
-      // Logged on the server; never block generation on save failure.
+    // Skip on retry — entries are already saved from the original attempt.
+    if (!resumeOverride) {
+      try {
+        await fetchJson(`/api/schedules/${schedule.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ savedEntries: preGenEntries }),
+        });
+      } catch {
+        // Logged on the server; never block generation on save failure.
+      }
     }
 
     setPreGenOpen(false);
     setGenerateBusy(true);
-    setGenProgress({ label: "Starte Generierung..." });
+    setGenProgress({
+      label: resumeOverride
+        ? "Setze unterbrochene Generierung fort..."
+        : "Starte Generierung...",
+    });
     setGenElapsed(0);
     setGenModalOpen(true);
     setGenCancelInFlight(false);
@@ -874,83 +903,98 @@ export default function SchedulePage() {
       setGenElapsed(Math.floor((performance.now() - timerStart) / 1000));
     }, 1000);
 
-    const manualPlacements: ManualPlacement[] = preGenEntries
-      .filter((e) => e.type === "shift")
-      .map((e) => {
-        const prof = profilesById[e.shiftProfileId];
-        return {
-          employeeId: e.employeeId,
-          date: e.date,
-          stationNumber: e.stationNumber || undefined,
-          shiftProfileId: e.shiftProfileId,
-          shiftType: prof?.shiftType ?? "EARLY",
-        };
-      });
-    const freiBlockedDates = preGenEntries
-      .filter((e) => e.type === "frei")
-      .flatMap((e) => expandDateRange(e.employeeId, e.dateFrom, e.dateTo));
-    const absenceBlockedDates = preGenEntries
-      .filter((e) => e.type === "absence")
-      .flatMap((e) => expandDateRange(e.employeeId, e.dateFrom, e.dateTo));
-    const blockedDates = [...freiBlockedDates, ...absenceBlockedDates];
-    const absences = preGenEntries
-      .filter((e) => e.type === "absence")
-      .map((e) => ({
-        employeeId: e.employeeId,
-        type: e.absenceType,
-        startDate: e.dateFrom,
-        endDate: e.dateTo,
-      }));
-    const solveTimeVal = Number(solveTimeDraft);
-    const plateauVal = Number(plateauSecondsDraft);
-    const body: {
-      manualPlacements?: ManualPlacement[];
-      blockedDates?: { employeeId: string; date: string }[];
-      absences?: { employeeId: string; type: string; startDate: string; endDate: string }[];
-      maxSolveTimeSeconds?: number;
-      raceCount?: number;
-      strategy?: "PREFER_FULL_COVERAGE" | "PREFER_GAPS";
-      timingMode?: "FIXED" | "PLATEAU";
-      plateauSeconds?: number;
-    } = {};
-    if (manualPlacements.length > 0) body.manualPlacements = manualPlacements;
-    if (blockedDates.length > 0) body.blockedDates = blockedDates;
-    if (absences.length > 0) body.absences = absences;
-    // FIXED mode → send the budget as maxSolveTimeSeconds (existing path).
-    // PLATEAU mode → send timingMode + plateauSeconds; solver caps wall-time
-    // internally at 30 min as safety. Frontend display switches accordingly.
-    if (timingMode === "PLATEAU") {
-      body.timingMode = "PLATEAU";
-      if (plateauVal >= 5 && plateauVal <= 600) {
-        body.plateauSeconds = Math.floor(plateauVal);
-      }
+    // ── Build (or recover) the request body ──────────────────────────
+    // Normal path: assemble from current pre-gen entries and settings.
+    // Resume path: re-use the saved body from the previous attempt, with
+    // `resume: true` set so the server pulls completed races from cache.
+    let body: Record<string, unknown>;
+    if (resumeOverride) {
+      body = { ...resumeOverride, resume: true };
     } else {
-      if (solveTimeVal >= 5 && solveTimeVal <= 3600) body.maxSolveTimeSeconds = solveTimeVal;
+      const manualPlacements: ManualPlacement[] = preGenEntries
+        .filter((e) => e.type === "shift")
+        .map((e) => {
+          const prof = profilesById[e.shiftProfileId];
+          return {
+            employeeId: e.employeeId,
+            date: e.date,
+            stationNumber: e.stationNumber || undefined,
+            shiftProfileId: e.shiftProfileId,
+            shiftType: prof?.shiftType ?? "EARLY",
+          };
+        });
+      const freiBlockedDates = preGenEntries
+        .filter((e) => e.type === "frei")
+        .flatMap((e) => expandDateRange(e.employeeId, e.dateFrom, e.dateTo));
+      const absenceBlockedDates = preGenEntries
+        .filter((e) => e.type === "absence")
+        .flatMap((e) => expandDateRange(e.employeeId, e.dateFrom, e.dateTo));
+      const blockedDates = [...freiBlockedDates, ...absenceBlockedDates];
+      const absences = preGenEntries
+        .filter((e) => e.type === "absence")
+        .map((e) => ({
+          employeeId: e.employeeId,
+          type: e.absenceType,
+          startDate: e.dateFrom,
+          endDate: e.dateTo,
+        }));
+      const solveTimeVal = Number(solveTimeDraft);
+      const plateauVal = Number(plateauSecondsDraft);
+      const draft: {
+        manualPlacements?: ManualPlacement[];
+        blockedDates?: { employeeId: string; date: string }[];
+        absences?: { employeeId: string; type: string; startDate: string; endDate: string }[];
+        maxSolveTimeSeconds?: number;
+        raceCount?: number;
+        strategy?: "PREFER_FULL_COVERAGE" | "PREFER_GAPS";
+        timingMode?: "FIXED" | "PLATEAU";
+        plateauSeconds?: number;
+      } = {};
+      if (manualPlacements.length > 0) draft.manualPlacements = manualPlacements;
+      if (blockedDates.length > 0) draft.blockedDates = blockedDates;
+      if (absences.length > 0) draft.absences = absences;
+      // FIXED mode → send the budget as maxSolveTimeSeconds.
+      // PLATEAU mode → send timingMode + plateauSeconds; solver caps
+      // wall-time internally at 30 min as safety.
+      if (timingMode === "PLATEAU") {
+        draft.timingMode = "PLATEAU";
+        if (plateauVal >= 5 && plateauVal <= 600) {
+          draft.plateauSeconds = Math.floor(plateauVal);
+        }
+      } else {
+        if (solveTimeVal >= 5 && solveTimeVal <= 3600) draft.maxSolveTimeSeconds = solveTimeVal;
+      }
+      const raceCountVal = (() => {
+        const n = Number(raceCountDraft);
+        if (!Number.isFinite(n)) return 1;
+        return Math.max(1, Math.min(10, Math.floor(n)));
+      })();
+      if (raceCountVal > 1) {
+        draft.raceCount = raceCountVal;
+      }
+      // Always send strategy explicitly (avoids server-side defaulting surprises).
+      draft.strategy = strategyDraft;
+      body = draft as Record<string, unknown>;
     }
-    const raceCountVal = (() => {
-      const n = Number(raceCountDraft);
-      if (!Number.isFinite(n)) return 1;
-      return Math.max(1, Math.min(10, Math.floor(n)));
-    })();
-    const multiRun = raceCountVal > 1;
-    if (multiRun) {
-      body.raceCount = raceCountVal;
-    }
-    // Always send strategy explicitly (avoids server-side defaulting surprises).
-    body.strategy = strategyDraft;
 
-    // Reset progress indicators for this run
-    setGenPhaseLabel(multiRun ? `Rennen 1 von ${raceCountVal}…` : null);
+    // Reset progress indicators for this run (both fresh + resume — the
+    // server replays race_starting events for cached races so the UI
+    // rebuilds the slot list as those "übernommen" markers come in).
+    const raceCountForUI =
+      typeof body.raceCount === "number" ? (body.raceCount as number) : 1;
+    const isMultiRun = raceCountForUI > 1;
+    setGenPhaseLabel(isMultiRun ? `Rennen 1 von ${raceCountForUI}…` : null);
     setGenObjective(null);
     setGenGap(null);
     setGenRaceSlots([]);
     setGenBestSoFarVariant(null);
-    // Race-start timer (for the live "since last improvement" counter).
-    // Single-run sets this once here; multi-run also resets it on each
-    // race_starting event below.
     setGenCurrentRaceStartMs(Date.now());
     setGenLastImprovementElapsed(null);
 
+    // Stash a copy of the request body so the "Wiederholen" path can
+    // re-issue the exact same generation (plus `resume: true`) on network
+    // error. Spread-copy to detach from later mutations.
+    lastGenerationBodyRef.current = { ...body };
     try {
       const resp = await fetch(`/api/schedules/${schedule.id}/generate-stream`, {
         method: "POST",
@@ -1176,13 +1220,31 @@ export default function SchedulePage() {
     } catch (e) {
       const errMsg =
         e instanceof Error ? e.message : "Generierung fehlgeschlagen (Netzwerk).";
+      // Detect transient network-level failures vs fatal solver errors.
+      // The TypeError thrown by fetch/ReadableStream when the connection
+      // drops mid-stream looks like "TypeError: network error" or
+      // "Failed to fetch" depending on browser. We treat those as
+      // RESUMABLE — the server-side race cache will still have the
+      // races that finished, so a retry can pick up where we left off.
+      const isNetworkError =
+        e instanceof TypeError &&
+        (/network error/i.test(errMsg) ||
+          /failed to fetch/i.test(errMsg) ||
+          /load failed/i.test(errMsg));
       setActionAlertSeverity("error");
       setActionMsg(errMsg);
       setActionDebugPayload({ kind: "client", message: String(e) });
       console.error("Entwurf füllen — Fehler", e);
       setGenFinalState({
-        kind: genCancelInFlight ? "cancelled" : "error",
-        message: errMsg,
+        kind: genCancelInFlight
+          ? "cancelled"
+          : isNetworkError
+            ? "network_error"
+            : "error",
+        message: isNetworkError
+          ? "Verbindung verloren. Bereits abgeschlossene Rennen sind " +
+            "gespeichert (für 30 Min) und können fortgesetzt werden."
+          : errMsg,
       });
     } finally {
       if (genTimerRef.current) {
@@ -1194,6 +1256,20 @@ export default function SchedulePage() {
       // Modal stays open — the user dismisses it explicitly via the
       // "Schließen" button now visible in the dialog footer.
     }
+  };
+
+  /**
+   * Resume a generation that got interrupted by a network error. Re-invokes
+   * onGenerate with the saved body from the original attempt. The server's
+   * in-memory race cache (30-min TTL) means already-completed races are
+   * returned immediately as "übernommen" events; only the still-pending
+   * races actually run. If too much time passed and the cache expired,
+   * resume falls through to a normal full re-run on the server side.
+   */
+  const onRetryGeneration = async () => {
+    const saved = lastGenerationBodyRef.current;
+    if (!saved) return;
+    await onGenerate(saved);
   };
 
   /** Best-effort cancel: POSTs to the cancel endpoint, server forwards
@@ -3317,7 +3393,9 @@ export default function SchedulePage() {
                     ? "success"
                     : genFinalState.kind === "cancelled"
                       ? "warning"
-                      : "error"
+                      : genFinalState.kind === "network_error"
+                        ? "warning"
+                        : "error"
                 }
                 sx={{ mt: 2 }}
               >
@@ -3326,10 +3404,12 @@ export default function SchedulePage() {
                     ? "Plan erstellt"
                     : genFinalState.kind === "cancelled"
                       ? "Abgebrochen — bestes Zwischenergebnis übernommen"
-                      : "Fehlgeschlagen"}
+                      : genFinalState.kind === "network_error"
+                        ? "Verbindung verloren"
+                        : "Fehlgeschlagen"}
                 </Typography>
                 <Typography variant="body2">{genFinalState.message}</Typography>
-                {genFinalState.kind !== "error" ? (
+                {genFinalState.kind === "success" || genFinalState.kind === "cancelled" ? (
                   <Typography
                     variant="caption"
                     color="text.secondary"
@@ -3351,6 +3431,23 @@ export default function SchedulePage() {
             >
               {genCancelInFlight ? "Abbruch läuft…" : "Abbrechen"}
             </Button>
+          ) : genFinalState?.kind === "network_error" ? (
+            // Network-error landing: offer to resume from where we left off.
+            // The server-side race cache (30-min TTL) holds completed races.
+            <>
+              <Button
+                onClick={() => setGenModalOpen(false)}
+              >
+                Schließen
+              </Button>
+              <Button
+                variant="contained"
+                onClick={() => void onRetryGeneration()}
+                autoFocus
+              >
+                Wiederholen
+              </Button>
+            </>
           ) : (
             <Button
               variant="contained"
