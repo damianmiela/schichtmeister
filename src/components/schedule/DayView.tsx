@@ -1128,7 +1128,12 @@ export default function DayView({
   );
 
   return (
-    <Box>
+    // Constrained scroll surface: the schedule page wraps us in
+    // `overflow:hidden` to keep the chrome scrollbar away, which would
+    // otherwise clip the bottom (Nacht) section. Same calc-based budget
+    // as the month-table view (100dvh minus the AppBar + page header
+    // + tool row + footer).
+    <Box sx={{ maxHeight: "calc(100dvh - 240px)", overflowY: "auto", overflowX: "hidden", pr: 0.5 }}>
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
         <Typography variant="subtitle1" fontWeight={600}>
           Schichten am{" "}
