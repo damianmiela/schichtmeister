@@ -907,9 +907,24 @@ export default function SchedulePage() {
     // Normal path: assemble from current pre-gen entries and settings.
     // Resume path: re-use the saved body from the previous attempt, with
     // `resume: true` set so the server pulls completed races from cache.
+    //
+    // freiBlockedDates and absences are hoisted out of the if/else because
+    // the success-message renderer below references them to count "X Frei-
+    // Tage / Y Abwesenheiten berücksichtigt". On resume we can't recover
+    // freiBlockedDates from body (the wire format lumps frei + absence
+    // blockedDates together), so we leave it empty there — the message just
+    // skips that line.
+    let freiBlockedDates: { employeeId: string; date: string }[] = [];
+    let absences: { employeeId: string; type: string; startDate: string; endDate: string }[] = [];
     let body: Record<string, unknown>;
     if (resumeOverride) {
       body = { ...resumeOverride, resume: true };
+      // Best-effort recovery from the saved body so the success-message
+      // counters still make sense after resume.
+      const savedAbs = (resumeOverride as { absences?: unknown }).absences;
+      if (Array.isArray(savedAbs)) {
+        absences = savedAbs as typeof absences;
+      }
     } else {
       const manualPlacements: ManualPlacement[] = preGenEntries
         .filter((e) => e.type === "shift")
@@ -923,14 +938,14 @@ export default function SchedulePage() {
             shiftType: prof?.shiftType ?? "EARLY",
           };
         });
-      const freiBlockedDates = preGenEntries
+      freiBlockedDates = preGenEntries
         .filter((e) => e.type === "frei")
         .flatMap((e) => expandDateRange(e.employeeId, e.dateFrom, e.dateTo));
       const absenceBlockedDates = preGenEntries
         .filter((e) => e.type === "absence")
         .flatMap((e) => expandDateRange(e.employeeId, e.dateFrom, e.dateTo));
       const blockedDates = [...freiBlockedDates, ...absenceBlockedDates];
-      const absences = preGenEntries
+      absences = preGenEntries
         .filter((e) => e.type === "absence")
         .map((e) => ({
           employeeId: e.employeeId,
@@ -1071,7 +1086,7 @@ export default function SchedulePage() {
                   setGenBestSoFarVariant(null);
                 }
                 const vIdx = typeof event.variantIndex === "number" ? event.variantIndex : 1;
-                const vTotal = typeof event.totalVariants === "number" ? event.totalVariants : raceCountVal;
+                const vTotal = typeof event.totalVariants === "number" ? event.totalVariants : raceCountForUI;
                 const vCur = typeof event.currentVariant === "string" ? event.currentVariant : "?";
                 setGenPhaseLabel(`Rennen ${vCur} (${vIdx}/${vTotal})…`);
                 // Clear the legacy single-value live slot; per-variant slots
