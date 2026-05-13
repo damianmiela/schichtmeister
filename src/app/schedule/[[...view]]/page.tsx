@@ -642,15 +642,25 @@ export default function SchedulePage() {
     } else if (viewState.type === "week" && viewState.weekStartDate) {
       const newStart = new Date(viewState.weekStartDate);
       newStart.setDate(newStart.getDate() - 7);
+      // Keep year/month in sync — loadBundle's effect is keyed on these,
+      // so without this line the next month's schedule never loads when
+      // the user arrow-navigates across the boundary.
       setViewState({
         ...viewState,
+        year: newStart.getFullYear(),
+        month: newStart.getMonth(),
         weekNumber: getWeekNumber(newStart),
         weekStartDate: newStart,
       });
     } else if (viewState.type === "day" && viewState.date) {
       const newDate = new Date(viewState.date);
       newDate.setDate(newDate.getDate() - 1);
-      setViewState({ ...viewState, date: newDate });
+      setViewState({
+        ...viewState,
+        year: newDate.getFullYear(),
+        month: newDate.getMonth(),
+        date: newDate,
+      });
     }
   };
 
@@ -667,13 +677,20 @@ export default function SchedulePage() {
       newStart.setDate(newStart.getDate() + 7);
       setViewState({
         ...viewState,
+        year: newStart.getFullYear(),
+        month: newStart.getMonth(),
         weekNumber: getWeekNumber(newStart),
         weekStartDate: newStart,
       });
     } else if (viewState.type === "day" && viewState.date) {
       const newDate = new Date(viewState.date);
       newDate.setDate(newDate.getDate() + 1);
-      setViewState({ ...viewState, date: newDate });
+      setViewState({
+        ...viewState,
+        year: newDate.getFullYear(),
+        month: newDate.getMonth(),
+        date: newDate,
+      });
     }
   };
 
@@ -826,6 +843,20 @@ export default function SchedulePage() {
 
   const onGenerate = async () => {
     if (!schedule) return;
+
+    // Auto-save the current preGenEntries (Wünsche / Frei / Abwesenheit) so
+    // they persist even if the user forgot to hit "Vorgaben speichern"
+    // before generating. Fire-and-forget; failure doesn't block generation.
+    // Works regardless of which tab the user clicked Generate from.
+    try {
+      await fetchJson(`/api/schedules/${schedule.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ savedEntries: preGenEntries }),
+      });
+    } catch {
+      // Logged on the server; never block generation on save failure.
+    }
+
     setPreGenOpen(false);
     setGenerateBusy(true);
     setGenProgress({ label: "Starte Generierung..." });

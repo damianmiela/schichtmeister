@@ -452,7 +452,11 @@ def _build_and_add_all_constraints(
     objective_terms.extend(add_fairness(model, shift, request, w=w))
     objective_terms.extend(add_preference_bonus(model, shift, request, w=w))
     objective_terms.extend(add_shift_distribution_soft(model, shift, request, w=w))
-    objective_terms.extend(add_alternating_weekends_boundary_soft(model, works_day, request, w=w))
+    # NOTE: alternating-weekends cross-month handling is now built into
+    # add_alternating_weekends (the new 4-window rule reads previousAssignments
+    # natively). The standalone _boundary_soft helper is therefore redundant
+    # and no longer called. The function is preserved in soft.py for now in
+    # case any external caller still references it.
     objective_terms.extend(add_consecutive_days_boundary_soft(model, works_day, request, w=w))
     objective_terms.extend(add_rest_after_streak_boundary_soft(model, works_day, request, w=w))
 

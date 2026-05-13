@@ -19,7 +19,7 @@ Constraint IDs map 1:1 with the plan in 03-phase-02-hard-constraints.md.
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, timedelta
 from ortools.sat.python import cp_model
 
 from models import SolveRequest, ShiftProfileInput
@@ -868,73 +868,153 @@ def add_alternating_weekends(
     relaxed: bool = False,
     w: Weights = Weights(),
 ) -> list[tuple[cp_model.IntVar, int]]:
+    """4-weekend sliding-window alternating-weekends rule.
+
+    For each employee, in any window of 4 consecutive weekends, at most 2 may be
+    worked. This allows classic alternation (W-F-W-F) AND chunked patterns
+    (W-W-F-F or F-F-W-W). It forbids 3-in-a-row AND W-W-F-W-W ("2+2 mit nur 1
+    Frei dazwischen") — the latter has 3 worked weekends inside a 4-window.
+
+    Cross-month boundary is handled natively: up to 3 prior weekends are read
+    from ``req.previousAssignments``, treated as fixed constants, and counted
+    in every 4-window that spans the period start. This replaces the previous
+    pair-based logic ("no two consecutive worked weekends") plus its 1-weekend
+    boundary soft companion, which over-penalized the legal W-W-F-F pattern
+    and under-detected W-F-W-W / W-W-F-W problems.
+
+    Modes:
+      * relaxed=False (Phase 1, strict): hard-enforces
+        ``sum_worked_in_window ≤ 2``. If the prior-weekend constants alone
+        already exceed 2, every current-period weekend in that window is
+        forced to 0.
+      * relaxed=True (Phase 2): adds a slack var per (employee, 4-window) and
+        penalizes overage with ``W_RELAX_ALT_WEEKENDS``.
+
+    Note: requires up to 3 prior weekends of ``previousAssignments`` for full
+    cross-month coverage. If the input has fewer prior weekends, the rule
+    degrades gracefully — the rightmost windows still work, only the windows
+    that would span a missing prior weekend lose some context.
+    """
     terms: list[tuple[cp_model.IntVar, int]] = []
     if not req.rules.alternatingWeekendsEnabled:
         return terms
 
     dates = _dates(req)
-    weekends: list[tuple[date | None, date | None]] = []
+
+    # ── Current-period weekends ────────────────────────────────────────
+    cur_weekends: list[tuple[date | None, date | None]] = []
     i = 0
     while i < len(dates):
         d = dates[i]
         if d.isoweekday() == 6:
             sat = d
             sun = dates[i + 1] if i + 1 < len(dates) and dates[i + 1].isoweekday() == 7 else None
-            weekends.append((sat, sun))
+            cur_weekends.append((sat, sun))
             i += 2 if sun else 1
         elif d.isoweekday() == 7:
-            weekends.append((None, d))
+            cur_weekends.append((None, d))
             i += 1
         else:
             i += 1
 
-    if not weekends:
+    # ── Up to 3 prior weekends (from previousAssignments) ─────────────
+    period_start = date.fromisoformat(req.periodStart)
+    prior_weekends: list[tuple[date, date]] = []
+    cursor = period_start - timedelta(days=1)
+    safety = 0
+    while len(prior_weekends) < 3 and safety < 30:
+        if cursor.isoweekday() == 7:
+            sat = cursor - timedelta(days=1)
+            prior_weekends.append((sat, cursor))
+            cursor = sat - timedelta(days=1)
+        else:
+            cursor -= timedelta(days=1)
+        safety += 1
+    prior_weekends.reverse()  # oldest first
+
+    # Per-employee: which prior-weekend indices they actually worked
+    prev_worked: dict[str, set[int]] = {}
+    for pa in req.previousAssignments or []:
+        try:
+            d = date.fromisoformat(pa.date)
+        except (ValueError, AttributeError):
+            continue
+        for idx, (sat, sun) in enumerate(prior_weekends):
+            if d == sat or d == sun:
+                prev_worked.setdefault(pa.employeeId, set()).add(idx)
+                break
+
+    n_prior = len(prior_weekends)
+    n_cur = len(cur_weekends)
+    n_total = n_prior + n_cur
+    if n_total < 4:
         return terms
 
-    # NOTE: Cross-month boundary weekend checks are handled by TypeScript
-    # validation (warns about violations). Not enforced as hard solver
-    # constraints because forcing many employees free on the first weekend
-    # can conflict with staffing minimums and make the problem infeasible.
+    # Cache "did employee work current-weekend i" bool var to avoid recreating
+    # across overlapping windows.
+    cur_wknd_var: dict[tuple[str, int], cp_model.IntVar | None] = {}
 
-    # Standard alternating weekends within the period
-    for emp in req.employees:
-        if len(weekends) < 2:
-            continue
-
-        for wi in range(len(weekends) - 1):
-            sat_k, sun_k = weekends[wi]
-            sat_next, sun_next = weekends[wi + 1]
-
-            wk_vars = []
-            if sat_k:
-                key = (emp.id, sat_k.isoformat())
-                if key in works_day:
-                    wk_vars.append(works_day[key])
-            if sun_k:
-                key = (emp.id, sun_k.isoformat())
-                if key in works_day:
-                    wk_vars.append(works_day[key])
-
-            if not wk_vars:
+    def get_cur_var(emp_id: str, cur_idx: int) -> cp_model.IntVar | None:
+        cache_key = (emp_id, cur_idx)
+        if cache_key in cur_wknd_var:
+            return cur_wknd_var[cache_key]
+        sat, sun = cur_weekends[cur_idx]
+        wk_vars = []
+        for d in (sat, sun):
+            if d is None:
                 continue
+            key = (emp_id, d.isoformat())
+            if key in works_day:
+                wk_vars.append(works_day[key])
+        if not wk_vars:
+            cur_wknd_var[cache_key] = None
+            return None
+        wk_bool = model.NewBoolVar(f"altw_emp_{emp_id}_w{cur_idx}")
+        model.AddMaxEquality(wk_bool, wk_vars)
+        cur_wknd_var[cache_key] = wk_bool
+        return wk_bool
 
-            works_wk = model.NewBoolVar(f"wknd_{emp.id}_{wi}")
-            model.AddMaxEquality(works_wk, wk_vars)
-
-            for next_key_date in (sat_next, sun_next):
-                if not next_key_date:
-                    continue
-                key = (emp.id, next_key_date.isoformat())
-                if key not in works_day:
-                    continue
-                if relaxed:
-                    v = model.NewBoolVar(f"altwknd_v_{emp.id}_{wi}_{next_key_date.isoformat()}")
-                    # works_wk AND works_day[key] implies v
-                    # Encode: works_day[key] <= v when works_wk
-                    model.Add(works_day[key] <= v).OnlyEnforceIf(works_wk)
-                    terms.append((v, w.W_RELAX_ALT_WEEKENDS))
+    # ── Per-(employee, 4-window) constraint ───────────────────────────
+    for emp in req.employees:
+        if emp.autoPlanDisabled:
+            continue
+        for w_start in range(n_total - 3):
+            const_count = 0
+            var_terms: list[cp_model.IntVar] = []
+            for wi in range(w_start, w_start + 4):
+                if wi < n_prior:
+                    if wi in prev_worked.get(emp.id, set()):
+                        const_count += 1
                 else:
-                    model.Add(works_day[key] == 0).OnlyEnforceIf(works_wk)
+                    cur_idx = wi - n_prior
+                    v = get_cur_var(emp.id, cur_idx)
+                    if v is not None:
+                        var_terms.append(v)
+
+            if not var_terms:
+                continue  # this window has no current-period decisions
+
+            allowed = 2 - const_count
+            if allowed < 0:
+                # Prior weekends alone exceed limit. Strict: force all
+                # current-period weekends in this window to 0. Relaxed:
+                # each one is an unavoidable violation.
+                if relaxed:
+                    for v in var_terms:
+                        terms.append((v, w.W_RELAX_ALT_WEEKENDS))
+                else:
+                    for v in var_terms:
+                        model.Add(v == 0)
+            else:
+                if relaxed:
+                    slack_ub = max(len(var_terms) - allowed, 0)
+                    slack = model.NewIntVar(
+                        0, slack_ub, f"altw_slack_{emp.id}_{w_start}"
+                    )
+                    model.Add(sum(var_terms) - allowed <= slack)
+                    terms.append((slack, w.W_RELAX_ALT_WEEKENDS))
+                else:
+                    model.Add(sum(var_terms) <= allowed)
 
     return terms
 

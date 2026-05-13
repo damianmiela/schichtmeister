@@ -284,8 +284,11 @@ export async function POST(request: Request, context: RouteCtx) {
     },
   });
 
-  // Load previous month's last 7 days for cross-month boundary checks
-  const BOUNDARY_DAYS = 7;
+  // Load previous month's last ~4 weeks for cross-month boundary checks.
+  // 28 days covers the 3 prior weekends needed by the 4-window
+  // alternating-weekends rule, plus buffer for partial weeks.
+  // (Was 7 — only included the immediately-prior weekend.)
+  const BOUNDARY_DAYS = 28;
   let previousAssignments: { employeeId: string; date: string; shiftProfileId: string }[] = [];
   try {
     const prevSchedule = await prisma.schedule.findFirst({

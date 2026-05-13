@@ -11,7 +11,10 @@ import type { GenerateReport, ManualPlacementInput } from "@/lib/schedule/genera
 import { loadGenerateContext } from "@/lib/schedule/generateDraftSchedule";
 import { runCpsatGeneration, SolverError, callScorer, buildSolverPayload, type CpsatGenerateResult } from "@/lib/schedule/solverClient";
 
-const BOUNDARY_DAYS = 7;
+// 28 days = ~4 weeks back. Covers the 3 prior weekends needed by the
+// 4-window alternating-weekends rule, plus a buffer for partial weeks.
+// (Was 7 — only included the immediately-prior weekend.)
+const BOUNDARY_DAYS = 28;
 
 /**
  * Replaces the roster: **deletes all assignments** on this schedule, then

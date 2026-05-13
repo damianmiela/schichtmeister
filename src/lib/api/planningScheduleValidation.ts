@@ -76,7 +76,11 @@ export type ValidateScheduleAssignmentsOptions = {
   extraAbsences?: AbsenceInput[];
 };
 
-const BOUNDARY_DAYS = 7;
+// 28 days = ~4 weeks. Covers the 3 prior weekends needed by the 4-window
+// alternating-weekends rule, plus buffer for partial weeks. (Was 7 —
+// only included the immediately-prior weekend, which was enough for the
+// old pair-based alt-weekend rule but not the new sliding window.)
+const BOUNDARY_DAYS = 28;
 
 /**
  * Load the last `BOUNDARY_DAYS` days of assignments from the previous month's

@@ -6,11 +6,21 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 type Weekend = { sat: Date | null; sun: Date | null };
 
 /**
- * Jedes zweite Wochenende muss frei sein.
+ * 4-Fenster-Wochenend-Regel: in jedem Fenster aus 4 aufeinanderfolgenden
+ * Wochenenden dürfen maximal 2 gearbeitet werden.
  *
- * Checks consecutive weekends — if an employee worked weekend W, they must
- * be free on weekend W+1.  Includes boundary data from the previous month
- * to check the last weekend before the period start.
+ * This is the new sliding-window form of the alternating-weekends rule.
+ * Allows BOTH 1-on/1-off alternation (W-F-W-F) AND 2-on/2-off chunks (W-W-F-F
+ * or F-F-W-W). Forbids 3-in-a-row AND W-W-F-W-W ("2+2 with only 1 free
+ * between") — the latter has 3 worked weekends inside a 4-window.
+ *
+ * Cross-month: up to 3 prior weekends are read from `ctx.boundaryAssignments`
+ * and counted in every 4-window that spans the period start. This replaces
+ * the older pair-based logic which over-penalized the legal W-W-F-F pattern
+ * and under-detected W-W-F-W / W-F-W-W problems.
+ *
+ * NOTE: must stay in sync with `solver/constraints/hard.py:add_alternating_weekends`
+ * and `solver/scorer.py:_run` / `compute_violations`. Same rule, three places.
  */
 export function alternatingWeekendsRule(ctx: RuleContext): RuleResult {
   const errors: RuleResult["errors"] = [];
@@ -29,7 +39,7 @@ export function alternatingWeekendsRule(ctx: RuleContext): RuleResult {
   }
 
   // Extract weekends within the period
-  const weekends: Weekend[] = [];
+  const curWeekends: Weekend[] = [];
   let i = 0;
   while (i < dates.length) {
     const d = dates[i]!;
@@ -38,32 +48,42 @@ export function alternatingWeekendsRule(ctx: RuleContext): RuleResult {
       const sat = d;
       const nextDay = i + 1 < dates.length ? dates[i + 1]! : null;
       const sun = nextDay && nextDay.getUTCDay() === 0 ? nextDay : null;
-      weekends.push({ sat, sun });
+      curWeekends.push({ sat, sun });
       i += sun ? 2 : 1;
     } else if (dow === 0) {
-      weekends.push({ sat: null, sun: d });
+      curWeekends.push({ sat: null, sun: d });
       i += 1;
     } else {
       i += 1;
     }
   }
 
-  if (weekends.length === 0) return { errors, warnings: [] };
+  if (curWeekends.length === 0) return { errors, warnings: [] };
 
-  // Find the previous weekend (before period) for boundary check
+  // Up to 3 prior weekends (walking backwards from period start)
   const firstDate = dates[0]!;
-  let prevWeekend: Weekend | null = null;
-  // Walk backwards from period start to find last Saturday
-  for (let offset = 1; offset <= 7; offset++) {
-    const d = new Date(firstDate.getTime() - offset * DAY_MS);
-    if (d.getUTCDay() === 6) {
-      const sun = new Date(d.getTime() + DAY_MS);
-      prevWeekend = { sat: d, sun };
-      break;
+  const priorWeekends: Weekend[] = [];
+  let cursor = new Date(firstDate.getTime() - DAY_MS);
+  let safety = 0;
+  while (priorWeekends.length < 3 && safety < 30) {
+    if (cursor.getUTCDay() === 0) {
+      // cursor is Sunday → previous day was Saturday
+      const sat = new Date(cursor.getTime() - DAY_MS);
+      priorWeekends.push({ sat, sun: cursor });
+      cursor = new Date(sat.getTime() - DAY_MS);
+    } else {
+      cursor = new Date(cursor.getTime() - DAY_MS);
     }
+    safety++;
   }
+  priorWeekends.reverse(); // oldest first
 
-  function empWorkedWeekend(empId: string, wk: Weekend): boolean {
+  const nPrior = priorWeekends.length;
+  const timeline: Weekend[] = [...priorWeekends, ...curWeekends];
+  const nTotal = timeline.length;
+  if (nTotal < 4) return { errors, warnings: [] };
+
+  function workedAt(empId: string, wk: Weekend): boolean {
     const worked = workedByEmp.get(empId);
     if (!worked) return false;
     if (wk.sat && worked.has(utcDayKey(wk.sat))) return true;
@@ -93,79 +113,68 @@ export function alternatingWeekendsRule(ctx: RuleContext): RuleResult {
     ? [ctx.targetFilter.employeeId]
     : [...ctx.employeesById.keys()];
 
-  const totalWeekends = weekends.length;
+  const totalWeekends = curWeekends.length;
 
   for (const empId of employeeIds) {
     const emp = ctx.employeesById.get(empId);
     if (!emp) continue;
 
-    // Pass 1: compute the per-weekend pattern (worked? which days?).
+    // Build per-weekend "worked" boolean across the full timeline
+    const workedTimeline: boolean[] = timeline.map((wk) => workedAt(empId, wk));
+
+    // Scan every 4-window; mark all worked weekends in any window with >2 worked.
+    const violatingIndices = new Set<number>();
+    let windowViolations = 0;
+    let boundaryInvolved = false;
+    for (let wStart = 0; wStart <= nTotal - 4; wStart++) {
+      let count = 0;
+      for (let k = 0; k < 4; k++) {
+        if (workedTimeline[wStart + k]) count++;
+      }
+      if (count > 2) {
+        windowViolations++;
+        for (let k = 0; k < 4; k++) {
+          if (workedTimeline[wStart + k]) {
+            violatingIndices.add(wStart + k);
+            if (wStart + k < nPrior) boundaryInvolved = true;
+          }
+        }
+      }
+    }
+
+    if (windowViolations === 0) continue;
+
+    // Build the per-current-weekend pattern list for the message.
     type WeekendInfo = {
       iso: string;
       pattern: "Sa" | "So" | "Sa+So";
-      /** True if this worked weekend is in a violation pair with the previous OR next worked weekend (or boundary). */
       inViolation: boolean;
     };
-    const worked: WeekendInfo[] = [];
-
-    // Boundary: was the last weekend of the previous month also worked?
-    const boundaryWorked = prevWeekend ? empWorkedWeekend(empId, prevWeekend) : false;
-
-    for (const wk of weekends) {
+    const workedInCur: WeekendInfo[] = [];
+    for (let ti = nPrior; ti < nTotal; ti++) {
+      const wk = timeline[ti]!;
       const pat = dayPattern(empId, wk);
-      if (pat) worked.push({ iso: anchor(wk), pattern: pat, inViolation: false });
-    }
-
-    if (worked.length === 0) continue;
-
-    // Pass 2: mark violation pairs.
-    // A worked weekend at index i is "in violation" if either the previous or
-    // next entry in `worked` is the very next calendar weekend (≤ 8 days apart
-    // — Saturday-to-Saturday is 7d, Sunday-to-Sunday is 7d, edge cases ≤ 8d).
-    function adjacent(aIso: string, bIso: string): boolean {
-      const a = new Date(aIso + "T00:00:00Z").getTime();
-      const b = new Date(bIso + "T00:00:00Z").getTime();
-      const diffDays = Math.abs(b - a) / DAY_MS;
-      return diffDays <= 8;
-    }
-
-    let violations = 0;
-
-    // Boundary contributes 1 violation if boundaryWorked AND first entry's date
-    // is adjacent (≤ 8 days) to the boundary weekend's anchor.
-    if (boundaryWorked && prevWeekend) {
-      const boundaryIso = anchor(prevWeekend);
-      const first = worked[0]!;
-      if (adjacent(boundaryIso, first.iso)) {
-        first.inViolation = true;
-        violations++;
+      if (pat) {
+        workedInCur.push({
+          iso: anchor(wk),
+          pattern: pat,
+          inViolation: violatingIndices.has(ti),
+        });
       }
     }
-
-    for (let i = 1; i < worked.length; i++) {
-      if (adjacent(worked[i - 1]!.iso, worked[i]!.iso)) {
-        worked[i - 1]!.inViolation = true;
-        worked[i]!.inViolation = true;
-        violations++;
-      }
-    }
-
-    if (violations === 0) continue;
+    if (workedInCur.length === 0) continue;
 
     const name = emp.displayName ?? empId;
-    // Encode marker "!" on weekends that are in a violation pair so the
-    // formatter / drawer can render them differently.
-    const patternStr = worked
+    const patternStr = workedInCur
       .map((w) => `${w.iso}:${w.pattern}${w.inViolation ? "!" : ""}`)
       .join(",");
-    // Boundary flag goes BEFORE the bracket so the formatter can detect it.
-    const bFlag = boundaryWorked ? "B" : "-";
+    const bFlag = boundaryInvolved ? "B" : "-";
     errors.push({
       ruleId: "alternatingWeekends",
       code: "ALTERNATING_WEEKEND_VIOLATION",
       message: ctx.targetFilter
-        ? `${name}: ${worked.length} von ${totalWeekends} Wochenenden gearbeitet, ${violations} Verstöße [${bFlag}|${patternStr}].`
-        : `${name}: weekends worked ${worked.length}/${totalWeekends}, ${violations} violations [${bFlag}|${patternStr}].`,
+        ? `${name}: ${workedInCur.length} von ${totalWeekends} Wochenenden gearbeitet, ${windowViolations} Verstöße [${bFlag}|${patternStr}].`
+        : `${name}: weekends worked ${workedInCur.length}/${totalWeekends}, ${windowViolations} violations [${bFlag}|${patternStr}].`,
       employeeIds: [empId],
     });
   }

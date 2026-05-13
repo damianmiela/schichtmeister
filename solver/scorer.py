@@ -589,74 +589,83 @@ def _run(data: dict) -> None:
     else:
         print(f"  OK '2 rest days after 6+ consecutive work days' respected")
 
-    # -- 8. Alternating weekends (with cross-month boundary) ---------------------
-    print("\n-- 8. ALTERNATING WEEKENDS --")
+    # -- 8. Alternating weekends — 4-week sliding window rule -----------------
+    print("\n-- 8. ALTERNATING WEEKENDS (4-window: max 2 worked of any 4 consecutive) --")
 
-    # Find previous weekend (last Sat-Sun before period start) from boundary data
-    prev_weekend: tuple[date | None, date | None] | None = None
-    if previous_assignments:
-        first_date = dates[0]
-        prev_sat = None
-        for offset in range(1, 8):
-            d = first_date - timedelta(days=offset)
-            if d.isoweekday() == 6:
-                prev_sat = d
-                break
-        if prev_sat:
-            prev_sun = prev_sat + timedelta(days=1)
-            prev_weekend = (prev_sat, prev_sun)
-
-    weekends: list[tuple[date | None, date | None]] = []
-    if prev_weekend:
-        weekends.append(prev_weekend)
-
+    # Build current-period weekends list
+    cur_weekends_r: list[tuple[date | None, date | None]] = []
     i = 0
     while i < len(dates):
         d = dates[i]
         if d.isoweekday() == 6:
             sat = d
             sun = dates[i + 1] if i + 1 < len(dates) and dates[i + 1].isoweekday() == 7 else None
-            weekends.append((sat, sun))
+            cur_weekends_r.append((sat, sun))
             i += 2 if sun else 1
         elif d.isoweekday() == 7:
-            weekends.append((None, d))
+            cur_weekends_r.append((None, d))
             i += 1
         else:
             i += 1
 
-    alt_wknd_violations: list[tuple] = []
-    for eid, name in emp_names.items():
-        # Current period work dates
-        work_dates: set[date] = set()
-        for a in by_emp.get(eid, []):
-            work_dates.add(date.fromisoformat(a["date"]))
-        # Previous month work dates
-        prev_dates = prev_work_dates_by_emp.get(eid, set())
-        all_work = work_dates | prev_dates
+    # Up to 3 prior weekends from previousAssignments
+    prior_weekends_r: list[tuple[date, date]] = []
+    if dates:
+        cursor = dates[0] - timedelta(days=1)
+        safety = 0
+        while len(prior_weekends_r) < 3 and safety < 30:
+            if cursor.isoweekday() == 7:
+                sat = cursor - timedelta(days=1)
+                prior_weekends_r.append((sat, cursor))
+                cursor = sat - timedelta(days=1)
+            else:
+                cursor -= timedelta(days=1)
+            safety += 1
+        prior_weekends_r.reverse()
 
-        for wi in range(len(weekends) - 1):
-            sat_k, sun_k = weekends[wi]
-            sat_next, sun_next = weekends[wi + 1]
-            worked_this = (sat_k and sat_k in all_work) or (sun_k and sun_k in all_work)
-            worked_next = (sat_next and sat_next in all_work) or (sun_next and sun_next in all_work)
-            if worked_this and worked_next:
-                is_boundary = prev_weekend and weekends[wi] == prev_weekend
-                alt_wknd_violations.append((name, weekends[wi], weekends[wi + 1], is_boundary))
+    n_prior_r = len(prior_weekends_r)
+    timeline_r = [(s, u) for (s, u) in prior_weekends_r] + cur_weekends_r
+    n_total_r = len(timeline_r)
+
+    alt_wknd_violations: list[tuple] = []
+    if n_total_r >= 4:
+        for eid, name in emp_names.items():
+            work_dates: set[date] = set()
+            for a in by_emp.get(eid, []):
+                work_dates.add(date.fromisoformat(a["date"]))
+            prev_dates = prev_work_dates_by_emp.get(eid, set())
+            all_work = work_dates | prev_dates
+
+            worked_at_r: list[bool] = []
+            for (sat, sun) in timeline_r:
+                wk = (sat is not None and sat in all_work) or (sun is not None and sun in all_work)
+                worked_at_r.append(wk)
+
+            for w_start in range(n_total_r - 3):
+                window_count = sum(worked_at_r[w_start:w_start + 4])
+                if window_count > 2:
+                    is_boundary = w_start < n_prior_r
+                    # Anchor weekend (window start) for the human-readable report
+                    sat_start, sun_start = timeline_r[w_start]
+                    anchor = (sat_start or sun_start)
+                    alt_wknd_violations.append(
+                        (name, anchor, window_count, is_boundary)
+                    )
 
     if alt_wknd_violations:
         boundary_count = sum(1 for _, _, _, b in alt_wknd_violations if b)
         within_count = len(alt_wknd_violations) - boundary_count
-        print(f"  !! {len(alt_wknd_violations)} violations (worked consecutive weekends):")
+        print(f"  !! {len(alt_wknd_violations)} 4-window violations (>2 worked in 4 consecutive weekends):")
         if boundary_count:
-            print(f"     ({boundary_count} cross-month boundary, {within_count} within-month)")
+            print(f"     ({boundary_count} include cross-month prior weekends, {within_count} fully within-period)")
         shown: dict[str, list[str]] = {}
-        for name, wk1, wk2, is_boundary in alt_wknd_violations:
+        for name, anchor, count, is_boundary in alt_wknd_violations:
             marker = " [boundary]" if is_boundary else ""
-            shown.setdefault(name, []).append(f"{wk1[0] or wk1[1]}{marker}")
+            shown.setdefault(name, []).append(f"{anchor} ({count}/4 worked){marker}")
         for name, wks in sorted(shown.items()):
-            print(f"    {name}: weekends starting {', '.join(wks[:5])}")
+            print(f"    {name}: windows from {', '.join(wks[:5])}")
     else:
-        print(f"  OK All employees have alternating weekends free")
+        print(f"  OK No employee has >2 worked weekends in any 4-week window")
 
     # -- 9. WBL weekend limit --------------------------------------------------
     print("\n-- 9. WBL WEEKEND-DAY LIMIT (max 3) --")
@@ -1046,54 +1055,77 @@ def compute_violations(data: dict) -> dict[str, int]:
         if max_consec > max_consec_limit:
             violations.append((name, max_consec, f"ending {max_consec_end}"))
 
-    # ── 8. Alternating weekends (with cross-month boundary) ──────────────────
-    prev_weekend: tuple[date | None, date | None] | None = None
-    if previous_assignments:
-        first_date = dates[0]
-        prev_sat = None
-        for offset in range(1, 8):
-            d = first_date - timedelta(days=offset)
-            if d.isoweekday() == 6:
-                prev_sat = d
-                break
-        if prev_sat:
-            prev_sun = prev_sat + timedelta(days=1)
-            prev_weekend = (prev_sat, prev_sun)
-
-    weekends: list[tuple[date | None, date | None]] = []
-    if prev_weekend:
-        weekends.append(prev_weekend)
-
+    # ── 8. Alternating weekends — 4-week sliding window rule ────────────────
+    # New rule: in any window of 4 consecutive weekends, at most 2 may be
+    # worked. Counts cross-month using up to 3 prior weekends from
+    # previousAssignments. Allows alternating singles (W-F-W-F) AND chunked
+    # doubles (W-W-F-F or F-F-W-W). Forbids 3-in-a-row AND W-W-F-W-W ("2+2
+    # mit nur 1 Frei dazwischen").
+    #
+    # We report two counts:
+    #   - alt_weekend_violations: number of (employee, 4-window) tuples where
+    #     the employee worked >2 weekends in that window
+    #   - alt_weekend_violations_boundary: subset of windows that include
+    #     at least one prior-month weekend (so cross-month-driven)
+    cur_weekends_v: list[tuple[date | None, date | None]] = []
     i = 0
     while i < len(dates):
         d = dates[i]
         if d.isoweekday() == 6:
             sat = d
             sun = dates[i + 1] if i + 1 < len(dates) and dates[i + 1].isoweekday() == 7 else None
-            weekends.append((sat, sun))
+            cur_weekends_v.append((sat, sun))
             i += 2 if sun else 1
         elif d.isoweekday() == 7:
-            weekends.append((None, d))
+            cur_weekends_v.append((None, d))
             i += 1
         else:
             i += 1
 
-    alt_wknd_violations: list[tuple] = []
-    for eid, name in emp_names.items():
-        work_dates: set[date] = set()
-        for a in by_emp.get(eid, []):
-            work_dates.add(date.fromisoformat(a["date"]))
-        prev_dates = prev_work_dates_by_emp.get(eid, set())
-        all_work = work_dates | prev_dates
+    # Up to 3 prior weekends
+    prior_weekends_v: list[tuple[date, date]] = []
+    if dates:
+        period_start = dates[0]
+        cursor = period_start - timedelta(days=1)
+        safety = 0
+        while len(prior_weekends_v) < 3 and safety < 30:
+            if cursor.isoweekday() == 7:
+                sat = cursor - timedelta(days=1)
+                prior_weekends_v.append((sat, cursor))
+                cursor = sat - timedelta(days=1)
+            else:
+                cursor -= timedelta(days=1)
+            safety += 1
+        prior_weekends_v.reverse()
 
-        for wi in range(len(weekends) - 1):
-            sat_k, sun_k = weekends[wi]
-            sat_next, sun_next = weekends[wi + 1]
-            worked_this = (sat_k and sat_k in all_work) or (sun_k and sun_k in all_work)
-            worked_next = (sat_next and sat_next in all_work) or (sun_next and sun_next in all_work)
-            if worked_this and worked_next:
-                is_boundary = prev_weekend and weekends[wi] == prev_weekend
-                alt_wknd_violations.append((name, weekends[wi], weekends[wi + 1], is_boundary))
+    n_prior_v = len(prior_weekends_v)
+    timeline = [(s, u) for (s, u) in prior_weekends_v] + cur_weekends_v
+    n_total = len(timeline)
+
+    alt_wknd_violations: list[tuple] = []
+    if n_total >= 4:
+        for eid, name in emp_names.items():
+            work_dates: set[date] = set()
+            for a in by_emp.get(eid, []):
+                work_dates.add(date.fromisoformat(a["date"]))
+            prev_dates = prev_work_dates_by_emp.get(eid, set())
+            all_work = work_dates | prev_dates
+
+            # Worked indicator per weekend in the combined timeline
+            worked_at: list[bool] = []
+            for (sat, sun) in timeline:
+                wk = (sat is not None and sat in all_work) or (sun is not None and sun in all_work)
+                worked_at.append(wk)
+
+            for w_start in range(n_total - 3):
+                window_count = sum(worked_at[w_start:w_start + 4])
+                if window_count > 2:
+                    # Tag boundary if any of the 4 weekends in this window
+                    # is a prior weekend (i.e., w_start < n_prior_v).
+                    is_boundary = w_start < n_prior_v
+                    alt_wknd_violations.append(
+                        (name, w_start, window_count, is_boundary)
+                    )
 
     alt_wknd_boundary_count = sum(1 for _, _, _, b in alt_wknd_violations if b)
 

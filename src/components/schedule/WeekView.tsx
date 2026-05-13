@@ -98,7 +98,15 @@ export default function WeekView({
     return m;
   }, [assignments]);
 
-  // Group employees by station + night
+  // Group employees by station + night.
+  //
+  // Primary path: walk the week's assignments and bucket employees into
+  // stations / Nacht based on what they actually work this week.
+  //
+  // Fallback (no assignments at all — e.g. an empty month or a month
+  // before generation): bucket all eligible employees by their
+  // `mainStation` (or single `assignedStations` entry) so the user still
+  // sees the table structure with empty cells, instead of a blank page.
   const { stationGroups, nightEmployees } = useMemo(() => {
     const groups: Record<number, Set<string>> = { 1: new Set(), 2: new Set(), 3: new Set() };
     const nightIds = new Set<string>();
@@ -115,6 +123,22 @@ export default function WeekView({
       const station = a.stationNumber ?? emp?.mainStation ?? (emp?.assignedStations?.length === 1 ? emp.assignedStations[0] : null);
       if (station && groups[station]) {
         groups[station]!.add(a.employeeId);
+      }
+    }
+
+    // Empty-schedule fallback — render the station structure with the
+    // current roster so the planner doesn't see a blank page.
+    if (groups[1]!.size === 0 && groups[2]!.size === 0 && groups[3]!.size === 0 && nightIds.size === 0) {
+      for (const emp of employees) {
+        if ((emp.contractType as string) === "AUSBILDUNG") continue;
+        const candidates: number[] = [];
+        if (emp.mainStation != null) candidates.push(emp.mainStation);
+        else if (emp.assignedStations && emp.assignedStations.length === 1) {
+          candidates.push(emp.assignedStations[0]!);
+        }
+        for (const st of candidates) {
+          if (st >= 1 && st <= 3) groups[st]!.add(emp.id);
+        }
       }
     }
 
