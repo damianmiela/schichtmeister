@@ -398,6 +398,31 @@ export async function POST(request: Request, context: RouteCtx) {
         controller.enqueue(encoder.encode(sseEvent(data)));
       };
 
+      // ── SSE heartbeat ──────────────────────────────────────────────
+      // Reverse proxies (nginx, Cloudflare, Hetzner LB, etc.) typically
+      // close idle TCP connections after 60-100s. The solver only emits
+      // progress events when it finds a strictly-better objective, so a
+      // long "plateau" period (where the new alt-weekend 4-window rule
+      // has made silences of 90+ seconds routine) makes the connection
+      // look idle and the proxy kills it. We send an SSE *comment* line
+      // (`: heartbeat <ts>\n\n`) every 30s — browsers ignore it per
+      // spec, but proxies see TCP traffic and keep the connection warm.
+      const HEARTBEAT_INTERVAL_MS = 30_000;
+      const heartbeatTimer = setInterval(() => {
+        try {
+          controller.enqueue(
+            encoder.encode(`: heartbeat ${Date.now()}\n\n`),
+          );
+        } catch {
+          // Stream already closed; let the GC clean us up.
+        }
+      }, HEARTBEAT_INTERVAL_MS);
+      // unref() so the heartbeat doesn't keep the Node process alive
+      // by itself (matters for graceful shutdowns / tests).
+      if (typeof heartbeatTimer === "object" && heartbeatTimer && "unref" in heartbeatTimer) {
+        (heartbeatTimer as { unref: () => void }).unref();
+      }
+
       try {
         send({
           type: "progress",
@@ -1214,6 +1239,9 @@ export async function POST(request: Request, context: RouteCtx) {
         // Always release the cancel-state slot so the cancel endpoint
         // doesn't think a phantom generation is still running.
         unregisterGeneration(scheduleId);
+        // Stop emitting heartbeats — the stream is closing and the
+        // controller will reject further enqueues.
+        clearInterval(heartbeatTimer);
         controller.close();
       }
     },
