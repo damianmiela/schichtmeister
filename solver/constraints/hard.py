@@ -667,37 +667,6 @@ def add_wbl_bl_weekly(
     return terms
 
 
-# ── H13: WBL BL shifts on distinct days within a week ──────────────────────
-
-def add_wbl_bl_spread(
-    model: cp_model.CpModel,
-    shift: ShiftVar,
-    req: SolveRequest,
-):
-    wbl_emps = [e for e in req.employees if e.isWbl]
-    bl_profiles = {p.id for p in req.shiftProfiles if p.shiftType == "BL"}
-    if len(wbl_emps) < 2 or not bl_profiles:
-        return
-
-    dates = _dates(req)
-    weeks: dict[str, list[date]] = {}
-    for d in dates:
-        wk = iso_week_key(d)
-        weeks.setdefault(wk, []).append(d)
-
-    for wk, wk_dates in weeks.items():
-        for d in wk_dates:
-            ds = d.isoformat()
-            day_bl_vars = []
-            for emp in wbl_emps:
-                for pid in bl_profiles:
-                    key = (emp.id, ds, pid)
-                    if key in shift:
-                        day_bl_vars.append(shift[key])
-            if len(day_bl_vars) > 1:
-                model.Add(sum(day_bl_vars) <= 1)
-
-
 # ── H13b: Station assignment for multi-station employees ──────────────────
 
 StationAssign = dict[tuple[str, str, int], cp_model.IntVar]

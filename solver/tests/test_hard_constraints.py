@@ -164,23 +164,25 @@ def test_allowed_profiles():
 
 
 def test_station_assignment():
-    """Employee assigned to station 1 should not get station 2 profiles."""
+    """An employee assigned to station 1 is only ever placed at station 1."""
     data = _base_request()
-    data["shiftProfiles"].append(
-        {"id": "f2", "name": "F2", "shiftType": "EARLY", "stationNumber": 2,
-         "startTime": "06:00", "endTime": "14:30", "breakMinutes": 30, "paidHours": 8.0}
-    )
     data["employees"][0]["assignedStations"] = [1]
+    data["employees"][0]["allowedShiftProfileIds"] = ["f1"]
+    data["staffingRequirements"] = [
+        {"shiftType": "EARLY", "stationNumber": 1, "minTotalCount": 1},
+        {"shiftType": "EARLY", "stationNumber": 2, "minTotalCount": 1},
+    ]
     req = SolveRequest(**data)
     resp = solve(req)
     assert resp.status in ("OPTIMAL", "FEASIBLE")
-    for a in resp.assignments:
-        if a.employeeId == "e1":
-            assert a.shiftProfileId != "f2", "e1 assigned to station 2 profile"
+    e1_shifts = [a for a in resp.assignments if a.employeeId == "e1"]
+    assert e1_shifts, "e1 got no shifts"
+    assert {a.stationNumber for a in e1_shifts} == {1}
 
 
-def test_infeasible_staffing():
-    """Impossible staffing requirement → INFEASIBLE."""
+def test_impossible_staffing_still_returns_a_plan():
+    """Minimum staffing is a soft rule (since 31 Mar): an impossible requirement
+    leaves slots empty instead of making the whole month INFEASIBLE."""
     data = _base_request()
     data["employees"] = [
         {"id": "e1", "qualificationTags": ["PFK"], "targetHoursPercent": 100},
@@ -190,7 +192,8 @@ def test_infeasible_staffing():
     ]
     req = SolveRequest(**data)
     resp = solve(req)
-    assert resp.status == "INFEASIBLE"
+    assert resp.status in ("OPTIMAL", "FEASIBLE")
+    assert resp.assignments, "the one available employee should still be planned"
 
 
 def test_max_consecutive_days():
@@ -245,31 +248,3 @@ def test_wbl_bl_weekly():
         bl_count = sum(1 for a in resp.assignments
                        if a.employeeId == wbl_id and a.shiftProfileId == "bl")
         assert bl_count >= 1, f"{wbl_id} has {bl_count} BL shifts"
-
-
-def test_wbl_bl_spread():
-    """WBL BL shifts should be on different days within a week."""
-    data = _base_request()
-    data["periodStart"] = "2026-03-02"
-    data["periodEnd"] = "2026-03-08"
-    data["employees"] = [
-        {"id": "w1", "qualificationTags": ["WBL", "PFK"], "isWbl": True,
-         "targetHoursPercent": 100},
-        {"id": "w2", "qualificationTags": ["WBL", "PFK"], "isWbl": True,
-         "targetHoursPercent": 100},
-        {"id": "e3", "qualificationTags": ["APH"], "targetHoursPercent": 100},
-    ]
-    data["shiftProfiles"].append(
-        {"id": "bl", "name": "BL", "shiftType": "BL", "stationNumber": None,
-         "startTime": "08:00", "endTime": "16:30", "breakMinutes": 30, "paidHours": 8.0}
-    )
-    req = SolveRequest(**data)
-    resp = solve(req)
-    assert resp.status in ("OPTIMAL", "FEASIBLE")
-    bl_dates: dict[str, list[str]] = {}
-    for a in resp.assignments:
-        if a.shiftProfileId == "bl":
-            bl_dates.setdefault(a.date, []).append(a.employeeId)
-    for d, emps in bl_dates.items():
-        wbl_on_day = [e for e in emps if e.startswith("w")]
-        assert len(wbl_on_day) <= 1, f"Multiple WBL BL on {d}: {wbl_on_day}"
