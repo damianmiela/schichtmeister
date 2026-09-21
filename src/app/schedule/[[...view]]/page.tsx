@@ -45,7 +45,6 @@ import {
   Stack,
   InputAdornment,
 } from "@mui/material";
-import AddIcon from "@mui/icons-material/Add";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 
@@ -63,7 +62,6 @@ import DeleteSweepIcon from "@mui/icons-material/DeleteSweep";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import CloseIcon from "@mui/icons-material/Close";
 import DescriptionIcon from "@mui/icons-material/Description";
-import SickIcon from "@mui/icons-material/Sick";
 import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
 import CleaningServicesIcon from "@mui/icons-material/CleaningServices";
 import DrawIcon from "@mui/icons-material/Draw";
@@ -94,7 +92,7 @@ import type {
   ShiftProfileJson,
   StaffingJson,
 } from "@/lib/schedule/scheduleTypes";
-import { getWeekNumber, shiftTypeLabel } from "@/lib/schedule/viewUtils";
+import { getWeekNumber } from "@/lib/schedule/viewUtils";
 import { holidayDateMap } from "@/lib/holidays";
 
 type ScheduleVersionSummary = {
@@ -288,8 +286,6 @@ export default function SchedulePage() {
   const [solveTimeDraft, setSolveTimeDraft] = useState("120");
   // Phase/progress label shown in the progress modal (e.g. "Rennen B von 5…").
   const [genPhaseLabel, setGenPhaseLabel] = useState<string | null>(null);
-  // Live objective value reported by the solver (lower is better).
-  const [genObjective, setGenObjective] = useState<number | null>(null);
   // Live optimality gap as a percentage — (objective - bound) / |objective|.
   // 0% = proven optimal. For our heavy-soft-penalty model the bound stays
   // loose so the gap typically stays in the 80-95% range; useful for
@@ -440,7 +436,7 @@ export default function SchedulePage() {
     const out: { employeeId: string; date: string }[] = [];
     const [fy, fm, fd] = from.split("-").map(Number);
     const [ty, tm, td] = to.split("-").map(Number);
-    let cur = new Date(fy!, fm! - 1, fd!);
+    const cur = new Date(fy!, fm! - 1, fd!);
     const end = new Date(ty!, tm! - 1, td!);
     while (cur <= end) {
       const iso = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-${String(cur.getDate()).padStart(2, "0")}`;
@@ -458,7 +454,8 @@ export default function SchedulePage() {
       setActionDebugPayload(null);
       setActionAlertSeverity("info");
     }
-    const { year, month } = viewState;
+    const year = viewState.year;
+    const month = viewState.month;
     const { monthStart, monthEnd } = monthRangeIso(year, month);
 
     const failLabels: string[] = [];
@@ -590,9 +587,9 @@ export default function SchedulePage() {
   // Auto-select first employee alphabetically when entering employee view without an id
   useEffect(() => {
     if (viewState.type === "employee" && !viewState.employeeId && sortedEmployees.length > 0) {
-      setViewState({ ...viewState, employeeId: sortedEmployees[0]!.id });
+      setViewState((prev) => ({ ...prev, employeeId: sortedEmployees[0]!.id }));
     }
-  }, [viewState.type, viewState.employeeId, sortedEmployees]);
+  }, [viewState.type, viewState.employeeId, sortedEmployees, setViewState]);
 
   // Fetch employee-specific warnings when viewing an employee
   useEffect(() => {
@@ -749,15 +746,6 @@ export default function SchedulePage() {
       type: "employee",
       employeeId,
     });
-  };
-
-  const handleBackFromEmployee = () => {
-    const prevType = viewState.date
-      ? "day"
-      : viewState.weekStartDate
-        ? "week"
-        : "month";
-    setViewState({ ...viewState, type: prevType });
   };
 
   const getViewTitle = () => {
@@ -999,7 +987,6 @@ export default function SchedulePage() {
       typeof body.raceCount === "number" ? (body.raceCount as number) : 1;
     const isMultiRun = raceCountForUI > 1;
     setGenPhaseLabel(isMultiRun ? `Rennen 1 von ${raceCountForUI}…` : null);
-    setGenObjective(null);
     setGenGap(null);
     setGenRaceSlots([]);
     setGenBestSoFarVariant(null);
@@ -1089,9 +1076,6 @@ export default function SchedulePage() {
                 const vTotal = typeof event.totalVariants === "number" ? event.totalVariants : raceCountForUI;
                 const vCur = typeof event.currentVariant === "string" ? event.currentVariant : "?";
                 setGenPhaseLabel(`Rennen ${vCur} (${vIdx}/${vTotal})…`);
-                // Clear the legacy single-value live slot; per-variant slots
-                // take over from here.
-                setGenObjective(null);
               } else if (event.stage === "race_finished") {
                 // Freeze the finished variant's objective and mark it done.
                 const vCur = typeof event.currentVariant === "string" ? event.currentVariant : null;
@@ -1147,9 +1131,6 @@ export default function SchedulePage() {
                 );
               } else {
                 // untagged → single-run live slot
-                if (typeof event.objective === "number") {
-                  setGenObjective(event.objective);
-                }
                 if (typeof event.gap === "number") {
                   setGenGap(event.gap);
                 }
@@ -1309,8 +1290,6 @@ export default function SchedulePage() {
       console.warn("Cancel POST error:", e);
     }
   };
-
-  const currentMonthKey = `${viewState.year}-${String(viewState.month + 1).padStart(2, "0")}`;
 
   const onViewLogs = async () => {
     if (!schedule) return;
@@ -1767,9 +1746,10 @@ export default function SchedulePage() {
   }, [viewState]);
 
   // In employee view, show only that employee's warnings; otherwise show all
-  const displayWarnings = viewState.type === "employee"
-    ? employeeWarnings
-    : (schedule?.warnings ?? []);
+  const displayWarnings = useMemo(
+    () => (viewState.type === "employee" ? employeeWarnings : (schedule?.warnings ?? [])),
+    [viewState.type, employeeWarnings, schedule?.warnings],
+  );
 
   /* ── Severity-aware visuals (single source of truth: warningSeverity.ts) ── */
   const warnSeverity = useMemo(

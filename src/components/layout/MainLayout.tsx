@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Box, Toolbar, useMediaQuery, useTheme } from "@mui/material";
+import { Box, Toolbar } from "@mui/material";
 import Sidebar, { DRAWER_WIDTH } from "./Sidebar";
 import Header from "./Header";
 import { useActivityTracker } from "@/hooks/useActivityTracker";
@@ -13,8 +13,6 @@ interface MainLayoutProps {
 
 export default function MainLayout({ children, title }: MainLayoutProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
-  const theme = useTheme();
-  const isDesktop = useMediaQuery(theme.breakpoints.up("md"));
 
   // Activity tracking — lightweight, batched, fire-and-forget
   useActivityTracker();

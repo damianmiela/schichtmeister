@@ -1,7 +1,7 @@
 import PDFDocument from "pdfkit";
-import type { Employee, ShiftProfile } from "@prisma/client";
+import type { ShiftProfile } from "@prisma/client";
 import { toIsoDateOnly } from "@/lib/api/dateOnly";
-import type { AssignmentWithRelations, ExportBundle } from "@/lib/export/scheduleExportContext";
+import type { ExportBundle } from "@/lib/export/scheduleExportContext";
 import { eachIsoDateInPeriod } from "@/lib/export/exportDateRange";
 import {
   buildAssignmentByEmpDay,
@@ -48,7 +48,6 @@ const COL_CUM = 34;
 const COL_SHIFT = CONTENT_W - COL_DAY - COL_WT - COL_STATION - COL_TIME - COL_HOURS - COL_CUM;
 const ROW_H = 16;
 const HEADER_ROW_H = 14;
-const META_H = 60;
 
 const ABSENCE_CODES = new Set(["K", "U", "LZ", "MS", "KU", "SCH"]);
 
@@ -117,9 +116,8 @@ export async function buildEmployeePdfBuffer(bundle: ExportBundle): Promise<Buff
   const sorted = sortEmployeesByName(allEmployees);
   let pageNum = 0;
   const FOOTER_Y = PAGE_H - MARGIN - 8;
-  const TABLE_BOTTOM = FOOTER_Y - 14; // leave room for footer
 
-  const drawFooter = (empName: string) => {
+  const drawFooter = () => {
     pageNum++;
     doc.fontSize(6).font("Helvetica").fillColor("#ddd");
     doc.moveTo(MARGIN, FOOTER_Y - 2).lineTo(MARGIN + CONTENT_W, FOOTER_Y - 2)
@@ -341,13 +339,13 @@ export async function buildEmployeePdfBuffer(bundle: ExportBundle): Promise<Buff
       y += ROW_H;
     }
 
-    drawFooter(emp.lastName);
+    drawFooter();
   }
 
   if (sorted.length === 0) {
     doc.fontSize(10).font("Helvetica").fillColor("#333");
     doc.text("Keine aktiven Mitarbeiter.", MARGIN, MARGIN + 30);
-    drawFooter("");
+    drawFooter();
   }
 
   return collectPdfBuffer(doc);

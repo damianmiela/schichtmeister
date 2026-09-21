@@ -3,10 +3,7 @@ import { requireAdmin } from "@/lib/auth/session";
 import { plannerJsonErrors } from "@/lib/api/validation";
 import { prisma } from "@/lib/db/prisma";
 
-/**
- * Prisma model mapping — we use (prisma as any)[model] for dynamic access
- * since the Prisma client wasn't regenerated and types are incomplete.
- */
+/** Models the database viewer can browse. */
 const MODELS = [
   "facility",
   "user",
@@ -45,6 +42,16 @@ const MODEL_LABELS: Record<string, string> = {
   employeeAbsence: "EmployeeAbsence",
 };
 
+/** Prisma has no typed access by model name, so narrow each delegate to the two calls used here. */
+type ModelDelegate = {
+  count: () => Promise<number>;
+  findMany: (args: object) => Promise<Record<string, unknown>[]>;
+};
+
+function delegateFor(model: string): ModelDelegate {
+  return (prisma as unknown as Record<string, ModelDelegate>)[model];
+}
+
 /** GET /api/admin/database?table=user&page=1&pageSize=20 */
 export async function GET(request: NextRequest) {
   const { error } = await requireAdmin();
@@ -61,7 +68,7 @@ export async function GET(request: NextRequest) {
     const tables = await Promise.all(
       MODELS.map(async (model) => {
         try {
-          const count = await (prisma as Record<string, any>)[model].count();
+          const count = await delegateFor(model).count();
           return { model, label: MODEL_LABELS[model] || model, count };
         } catch {
           return { model, label: MODEL_LABELS[model] || model, count: 0 };
@@ -77,7 +84,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const delegate = (prisma as Record<string, any>)[table];
+    const delegate = delegateFor(table);
     const [rows, total] = await Promise.all([
       delegate.findMany({
         take: pageSize,
@@ -100,10 +107,10 @@ export async function GET(request: NextRequest) {
       pageSize,
       totalPages: Math.ceil(total / pageSize),
     });
-  } catch (e) {
+  } catch {
     // Some models don't have createdAt — retry without ordering
     try {
-      const delegate = (prisma as Record<string, any>)[table];
+      const delegate = delegateFor(table);
       const [rows, total] = await Promise.all([
         delegate.findMany({
           take: pageSize,

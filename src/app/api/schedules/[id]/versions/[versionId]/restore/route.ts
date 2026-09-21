@@ -14,7 +14,6 @@ export async function POST(_request: Request, context: RouteCtx) {
 
   const { id: scheduleId, versionId } = await context.params;
   const facilityId = session!.user.facilityId;
-  const userId = session!.user.id;
 
   const schedule = await prisma.schedule.findFirst({
     where: { id: scheduleId, facilityId },

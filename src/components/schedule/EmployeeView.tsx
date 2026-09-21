@@ -26,7 +26,6 @@ import {
   Typography,
   alpha,
   useTheme,
-  useMediaQuery,
 } from "@mui/material";
 import WbSunnyIcon from "@mui/icons-material/WbSunny";
 import WbTwilightIcon from "@mui/icons-material/WbTwilight";
@@ -151,7 +150,7 @@ function shiftIcon(shiftType: string) {
 function paidHours(profile: ShiftProfileJson): number {
   const [sh, sm] = profile.startTime.split(":").map(Number);
   const [eh, em] = profile.endTime.split(":").map(Number);
-  let startMin = sh * 60 + sm;
+  const startMin = sh * 60 + sm;
   let endMin = eh * 60 + em;
   if (endMin <= startMin) endMin += 24 * 60;
   return Math.max(0, (endMin - startMin - profile.breakMinutes) / 60);
@@ -161,7 +160,6 @@ function paidHours(profile: ShiftProfileJson): number {
 // Local alias preserved so existing call sites don't change.
 const fmtHours = formatHours;
 
-const FULL_TIME_DAILY_HOURS = 8;
 const ABSENCE_STATUS_CODES = new Set(["K", "U"]);
 
 function stationColorForAssignment(
@@ -199,7 +197,6 @@ export default function EmployeeView({
   onWarningsClick,
 }: EmployeeViewProps) {
   const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
   const empWarnings = employeeWarnings ?? [];
   const empWarningCount = empWarnings.reduce((sum, w) => sum + w.count, 0);

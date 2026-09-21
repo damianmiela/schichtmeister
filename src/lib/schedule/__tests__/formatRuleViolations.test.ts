@@ -221,7 +221,7 @@ describe("formatRuleViolations", () => {
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
-    const lines = result[0]!!.message.split("\n");
+    const lines = result[0]!.message.split("\n");
     expect(lines[0]).toBe("Max. Arbeitstage: 2 Mitarbeiter über dem Limit:");
     // Names sorted alphabetically (Anna before Max in de locale).
     expect(lines[1]).toBe("• Anna Schmidt: 10/7 Tage — 10.05. → 19.05.");
@@ -345,7 +345,7 @@ describe("formatRuleViolations", () => {
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
-    const lines = result[0]!!.message.split("\n");
+    const lines = result[0]!.message.split("\n");
     expect(lines[0]).toContain("Wochenendregelung: 2 Mitarbeiter arbeiten an aufeinanderfolgenden Wochenenden:");
     expect(lines[1]).toBe("• Anna Schmidt: 2 in Folge — Vor.WE → 02.05.!");
     expect(lines[2]).toBe("• Max Müller: 2 in Folge — 09.05. → 16.05.!");
@@ -441,7 +441,7 @@ describe("formatRuleViolations", () => {
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
-    const lines = result[0]!!.message.split("\n");
+    const lines = result[0]!.message.split("\n");
     expect(lines[0]).toBe("Soll-Stunden: 2 Mitarbeiter außerhalb des Sollbereichs:");
     // Names sorted alphabetically (de): Anna before Max.
     expect(lines[1]).toBe("• Anna Schmidt: über (+24h) — 168h geplant, Soll 144h");
@@ -467,7 +467,7 @@ describe("formatRuleViolations", () => {
     ];
     const result = formatRuleViolations(msgs, empNames);
     expect(result).toHaveLength(1);
-    const lines = result[0]!!.message.split("\n");
+    const lines = result[0]!.message.split("\n");
     expect(lines[0]).toBe("Ruhezeit: 2 Mitarbeiter unter Mindestruhezeit (mind. 10h):");
     expect(lines[1]).toBe("• Anna Schmidt: 8.5h — 14.05. → 15.05.");
     expect(lines[2]).toBe("• Max Müller: 9h — 28.05. → 29.05.");

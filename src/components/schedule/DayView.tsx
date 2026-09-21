@@ -840,7 +840,7 @@ const SHIFT_COLORS_ALT: Record<string, string> = {
 function shiftToPosition(startTime: string, endTime: string) {
   const [sh, sm] = startTime.split(":").map(Number);
   const [eh, em] = endTime.split(":").map(Number);
-  let startH = sh + sm / 60;
+  const startH = sh + sm / 60;
   let endH = eh + em / 60;
   if (endH <= startH) endH += 24;
   const left = ((startH - TIMELINE_START) / TOTAL_HOURS) * 100;

@@ -386,7 +386,6 @@ export default function MonthTableView({
   /* ── Multi-cell selection state ── */
   const [selectedCells, setSelectedCells] = useState<Set<string>>(new Set());
   const [lastClickedCell, setLastClickedCell] = useState<string | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -620,19 +619,16 @@ export default function MonthTableView({
   const handleCellMouseDown = useCallback((empId: string, iso: string, ev: React.MouseEvent) => {
     if (!editMode || ev.shiftKey || ev.ctrlKey || ev.metaKey || ev.button !== 0) return;
     dragStartRef.current = `${empId}|${iso}`;
-    setIsDragging(false);
   }, [editMode]);
 
   const handleCellMouseEnter = useCallback((empId: string, iso: string) => {
     if (!editMode || !dragStartRef.current) return;
-    setIsDragging(true);
     const range = getCellsBetween(dragStartRef.current, `${empId}|${iso}`);
     setSelectedCells(new Set(range));
   }, [editMode, getCellsBetween]);
 
   const handleMouseUp = useCallback(() => {
     dragStartRef.current = null;
-    setIsDragging(false);
   }, []);
 
   const applyToSelected = useCallback((edit: Partial<CellEdit>) => {

@@ -31,7 +31,7 @@ export async function POST(request: NextRequest, context: RouteCtx) {
   if (!parsed.ok) return parsed.response;
 
   try {
-    const qr = await (prisma.qualificationRequirement.create as Function)({
+    const qr = await prisma.qualificationRequirement.create({
       data: {
         staffingRequirementId: sr.id,
         qualificationTag: parsed.data.qualificationTag,

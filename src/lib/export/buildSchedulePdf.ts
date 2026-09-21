@@ -1,24 +1,20 @@
 import PDFDocument from "pdfkit";
 import type { Employee } from "@prisma/client";
 import { toIsoDateOnly } from "@/lib/api/dateOnly";
-import type { AssignmentWithRelations, ExportBundle, ExportQualification } from "@/lib/export/scheduleExportContext";
+import type { ExportBundle } from "@/lib/export/scheduleExportContext";
 import { generateColorFromAbbreviation, contrastTextColor } from "@/lib/qualificationColor";
 import { eachIsoDateInPeriod } from "@/lib/export/exportDateRange";
 import {
   buildAssignmentByEmpDay,
   employeeContractPercentLabel,
-  exportMatrixCellText,
   formatHours,
   getNightEmployees,
-  groupEmployeesByStation,
-  paidHoursForShift,
   plannedHoursByEmployee,
-  sortEmployeesByName,
   targetHoursForPeriod,
   workingDaysInIsoRange,
 } from "@/lib/export/scheduleExportMatrix";
 import { holidayDateMap } from "@/lib/holidays";
-import { isWorkingDayIso, countWorkingDaysInRange } from "@/lib/holidays";
+import { isWorkingDayIso } from "@/lib/holidays";
 
 /* ── Color constants ── */
 const STATION_COLORS: Record<number, { main: string; light: string; header: string }> = {
@@ -62,7 +58,6 @@ const HOURS_COL_W = 48;
 const HEADER_ROW_H = 24;
 const DATA_ROW_H = 16;
 const SECTION_TITLE_H = 20;
-const META_BLOCK_H = 42;
 
 function collectPdfBuffer(doc: InstanceType<typeof PDFDocument>): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -78,15 +73,6 @@ function truncate(s: string, max: number): string {
   const t = s.trim();
   if (t.length <= max) return t;
   return `${t.slice(0, Math.max(0, max - 1))}\u2026`;
-}
-
-function hexToRgb(hex: string): [number, number, number] {
-  const h = hex.replace("#", "");
-  return [
-    parseInt(h.substring(0, 2), 16),
-    parseInt(h.substring(2, 4), 16),
-    parseInt(h.substring(4, 6), 16),
-  ];
 }
 
 type Section = {

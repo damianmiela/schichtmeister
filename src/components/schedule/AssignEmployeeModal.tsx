@@ -82,13 +82,6 @@ const SHIFT_TYPE_LABELS: Record<string, string> = {
   BL: "BL",
 };
 
-const QUALIFICATION_SORT_ORDER: Record<string, number> = {
-  PFK: 0,
-  APH: 1,
-  KPH: 2,
-  PH: 3,
-};
-
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   ACTIVE: { label: "Aktiv", color: "#2e7d32" },
   INACTIVE: { label: "Inaktiv", color: "#9e9e9e" },
@@ -112,15 +105,6 @@ function isoDate(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
-}
-
-function qualSortKey(tags: string[]): number {
-  let best = 99;
-  for (const t of tags) {
-    const order = QUALIFICATION_SORT_ORDER[t];
-    if (order !== undefined && order < best) best = order;
-  }
-  return best;
 }
 
 // ── Component ──

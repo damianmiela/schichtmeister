@@ -25,11 +25,9 @@ import {
   DEFAULT_WEIGHTS,
   TIER_LABELS,
   WEIGHT_DEFINITIONS,
-  STRATEGY_SPECIFIC_KEYS,
   isStrategySpecific,
   type WeightDef,
   type WeightKey,
-  type WeightMap,
   type WeightTier,
   validateWeightsConfig,
   type WeightsConfig,
@@ -427,7 +425,7 @@ export default function SolverWeightsTab() {
             Solver-Gewichte
           </Typography>
           <Typography variant="caption" color="text.secondary">
-            Allgemeine Gewichte + beide Strategie-Templates ("Vollabdeckung" / "Lieber Slot leer"). Der Planer wählt die Strategie pro Generierung.
+            Allgemeine Gewichte + beide Strategie-Templates („Vollabdeckung“ / „Lieber Slot leer“). Der Planer wählt die Strategie pro Generierung.
           </Typography>
         </Box>
         <Chip

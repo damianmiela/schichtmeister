@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { useTheme, useMediaQuery } from "@mui/material";
 import MainLayout from "@/components/layout/MainLayout";
 import { ApiError, fetchJson } from "@/lib/api/fetchJson";
 import {
@@ -94,14 +93,6 @@ function coverageColor(assigned: number, required: number): "success" | "warning
   if (pct >= 1) return "success";
   if (pct >= 0.7) return "warning";
   return "error";
-}
-
-function coverageBg(assigned: number, required: number): string {
-  if (required === 0) return "transparent";
-  const pct = assigned / required;
-  if (pct >= 1) return "#e8f5e9";
-  if (pct >= 0.7) return "#fff8e1";
-  return "#ffebee";
 }
 
 function formatDe(iso: string): string {

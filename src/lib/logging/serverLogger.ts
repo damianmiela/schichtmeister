@@ -127,7 +127,7 @@ export function readLogs(query: LogQuery): LogQueryResult {
   const files = getLogFiles(type, startDate, endDate);
 
   // Read and parse all entries (newest first)
-  let allEntries: LogEntry[] = [];
+  const allEntries: LogEntry[] = [];
   for (const filePath of files) {
     try {
       const content = fs.readFileSync(filePath, "utf-8");

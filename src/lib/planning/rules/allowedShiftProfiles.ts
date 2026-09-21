@@ -13,7 +13,6 @@ export function allowedShiftProfilesRule(ctx: RuleContext): RuleResult {
     if (!allowed || allowed.length === 0) continue;
     if (!allowed.includes(a.shiftProfileId)) {
       const name = emp.displayName ?? a.employeeId;
-      const profileName = ctx.profilesById.get(a.shiftProfileId)?.id ?? a.shiftProfileId;
       errors.push({
         ruleId: "allowedShiftProfiles",
         code: "PROFILE_NOT_ALLOWED",

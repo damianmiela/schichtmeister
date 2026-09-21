@@ -39,10 +39,6 @@ export function noOverlapRule(ctx: RuleContext): RuleResult {
         if (intervalsOverlapHalfOpen(A.startMs, A.endMs, B.startMs, B.endMs)) {
           const emp = ctx.employeesById.get(employeeId);
           const name = emp?.displayName ?? employeeId;
-          const profileB = [...ctx.profilesById.values()].find((p) => {
-            const iv = shiftIntervalMs(ctx.assignments.find((x) => x.id === B.id)?.date ?? new Date(), p.startTime, p.endTime);
-            return iv.startMs === B.startMs && iv.endMs === B.endMs;
-          });
           errors.push({
             ruleId: "noOverlap",
             code: "OVERLAP",

@@ -23,20 +23,6 @@ export const SHIFT_TYPE_ORDER: ShiftType[] = [
   ShiftType.BL,
 ];
 
-const SHIFT_LABEL_DE: Record<string, string> = {
-  EARLY: "Früh",
-  LATE: "Spät",
-  NIGHT: "Nacht",
-  BL: "BL",
-};
-
-function formatDateDE(d: Date): string {
-  const day = String(d.getUTCDate()).padStart(2, "0");
-  const month = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const year = d.getUTCFullYear();
-  return `${day}.${month}.${year}`;
-}
-
 /** Mulberry32 — fast 32-bit seeded PRNG. Returns a function that yields [0, 1) on each call. */
 export function mulberry32(seed: number): () => number {
   let s = seed | 0;
@@ -326,59 +312,6 @@ export function selectProfileForEmployee(
   );
   if (candidates.length === 0) return null;
   return candidates[0]!;
-}
-
-const JITTER_MAX = 3;
-
-/**
- * Sort candidates by score with optional random jitter for fair tiebreaking.
- * When requiredTag is provided, only employees with that tag are returned.
- */
-function sortCandidates(
-  employees: GenEmployee[],
-  date: Date,
-  shiftType: ShiftType,
-  profileId: string,
-  requiredTag: string | null,
-  wishes: MinimalWish[],
-  proposed: AssignmentInput[],
-  profilesById: Map<string, Pick<ShiftProfile, "startTime" | "endTime" | "breakMinutes">>,
-  alreadyPlacedIds: Set<string>,
-  stationNumber: number,
-  rng?: () => number,
-  shiftTypeProfileIds?: Set<string>,
-): GenEmployee[] {
-  const dateIso = toIsoDateOnly(date);
-  const available = employees.filter(
-    (e) =>
-      !e.unavailableDateSet.has(dateIso) &&
-      !alreadyPlacedIds.has(e.id) &&
-      (e.assignedStations.length === 0 || e.assignedStations.includes(stationNumber) || stationNumber === 0) &&
-      (e.allowedShiftProfileIds.size === 0 ||
-        (shiftTypeProfileIds
-          ? [...e.allowedShiftProfileIds].some((pid) => shiftTypeProfileIds.has(pid))
-          : e.allowedShiftProfileIds.has(profileId))),
-  );
-
-  const pool = requiredTag
-    ? (() => {
-        const tags = requiredTag.split(",").map((t) => t.trim());
-        return available.filter((e) => tags.some((t) => e.qualificationTags.includes(t)));
-      })()
-    : available;
-
-  const scored = pool.map((e) => {
-    const hours = sumPaidHoursForEmployeeInProposed(e.id, proposed, profilesById);
-    const jitter = rng ? rng() * JITTER_MAX : 0;
-    const score =
-      wishBonusForSlot(wishes, e.id, dateIso, shiftType, profileId) +
-      schedulingTargetHoursBonus(e.targetHours, e.targetHoursPeriod, hours) -
-      preferencePenalty(e.preferredShiftTypes, shiftType) +
-      jitter;
-    return { e, score };
-  });
-
-  return scored.sort((a, b) => b.score - a.score).map((x) => x.e);
 }
 
 export type UnmetStaffingEntry = {

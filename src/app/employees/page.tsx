@@ -53,14 +53,6 @@ interface ShiftProfileCatalog {
   shiftType: string;
 }
 
-interface Absence {
-  id: string;
-  type: string;
-  startDate: string;
-  endDate: string;
-  note?: string | null;
-}
-
 interface EmployeeRow {
   id: string;
   firstName: string;
@@ -156,11 +148,6 @@ const SHIFT_TYPE_LABELS: Record<string, string> = {
   NIGHT: "Nacht",
   FULL_DAY: "Ganztag",
   OTHER: "Sonstig",
-};
-
-const ABSENCE_TYPE_LABELS: Record<string, string> = {
-  KRANK: "Krank",
-  URLAUB: "Urlaub",
 };
 
 function contractSortIndex(ct: ContractType): number {

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { parseJsonBody, plannerJsonErrors } from "@/lib/api/validation";
 import { requirePlanner } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
-import { parseIsoDateOnly, toIsoDateOnly } from "@/lib/api/dateOnly";
+import { parseIsoDateOnly } from "@/lib/api/dateOnly";
 import { mergePlanningRules } from "@/lib/planning/merge";
 import { defaultPlanningRulesConfig } from "@/lib/planning/defaultConfig";
 import { registerBuiltInPlanningRules } from "@/lib/planning/registerBuiltInRules";

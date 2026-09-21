@@ -1,9 +1,15 @@
-import eslint from "@eslint/js";
-import tseslint from "typescript-eslint";
+import nextVitals from "eslint-config-next/core-web-vitals";
+import nextTs from "eslint-config-next/typescript";
 
-export default tseslint.config(
-  eslint.configs.recommended,
-  ...tseslint.configs.recommended,
+export default [
+  ...nextVitals,
+  ...nextTs,
+  {
+    rules: {
+      // A leading underscore marks an intentionally unused parameter or variable.
+      "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
+    },
+  },
   {
     ignores: [
       "node_modules/**",
@@ -12,5 +18,5 @@ export default tseslint.config(
       "vitest.config.ts",
       "next.config.ts",
     ],
-  }
-);
+  },
+];
