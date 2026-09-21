@@ -63,6 +63,13 @@ function mockDb() {
         },
       ]),
     },
+    employeeAbsence: {
+      findMany: vi.fn().mockResolvedValue([]),
+    },
+    // No previous month, so there are no boundary assignments to load.
+    schedule: {
+      findFirst: vi.fn().mockResolvedValue(null),
+    },
   };
 }
 

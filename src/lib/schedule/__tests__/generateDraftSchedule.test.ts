@@ -67,6 +67,7 @@ describe("phase 07 — generate draft schedule (pure helpers)", () => {
 
   it("marks employee unavailable when availability row exists for that day", () => {
     const emp: GenEmployee = {
+      autoPlanDisabled: false,
       id: "e1",
       qualificationTags: [],
       qualificationAbbreviations: [],
