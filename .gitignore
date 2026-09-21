@@ -53,9 +53,11 @@ coverage/
 *.log
 *.local
 
-# Deploy: versioned hook only (keep server-specific files out of deploy/* if added later)
+# Deploy: only these versioned scripts (keep server-specific files out of deploy/)
 deploy/*
 !deploy/post-receive
+!deploy/demo-anonymize.sql
+!deploy/demo-reset.sh
 
 # Local documentation (not deployed) — fully ignored, including the
 # prüfstand sweep harness and its LEDGER (kept off git per user's

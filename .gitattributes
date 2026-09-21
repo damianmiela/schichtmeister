@@ -1,2 +1,2 @@
-deploy/post-receive text eol=lf
+deploy/* text eol=lf
 prisma/migrations/**/*.sql text eol=lf
