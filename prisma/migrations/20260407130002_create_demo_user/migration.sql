@@ -9,4 +9,5 @@ SELECT
   (SELECT id FROM "Facility" LIMIT 1),
   NOW(),
   NOW()
-WHERE NOT EXISTS (SELECT 1 FROM "User" WHERE email = 'demo');
+WHERE NOT EXISTS (SELECT 1 FROM "User" WHERE email = 'demo')
+  AND EXISTS (SELECT 1 FROM "Facility"); -- an empty database has no facility yet; the seed creates the logins there
