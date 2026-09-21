@@ -11,7 +11,9 @@ const registerSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
-  if (process.env.ALLOW_PUBLIC_REGISTRATION === "false") {
+  // Sign-up stays closed until a registration password is configured.
+  const expectedSecret = process.env.REGISTER_SECRET;
+  if (!expectedSecret) {
     return NextResponse.json(
       { error: "Registrierung ist deaktiviert." },
       { status: 403 }
@@ -28,14 +30,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate secret registration password
-    const expectedSecret = process.env.REGISTER_SECRET;
-    if (!expectedSecret) {
-      return NextResponse.json(
-        { error: "Registrierung ist nicht konfiguriert." },
-        { status: 500 }
-      );
-    }
     if (parsed.data.secretPassword !== expectedSecret) {
       return NextResponse.json(
         { error: "Ungültiges Registrierungspasswort." },

@@ -71,3 +71,9 @@ debug/
 
 # Activity & system log data (keep folder via .gitkeep, ignore runtime files)
 /logs/*.jsonl
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+pytest-cache-files-*/
