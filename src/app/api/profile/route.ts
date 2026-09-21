@@ -34,6 +34,14 @@ export async function PATCH(request: NextRequest) {
   const { session, error } = await requireAuth();
   if (error === "UNAUTHORIZED") return plannerJsonErrors.unauthorized();
 
+  // The shared demo login has to keep working for every visitor.
+  if (session!.user.role === "DEMO") {
+    return NextResponse.json(
+      { error: "Im Demo-Zugang lassen sich Name, E-Mail und Passwort nicht ändern." },
+      { status: 403 },
+    );
+  }
+
   const parsed = await parseJsonBody(request, updateSchema);
   if (!parsed.ok) return parsed.response;
 

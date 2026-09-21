@@ -114,7 +114,7 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (session?.user?.role !== "PLANNER" && session?.user?.role !== "ADMIN") {
+    if (!session?.user?.role) {
       setLoading(false);
       setData(null);
       return;
@@ -149,21 +149,6 @@ export default function DashboardPage() {
         <Box sx={{ display: "flex", justifyContent: "center", py: 10 }}>
           <CircularProgress />
         </Box>
-      </MainLayout>
-    );
-  }
-
-  if (session?.user?.role === "DEMO") {
-    return (
-      <MainLayout title="Dashboard">
-        <Card>
-          <CardContent>
-            <Typography variant="h6" gutterBottom>Willkommen</Typography>
-            <Typography color="text.secondary">
-              Demo-Zugang — einige Funktionen sind eingeschränkt.
-            </Typography>
-          </CardContent>
-        </Card>
       </MainLayout>
     );
   }

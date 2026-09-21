@@ -24,7 +24,7 @@ import MenuIcon from "@mui/icons-material/Menu";
 import { useCallback, useState } from "react";
 import { signOut, useSession } from "next-auth/react";
 import { DRAWER_WIDTH } from "./Sidebar";
-import { fetchJson } from "@/lib/api/fetchJson";
+import { ApiError, fetchJson } from "@/lib/api/fetchJson";
 
 interface HeaderProps {
   title: string;
@@ -94,7 +94,8 @@ export default function Header({ title, onMenuToggle }: HeaderProps) {
       // Trigger session refresh
       void updateSession();
     } catch (e) {
-      setProfileError(e instanceof Error ? e.message : "Speichern fehlgeschlagen");
+      const body = e instanceof ApiError ? (e.body as { error?: unknown } | null) : null;
+      setProfileError(typeof body?.error === "string" ? body.error : "Speichern fehlgeschlagen");
     } finally {
       setProfileBusy(false);
     }
