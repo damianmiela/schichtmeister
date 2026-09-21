@@ -48,8 +48,19 @@ type ModelDelegate = {
   findMany: (args: object) => Promise<Record<string, unknown>[]>;
 };
 
+/** Login secrets: their values never leave the server. */
+const HIDDEN_COLUMNS = new Set(["passwordHash", "token"]);
+
+/** The model's delegate, with HIDDEN_COLUMNS masked in every row it returns. */
 function delegateFor(model: string): ModelDelegate {
-  return (prisma as unknown as Record<string, ModelDelegate>)[model];
+  const delegate = (prisma as unknown as Record<string, ModelDelegate>)[model];
+  return {
+    count: () => delegate.count(),
+    findMany: async (args) =>
+      (await delegate.findMany(args)).map((row) =>
+        Object.fromEntries(Object.entries(row).map(([k, v]) => [k, HIDDEN_COLUMNS.has(k) ? "••••••" : v])),
+      ),
+  };
 }
 
 /** GET /api/admin/database?table=user&page=1&pageSize=20 */
