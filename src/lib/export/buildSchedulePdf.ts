@@ -144,7 +144,7 @@ export async function buildSchedulePdfBuffer(
     bufferPages: true,
     info: {
       Title: `Dienstplan ${toIsoDateOnly(schedule.periodStart)} \u2013 ${toIsoDateOnly(schedule.periodEnd)}`,
-      Creator: "SchichtMeister Dienstplaner",
+      Creator: "SchichtMeister",
     },
   });
 
@@ -571,7 +571,7 @@ export async function buildSchedulePdfBuffer(
       .strokeColor("#ddd").lineWidth(0.5).stroke();
     doc.fillColor("#999");
     doc.text(`Seite ${pageNum}`, MARGIN, FOOTER_Y, { width: CONTENT_W, align: "right", lineBreak: false });
-    doc.text(`SchichtMeister Dienstplaner`, MARGIN, FOOTER_Y, { width: CONTENT_W, align: "left", lineBreak: false });
+    doc.text(`SchichtMeister`, MARGIN, FOOTER_Y, { width: CONTENT_W, align: "left", lineBreak: false });
   };
 
   /* ── Main rendering loop: one section per station, new page for each ── */

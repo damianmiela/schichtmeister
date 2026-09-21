@@ -82,7 +82,7 @@ export async function buildEmployeePdfBuffer(bundle: ExportBundle): Promise<Buff
     layout: "portrait",
     info: {
       Title: `Mitarbeiter-Dienstpl\u00e4ne ${toIsoDateOnly(schedule.periodStart)} \u2013 ${toIsoDateOnly(schedule.periodEnd)}`,
-      Creator: "SchichtMeister Dienstplaner",
+      Creator: "SchichtMeister",
     },
   });
 
@@ -126,7 +126,7 @@ export async function buildEmployeePdfBuffer(bundle: ExportBundle): Promise<Buff
       .strokeColor("#ddd").lineWidth(0.5).stroke();
     doc.fillColor("#999");
     doc.text(`Seite ${pageNum}`, MARGIN, FOOTER_Y, { width: CONTENT_W, align: "right", lineBreak: false });
-    doc.text(`SchichtMeister Dienstplaner`, MARGIN, FOOTER_Y, { width: CONTENT_W, align: "left", lineBreak: false });
+    doc.text(`SchichtMeister`, MARGIN, FOOTER_Y, { width: CONTENT_W, align: "left", lineBreak: false });
   };
 
   for (let empIdx = 0; empIdx < sorted.length; empIdx++) {

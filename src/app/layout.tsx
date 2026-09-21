@@ -5,7 +5,7 @@ import AuthSessionProvider from "@/components/AuthSessionProvider";
 import Footer from "@/components/layout/Footer";
 
 export const metadata: Metadata = {
-  title: "SchichtMeister DienstPlanner",
+  title: "SchichtMeister",
   description: "Care Facility Shift Planning Application",
 };
 

@@ -32,7 +32,7 @@ async function main() {
 
   const facility = await prisma.facility.create({
     data: {
-      name: "Demo-Einrichtung (Demo)",
+      name: "Demo-Einrichtung",
       minRestHours: 11,
       miniJobMaxMonthlyHours: 520,
     },
