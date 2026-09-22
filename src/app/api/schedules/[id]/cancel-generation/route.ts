@@ -11,8 +11,8 @@ const SOLVER_URL = process.env.SOLVER_URL ?? "http://solver:8000";
 /**
  * Cancel a currently-running schedule generation.
  *
- * Looks up the in-process registration for this schedule's generation,
- * then:
+ * Looks up the in-process registrations for this schedule's generations
+ * (usually one), then for each:
  *   1. Forwards the cancel signal to the Python solver via
  *      POST {SOLVER_URL}/cancel/{cancelKey} so CP-SAT stops the current
  *      search and returns its best feasible solution found so far.
@@ -41,8 +41,8 @@ export async function POST(_request: Request, context: RouteCtx) {
     return NextResponse.json({ error: "Nicht gefunden" }, { status: 404 });
   }
 
-  const cancelKey = markGenerationCancelled(scheduleId);
-  if (!cancelKey) {
+  const cancelKeys = markGenerationCancelled(scheduleId);
+  if (cancelKeys.length === 0) {
     // No generation currently running for this schedule.
     return NextResponse.json(
       { ok: false, reason: "no_active_generation" },
@@ -52,18 +52,20 @@ export async function POST(_request: Request, context: RouteCtx) {
 
   // Forward the signal to the Python solver. Best-effort — even if this
   // call fails, the local flag still prevents new races from starting.
-  try {
-    const r = await fetch(
-      `${SOLVER_URL}/cancel/${encodeURIComponent(cancelKey)}`,
-      { method: "POST", signal: AbortSignal.timeout(5_000) },
-    );
-    if (!r.ok) {
-      console.warn(
-        `[cancel-generation] Solver returned ${r.status} for cancel key`,
+  for (const cancelKey of cancelKeys) {
+    try {
+      const r = await fetch(
+        `${SOLVER_URL}/cancel/${encodeURIComponent(cancelKey)}`,
+        { method: "POST", signal: AbortSignal.timeout(5_000) },
       );
+      if (!r.ok) {
+        console.warn(
+          `[cancel-generation] Solver returned ${r.status} for cancel key`,
+        );
+      }
+    } catch (e) {
+      console.warn("[cancel-generation] Solver unreachable for cancel:", e);
     }
-  } catch (e) {
-    console.warn("[cancel-generation] Solver unreachable for cancel:", e);
   }
 
   return NextResponse.json({ ok: true });

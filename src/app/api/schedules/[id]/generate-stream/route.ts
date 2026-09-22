@@ -1238,7 +1238,7 @@ export async function POST(request: Request, context: RouteCtx) {
       } finally {
         // Always release the cancel-state slot so the cancel endpoint
         // doesn't think a phantom generation is still running.
-        unregisterGeneration(scheduleId);
+        unregisterGeneration(scheduleId, cancelEntry);
         // Stop emitting heartbeats — the stream is closing and the
         // controller will reject further enqueues.
         clearInterval(heartbeatTimer);

@@ -11,6 +11,10 @@
  * replica than the one running the generation, and the cancel won't
  * reach the running solver. For single-replica deployments this is fine.
  * Move to Redis (or similar) if/when scaling out.
+ *
+ * Several runs can be active for one schedule (two people generating the same
+ * month). Each run removes only its own entry when it ends, and a cancel stops
+ * every run of that schedule.
  */
 
 type RunningGeneration = {
@@ -20,7 +24,7 @@ type RunningGeneration = {
   cancelled: { value: boolean };
 };
 
-const _running = new Map<string, RunningGeneration>();
+const _running = new Map<string, Set<RunningGeneration>>();
 
 export function registerGeneration(
   scheduleId: string,
@@ -30,30 +34,28 @@ export function registerGeneration(
     cancelKey,
     cancelled: { value: false },
   };
-  _running.set(scheduleId, entry);
+  const runs = _running.get(scheduleId) ?? new Set<RunningGeneration>();
+  runs.add(entry);
+  _running.set(scheduleId, runs);
   return entry;
 }
 
-export function unregisterGeneration(scheduleId: string): void {
-  _running.delete(scheduleId);
+/** Remove this run's entry; other runs of the same schedule stay cancellable. */
+export function unregisterGeneration(
+  scheduleId: string,
+  entry: RunningGeneration,
+): void {
+  const runs = _running.get(scheduleId);
+  if (!runs) return;
+  runs.delete(entry);
+  if (runs.size === 0) _running.delete(scheduleId);
 }
 
-/** Return the running entry for this schedule, or null if no active
- * generation. */
-export function getRunningGeneration(
-  scheduleId: string,
-): RunningGeneration | null {
-  return _running.get(scheduleId) ?? null;
-}
-
-/** Mark the running generation for a schedule as cancelled. Returns the
- * cancelKey (so the caller can forward the signal to the Python solver),
- * or null if there's no active generation. Idempotent. */
-export function markGenerationCancelled(
-  scheduleId: string,
-): string | null {
-  const entry = _running.get(scheduleId);
-  if (!entry) return null;
-  entry.cancelled.value = true;
-  return entry.cancelKey;
+/** Mark every running generation of a schedule as cancelled. Returns their
+ * cancelKeys (so the caller can forward the signal to the Python solver),
+ * empty when nothing is running. Idempotent. */
+export function markGenerationCancelled(scheduleId: string): string[] {
+  const runs = [...(_running.get(scheduleId) ?? [])];
+  for (const run of runs) run.cancelled.value = true;
+  return runs.map((run) => run.cancelKey);
 }
