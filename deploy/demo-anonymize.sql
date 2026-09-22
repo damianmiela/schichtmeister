@@ -4,9 +4,9 @@
 --     absences and schedules stay as they are.
 --   * Logins: the admin account named in keep_email stays, plus one demo login
 --     (demo@schichtmeister.local / demo1234). Every other account is removed.
---   * Free-text notes, the audit log, generation logs, score reports and saved
---     warnings are cleared, because they contain names. Warnings come back as soon
---     as a month is opened.
+--   * Free-text notes, renamed version labels, the audit log, generation logs,
+--     score reports and saved warnings are cleared, because they can contain names.
+--     Warnings come back as soon as a month is opened.
 --   * The facility gets a neutral name.
 --
 -- Take a dump first. Then, on the server:
@@ -95,6 +95,10 @@ BEGIN
   UPDATE "SwapRequest" SET "plannerDecisionReason" = NULL WHERE "plannerDecisionReason" IS NOT NULL;
   UPDATE "Schedule" SET "warningsJson" = NULL, "generationLog" = NULL, "scoreReport" = NULL;
   UPDATE "ScheduleVersion" SET "generationLog" = NULL, "scoreReport" = NULL;
+  -- Planners can rename saved versions to any text; keep only the labels the app writes itself.
+  UPDATE "ScheduleVersion" SET label = 'Manuell gesichert'
+   WHERE label NOT IN ('Vor Neugenerierung', 'Automatisch generiert', 'Vor Bearbeitung', 'Manuell bearbeitet',
+                       'Vor Leeren', 'Manuell gesichert', 'Vor Wiederherstellung');
   UPDATE "Facility" SET name = 'Demo-Einrichtung';
 
   RAISE NOTICE 'Demo data ready: % employees renamed; logins left: % and %',

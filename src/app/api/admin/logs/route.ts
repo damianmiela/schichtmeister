@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { plannerJsonErrors } from "@/lib/api/validation";
-import { requirePlanner } from "@/lib/auth/session";
+import { requireAdmin } from "@/lib/auth/session";
 import { readLogs, getLogUsers, getLogStats } from "@/lib/logging/serverLogger";
 import type { LogType } from "@/lib/logging/logTypes";
 
@@ -18,7 +18,7 @@ import type { LogType } from "@/lib/logging/logTypes";
  *   offset = number (default 0)
  */
 export async function GET(request: NextRequest) {
-  const { error } = await requirePlanner();
+  const { error } = await requireAdmin();
   if (error === "UNAUTHORIZED") return plannerJsonErrors.unauthorized();
   if (error === "FORBIDDEN") return plannerJsonErrors.forbidden();
 

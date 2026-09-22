@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requirePlanner } from "@/lib/auth/session";
+import { requireAdmin } from "@/lib/auth/session";
 import { plannerJsonErrors } from "@/lib/api/validation";
 import { prisma } from "@/lib/db/prisma";
 
@@ -12,7 +12,7 @@ import { prisma } from "@/lib/db/prisma";
  * Now absences are only stored as K/U assignment records.
  */
 export async function POST() {
-  const { session, error } = await requirePlanner();
+  const { session, error } = await requireAdmin();
   if (error === "UNAUTHORIZED") return plannerJsonErrors.unauthorized();
   if (error === "FORBIDDEN") return plannerJsonErrors.forbidden();
 

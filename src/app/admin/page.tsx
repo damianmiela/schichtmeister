@@ -245,7 +245,7 @@ function UsersTab({ session }: { session: NonNullable<ReturnType<typeof useSessi
           Benutzerverwaltung
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          Benutzer anlegen, bearbeiten und löschen. Rollen: Admin (voller Zugriff), Planer (Dienstplanung), Demo (eingeschränkt).
+          Benutzer anlegen, bearbeiten und löschen. Rollen: Admin (voller Zugriff), Planer (Dienstplanung), Demo (Planerrechte, eigenes Profil gesperrt).
         </Typography>
       </Box>
 
