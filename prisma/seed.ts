@@ -58,6 +58,15 @@ async function main() {
 
   const passwordHash = bcrypt.hashSync(seedPassword, 10);
 
+  await prisma.user.create({
+    data: {
+      email: "admin@schichtmeister.local",
+      passwordHash,
+      role: UserRole.ADMIN,
+      facilityId: facility.id,
+    },
+  });
+
   const planner = await prisma.user.create({
     data: {
       email: "planner@schichtmeister.local",
@@ -229,7 +238,7 @@ async function main() {
     facilityId: facility.id,
     qualifications: qualDefs.map((q) => q.abbreviation).join(", "),
     shiftProfiles: profileDefs.map((p) => p.name).join(", "),
-    logins: ["planner@schichtmeister.local", "employee@schichtmeister.local"],
+    logins: ["admin@schichtmeister.local", "planner@schichtmeister.local", "employee@schichtmeister.local"],
     passwordNote:
       seedPassword === "admin"
         ? "default password: admin (set SEED_ADMIN_PASSWORD to override)"

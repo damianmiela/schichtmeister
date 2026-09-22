@@ -1,10 +1,12 @@
+# Local run: `docker compose up -d --build`, then once `docker compose run --rm setup`
+# for the tables and the demo data. The app is then at http://localhost:3000.
 services:
   app:
     build:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "3002:3000"
+      - "3000:3000"
     env_file:
       - .env
     environment:
@@ -43,6 +45,23 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+
+  # One-off: creates the tables and loads the demo data (running it again resets them).
+  setup:
+    image: node:20-alpine
+    profiles: ["setup"]
+    working_dir: /app
+    volumes:
+      - .:/app
+      - /app/node_modules
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: sh -c "apk add --no-cache openssl >/dev/null && npm ci --no-audit --no-fund && npx prisma migrate deploy && npx prisma db seed"
 
 volumes:
   # Explicit name so local/dev compose never mounts production data (schichtmeister_postgres_data).
