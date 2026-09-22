@@ -4,8 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: schichtmeister-app
-    ports:
-      - "3002:3000"
+    # No published port: Nginx Proxy Manager reaches the app over the shared "proxy" network.
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@schichtmeister-postgres:5432/${POSTGRES_DB}
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
@@ -18,6 +17,7 @@ services:
         condition: service_healthy
     networks:
       - schichtmeister_network
+      - proxy
     restart: unless-stopped
 
   schichtmeister-solver:
@@ -63,6 +63,9 @@ networks:
   schichtmeister_network:
     name: schichtmeister_network
     driver: bridge
+  # Shared with the reverse proxy (Nginx Proxy Manager), created outside this file.
+  proxy:
+    external: true
 
 volumes:
   schichtmeister_postgres_data:

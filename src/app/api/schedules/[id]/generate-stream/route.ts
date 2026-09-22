@@ -1252,6 +1252,8 @@ export async function POST(request: Request, context: RouteCtx) {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
+      // Stops Nginx (the reverse proxy) from holding events back until the run ends.
+      "X-Accel-Buffering": "no",
     },
   });
 }
