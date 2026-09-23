@@ -77,7 +77,23 @@ export const authOptions: NextAuthOptions = {
         token.role = user.role;
         token.facilityId = user.facilityId;
         token.employeeId = user.employeeId;
+        return token;
       }
+      // Every later session check re-reads the user. A deleted user, or a demo reset
+      // that recreated all users, is signed out instead of hitting "No Facility found",
+      // and role or facility changes apply without a new login.
+      const current = token.sub
+        ? await prisma.user.findUnique({
+            where: { id: token.sub },
+            select: { name: true, role: true, facilityId: true, employeeId: true },
+          })
+        : null;
+      // Throwing makes NextAuth clear the session cookie; fetchJson then sends the browser to /login.
+      if (!current) throw new Error("Session user no longer exists");
+      token.name = current.name;
+      token.role = current.role;
+      token.facilityId = current.facilityId;
+      token.employeeId = current.employeeId;
       return token;
     },
     async session({ session, token }) {
