@@ -115,12 +115,16 @@ You need Docker with Compose. In the cloned folder:
 ```bash
 cp .env.example .env              # set POSTGRES_PASSWORD and NEXTAUTH_SECRET to random strings
 docker compose up -d --build      # database, solver and app; the first build takes a few minutes
-docker compose run --rm setup     # creates the tables and a small set of demo data
+docker compose run --rm setup     # creates the tables and loads the demo data
 ```
 
 Open http://localhost:3000 and sign in with `admin@schichtmeister.local` and the
 password `admin`. The same password works for `planner@schichtmeister.local`. Running
 `setup` again resets the demo data.
+
+The demo data is the setup of a real care home: its shift profiles, staffing rules and
+qualifications, 45 employees with their contracts, and plans for January to September
+2026. The names are made up.
 
 ## Tests
 
