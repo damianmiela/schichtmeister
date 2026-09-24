@@ -48,7 +48,7 @@ services:
 
   # One-off: creates the tables and loads the demo data (running it again resets them).
   setup:
-    image: node:20-alpine
+    image: node:22-alpine
     profiles: ["setup"]
     working_dir: /app
     volumes:

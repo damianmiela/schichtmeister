@@ -38,7 +38,7 @@ pg psql -q -v ON_ERROR_STOP=1 -d "$NEXT_DB" < "$SNAPSHOT" >/dev/null
 # Migrations deployed after the snapshot was taken (same command as deploy/post-receive).
 docker run --rm --network "$NETWORK" -v "${APP_DIR}/prisma:/prisma" -w /prisma \
   -e DATABASE_URL="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${DB_CONTAINER}:5432/${NEXT_DB}" \
-  node:20-alpine \
+  node:22-alpine \
   sh -lc 'apk add --no-cache openssl libc6-compat >/dev/null && npx -y prisma@5.22.0 migrate deploy --schema=./schema.prisma'
 
 # 2. Swap it in. Only this takes the app offline, for a few seconds.

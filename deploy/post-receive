@@ -74,7 +74,7 @@ if [[ "$LAST_REF" == "refs/heads/main" ]] || [[ "$LAST_REF" == "refs/heads/maste
     -v "${APP_DIR}/prisma:/prisma" \
     -w /prisma \
     -e DATABASE_URL \
-    node:20-alpine \
+    node:22-alpine \
     sh -lc 'apk add --no-cache openssl libc6-compat >/dev/null && npx -y prisma@5.22.0 migrate deploy --schema=./schema.prisma'
 
   # Solver: skip rebuild when solver/ and this compose file are unchanged and an image already exists.
