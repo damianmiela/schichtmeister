@@ -129,7 +129,7 @@ qualifications, 45 employees with their contracts, and plans for January to Sept
 ## Tests
 
 ```bash
-npm ci && npm test          # 157 tests: rule engine, generation helpers, API routes
+npm ci && npm test          # 159 tests: rule engine, generation helpers, API routes
 npm run lint && npm run typecheck
 cd solver && pip install -r requirements.txt pytest httpx && pytest   # 16 tests, including a full solve
 ```
