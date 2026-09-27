@@ -39,7 +39,6 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.3",
     "@eslint/js": "^9.39.2",
-    "@types/bcryptjs": "^3.0.0",
     "@types/node": "^25.0.10",
     "@types/pdfkit": "^0.17.5",
     "@types/react": "^19.2.9",

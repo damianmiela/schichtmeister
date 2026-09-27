@@ -58,10 +58,7 @@ deploy/*
 !deploy/post-receive
 !deploy/demo-reset.sh
 
-# Local documentation (not deployed) — fully ignored, including the
-# prüfstand sweep harness and its LEDGER (kept off git per user's
-# decision — the post-receive deploy hook means any push triggers a
-# deploy, which we don't want for benchmark output).
+# Private notes and benchmark output, kept out of the repo
 _LOCAL_DOCS/
 
 # Generator debug logs (root-level only, not src/app/api/generate-logs)

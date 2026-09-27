@@ -8,6 +8,8 @@ by hand, with every change checked against the same rules.
 `demo1234`. Visitors can change anything; the data resets every night. The interface
 is in German.
 
+![The month plan for September 2026 in the demo](screenshots/schedule.jpg)
+
 ## Background
 
 SchichtMeister was built for a German care home with about 45 employees, where the
@@ -40,6 +42,21 @@ those real rules. It never went into production and is not finished (see
   public holidays are built in.
 - **Roles.** Admin, planner and a demo role. The admin tools cover users, solver
   weights, an activity log and a read-only database viewer that masks secrets.
+
+## Screenshots
+
+The dashboard: today's staffing per care unit and the next seven days.
+
+![Dashboard](screenshots/dashboard.jpg)
+
+November after one click on *Generieren*: 487 shifts placed in about a minute, and the
+rule check's warnings in the side panel.
+
+![A generated month with its warnings](screenshots/generate.jpg)
+
+The employees with their contracts, care units, qualifications and allowed shifts.
+
+![Employees](screenshots/employees.jpg)
 
 ## How the solver works
 

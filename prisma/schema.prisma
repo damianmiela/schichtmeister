@@ -1,4 +1,4 @@
-// Prisma schema — MVP domain (see _LOCAL_DOCS/#MVP_SPEC.md)
+// Prisma schema: the SchichtMeister data model
 
 generator client {
   provider      = "prisma-client-js"
