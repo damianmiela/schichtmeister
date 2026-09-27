@@ -22,13 +22,13 @@ those real rules. It never went into production and is not finished (see
 ## What it does
 
 - **Generates a roster in one click.** A CP-SAT model (Google OR-Tools) plans early,
-  late, night and leadership shifts across three care units. Hard rules are never
-  broken; everything else is weighed as a goal. Details are in
-  [How the solver works](#how-the-solver-works).
+  late, night and leadership shifts across three care units. A few rules are never
+  broken, a few more give way only in a month with no other solution, and everything
+  else is weighed as a goal. Details are in [How the solver works](#how-the-solver-works).
 - **Shows the search live.** Progress streams to the browser while the solver runs.
-  Several runs with different random seeds can race each other, and the best one wins.
-  Cancelling keeps the best plan found so far, and after a dropped connection the runs
-  that already finished aren't repeated.
+  Several runs with different random seeds can run one after another, and the best one
+  wins. Cancelling keeps the best plan found so far, and after a dropped connection the
+  runs that already finished aren't repeated.
 - **Lets the planner steer.** Shifts, absences and days off can be fixed before
   generating, and the solver builds around them. Two strategies are available: cover
   every slot, or rather leave a slot empty than overload people. An admin can tune
@@ -73,19 +73,28 @@ these rules.
 **Hard rules**, never broken:
 
 - One shift per day at most, and none on absences or blocked days.
-- The minimum rest between shifts (11 hours by default).
-- Limits on consecutive working days and nights, with the required rest afterwards.
-- Every other weekend off.
-- The mini-job monthly hour cap.
-- Maximum staffing per shift.
-- Qualification coverage wherever enough qualified staff are available.
-- The rules for unit leaders' shifts.
 - Fixed placements.
+
+**Limits** that hold whenever the month allows it:
+
+- The minimum rest between shifts (11 hours by default).
+- Maximum staffing per shift.
+- The mini-job monthly hour cap.
+
+If the solver finds no plan that keeps them, a second pass turns them into very high
+penalties, so the planner still gets a plan, and the rule check flags every break.
+
+**Rules the solver breaks only at a high cost**, for example rather than piling
+overtime onto one person:
+
+- Limits on consecutive working days and nights, with the required rest afterwards.
+- Every other weekend off: at most two worked weekends in any four.
+- The rules for unit leaders' shifts.
 
 **Goals**, weighed against each other:
 
-- Fill every shift. Understaffing costs a lot but is allowed, so there is always a
-  plan to work with, even in an impossible month.
+- Fill every shift and cover the qualifications it needs. Missing staff costs a lot but
+  is allowed, so there is always a plan to work with, even in an impossible month.
 - Hit each person's target hours, with growing penalties for larger gaps and extra
   ones past overtime limits.
 - Grant wishes, with strong wishes weighing more.

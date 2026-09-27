@@ -4,7 +4,7 @@ Versioned defaults live in [`planning-rules.default.json`](./planning-rules.defa
 
 **How they run:** [`src/lib/planning/registry.ts`](../src/lib/planning/registry.ts) walks enabled ids in the snapshot and calls the matching function registered in [`src/lib/planning/registerBuiltInRules.ts`](../src/lib/planning/registerBuiltInRules.ts). Each rule reads [`RuleContext`](../src/lib/planning/types.ts) (assignments, employees, profiles, staffing, wishes, snapshot) and returns hard **errors** or soft **warnings**.
 
-**Rule metadata:** Every rule is registered with a [`RuleDescriptor`](../src/lib/planning/types.ts) that declares its `id`, `severity` (`hard` | `soft`), `scope` (`employee` | `day` | `global`), and human-readable `description`. This metadata drives scoped execution (the generator only runs `employee`-scoped rules during incremental placement) and can be used by the UI to display rule information.
+**Rule metadata:** Every rule is registered with a [`RuleDescriptor`](../src/lib/planning/types.ts) that declares its `id`, `severity` (`hard` | `soft`), `scope` (`employee` | `day` | `global`), and human-readable `description`. With it, `runScopedRules` can run only the rules of one scope, and the UI can show rule information.
 
 Shared time math (shift start/end on a date, overnight end time, paid hours, date iteration) lives in [`src/lib/planning/time.ts`](../src/lib/planning/time.ts).
 
