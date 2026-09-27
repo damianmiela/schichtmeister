@@ -96,8 +96,8 @@ flowchart LR
   report).
 - **Deployment:** one VPS with Docker Compose (`docker-compose.prod.yml`). A git push
   to the server runs `deploy/post-receive`, which applies migrations, rebuilds the
-  containers and restarts them. The public demo resets every night from an anonymized
-  snapshot (`deploy/demo-reset.sh`).
+  containers and restarts them. The public demo uses the same demo data as a local
+  install and resets to it every night (`deploy/demo-reset.sh`).
 
 ```
 src/app/            pages and API routes
@@ -105,7 +105,7 @@ src/lib/planning/   rule engine that checks any schedule, hand edits included
 src/lib/export/     Excel and PDF exports
 solver/             solver service (FastAPI, OR-Tools CP-SAT)
 prisma/             schema, migrations and seed data
-deploy/             deploy hook, demo anonymization and nightly reset
+deploy/             deploy hook and nightly demo reset
 ```
 
 ## Run it locally
@@ -119,8 +119,8 @@ docker compose run --rm setup     # creates the tables and loads the demo data
 ```
 
 Open http://localhost:3000 and sign in with `admin@schichtmeister.local` and the
-password `admin`. The same password works for `planner@schichtmeister.local`. Running
-`setup` again resets the demo data.
+password `admin`. The same password works for `planner@schichtmeister.local`, and the
+demo login from the live site works too. Running `setup` again resets the demo data.
 
 The demo data is the setup of a real care home: its shift profiles, staffing rules and
 qualifications, 45 employees with their contracts, and plans for January to September

@@ -1,12 +1,17 @@
 #!/bin/bash
-# Nightly demo reset: puts the database back to the anonymized snapshot, so every
-# visitor starts from the same demo data, whatever the previous visitor changed.
+# Nightly demo reset: puts the database back to a snapshot of the demo data, so every
+# visitor starts from the same data, whatever the previous visitor changed.
 #
 # The snapshot is restored and migrated into a spare database first. The live one is
 # only swapped out once that worked, so a failed night leaves yesterday's demo running.
 #
-# One-time setup on the server, after deploy/demo-anonymize.sql has run:
+# One-time setup on the server, after the first deploy. Load the demo data, with a
+# strong password for the admin and planner logins, then take the snapshot:
 #   cd /srv/schichtmeister && set -a && source .env && set +a
+#   docker run --rm --network schichtmeister_network -v "$PWD":/app -v /app/node_modules -w /app \
+#     -e DATABASE_URL="postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@schichtmeister-postgres:5432/$POSTGRES_DB" \
+#     -e SEED_ADMIN_PASSWORD='<strong password>' node:22-alpine \
+#     sh -c "apk add --no-cache openssl >/dev/null && npm ci --no-audit --no-fund && npx prisma db seed"
 #   docker exec schichtmeister-postgres pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" > /srv/schichtmeister-demo-snapshot.sql
 #   crontab -e, then add this line (every night at 03:30 server time):
 #   30 3 * * * bash /srv/schichtmeister/deploy/demo-reset.sh >> /var/log/schichtmeister-demo-reset.log 2>&1

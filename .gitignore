@@ -56,7 +56,6 @@ coverage/
 # Deploy: only these versioned scripts (keep server-specific files out of deploy/)
 deploy/*
 !deploy/post-receive
-!deploy/demo-anonymize.sql
 !deploy/demo-reset.sh
 
 # Local documentation (not deployed) — fully ignored, including the

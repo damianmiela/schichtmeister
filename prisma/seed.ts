@@ -178,8 +178,8 @@ async function main() {
   });
   await prisma.user.create({
     data: {
-      email: "employee@schichtmeister.local",
-      passwordHash,
+      email: "demo@schichtmeister.local", // the public demo login from the README
+      passwordHash: bcrypt.hashSync("demo1234", 10),
       role: UserRole.DEMO,
       facilityId,
       employeeId: data.demoLoginEmployeeId,
@@ -204,7 +204,7 @@ async function main() {
     employees: data.employees.length,
     schedules: data.schedules.length,
     assignments: data.assignments.length,
-    logins: ["admin@schichtmeister.local", "planner@schichtmeister.local", "employee@schichtmeister.local"],
+    logins: ["admin@schichtmeister.local", "planner@schichtmeister.local", "demo@schichtmeister.local / demo1234"],
     passwordNote:
       seedPassword === "admin"
         ? "default password: admin (set SEED_ADMIN_PASSWORD to override)"
