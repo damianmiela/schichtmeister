@@ -12,8 +12,13 @@ import {
   Box,
   Alert,
   CircularProgress,
+  Divider,
 } from "@mui/material";
 import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
+
+// The public demo login seeded by prisma/seed.ts (also listed in the README)
+const DEMO_EMAIL = "demo@schichtmeister.local";
+const DEMO_PASSWORD = "demo1234";
 
 function LoginForm() {
   const [email, setEmail] = useState("");
@@ -24,15 +29,19 @@ function LoginForm() {
   const searchParams = useSearchParams();
   const justRegistered = searchParams.get("registered") === "1";
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    login(email, password);
+  };
+
+  const login = async (loginEmail: string, loginPassword: string) => {
     setError("");
     setLoading(true);
 
     try {
       const res = await signIn("credentials", {
-        email: email.trim().toLowerCase(),
-        password,
+        email: loginEmail.trim().toLowerCase(),
+        password: loginPassword,
         redirect: false,
       });
 
@@ -123,6 +132,23 @@ function LoginForm() {
           {loading ? "Wird geprüft…" : "Anmelden"}
         </Button>
       </form>
+
+      <Divider sx={{ my: 3 }} />
+      <Box sx={{ textAlign: "center" }}>
+        <Button
+          fullWidth
+          variant="outlined"
+          size="large"
+          disabled={loading}
+          onClick={() => login(DEMO_EMAIL, DEMO_PASSWORD)}
+        >
+          Try the demo
+        </Button>
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
+          Or sign in with <strong>{DEMO_EMAIL}</strong> / <strong>{DEMO_PASSWORD}</strong>.
+          Change anything you like, the data resets every night.
+        </Typography>
+      </Box>
 
       <Box sx={{ mt: 2, textAlign: "center" }}>
         {/* "Passwort vergessen" is hidden because the reset flow isn't wired
